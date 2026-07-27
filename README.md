@@ -1,0 +1,1 @@
+# center_oskar_managment_system
