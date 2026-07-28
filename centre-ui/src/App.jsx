@@ -1,121 +1,106 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
 import './App.css'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import Sidebar from './components/SideBar/Sidebar'
+import Dashboard from './components/Dashboard/Dashboard'
+import Login from './components/Login/Login'
+import Branches from './components/Branches/Branches'
+import Users from './components/Users/Users'
+
+const sidebarSections = [
+  {
+    title: 'Navigation',
+    items: [
+      { label: 'Dashboard', icon: 'grid', path: '/dashboard' },
+      { label: 'Étudiants', icon: 'users', path: '/students' },
+      { label: 'Groupes', icon: 'layers', path: '/groups' },
+      { label: 'Professeurs', icon: 'cap', path: '/teachers' },
+      {
+        label: 'Comptabilité',
+        icon: 'calculator',
+        path: '/accounting',
+        children: [
+          { label: 'Frais de scolarité', path: '/accounting/fees' },
+          { label: 'Retards & Impayés', path: '/accounting/delinquencies' },
+          { label: 'Salaires Profs', path: '/accounting/salaries' },
+          { label: 'Charges', path: '/accounting/expenses' },
+          { label: 'Bénéfice net', path: '/accounting/profit' },
+        ],
+      },
+      { label: 'Paramètres', icon: 'settings', path: '/settings' },
+    ],
+  },
+  {
+    title: 'Administration',
+    items: [
+      { label: 'Utilisateurs', icon: 'users', path: '/users' },
+      { label: 'Succursales', icon: 'building', path: '/branches' },
+    ],
+  },
+]
+
+const metrics = [
+  {
+    title: 'CA du mois',
+    value: '23 100 DH',
+    note: '16 700 DH encaissé · 6 400 DH dû',
+    tone: 'blue',
+  },
+  {
+    title: 'Élèves en retard',
+    value: '8',
+    note: 'paiements impayés',
+    tone: 'red',
+  },
+  {
+    title: 'Total élèves',
+    value: '40',
+    note: '36 actifs',
+    tone: 'slate',
+  },
+  {
+    title: 'Professeurs',
+    value: '4',
+    note: '5 au total',
+    tone: 'slate',
+  },
+  {
+    title: 'Bénéfice net',
+    value: '-34 000 DH',
+    note: 'ce mois',
+    tone: 'danger',
+  },
+]
+
+const revenueSeries = [23000, 23000, 23500, 24600, 23900, 23200, 23100]
+const branches = [
+  { name: 'Nord', revenue: 6800, profit: -22000 },
+  { name: 'Sud', revenue: 6200, profit: -15500 },
+  { name: 'Centre', revenue: 6800, profit: 3500 },
+]
+
+function DashboardLayout() {
+  return (
+    <div className="dashboard-shell">
+      <Sidebar sections={sidebarSections} />
+      <Routes>
+        <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+        <Route path="/branches" element={<Branches />} />
+        <Route path="/users" element={<Users />} />
+        <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+      </Routes>
+    </div>
+  )
+}
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/*" element={<DashboardLayout />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
