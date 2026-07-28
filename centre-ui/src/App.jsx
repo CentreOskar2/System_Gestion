@@ -1,10 +1,12 @@
 import './App.css'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import Sidebar from './components/SideBar/Sidebar'
 import Dashboard from './components/Dashboard/Dashboard'
 import Login from './components/Login/Login'
 import Branches from './components/Branches/Branches'
 import Users from './components/Users/Users'
+import { AuthProvider } from './context/AuthContext'
+import ProtectedRoute from './components/ProtectedRoute'
 
 const sidebarSections = [
   {
@@ -82,25 +84,29 @@ function DashboardLayout() {
   return (
     <div className="dashboard-shell">
       <Sidebar sections={sidebarSections} />
-      <Routes>
-        <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
-        <Route path="/branches" element={<Branches />} />
-        <Route path="/users" element={<Users />} />
-        <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
-      </Routes>
+      <Outlet />
     </div>
   )
 }
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/*" element={<DashboardLayout />} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route path="/login" element={<Login />} />
+          <Route element={<ProtectedRoute />}>
+            <Route element={<DashboardLayout />}>
+              <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+              <Route path="/branches" element={<Branches />} />
+              <Route path="/users" element={<Users />} />
+              <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+            </Route>
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   )
 }
 

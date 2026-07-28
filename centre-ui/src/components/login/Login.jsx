@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { supabase } from '../../supabaseClient'
 import './Login.css'
 
 function GraduationCap() {
@@ -22,9 +23,24 @@ function FieldIcon({ type }) {
 export default function Login() {
   const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
+  const [email, setEmail] = useState('admin@centreatlas.com')
+  const [password, setPassword] = useState('password')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
+    setLoading(true)
+    setError(null)
+
+    const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
+
+    if (authError) {
+      setError(authError.message)
+      setLoading(false)
+      return
+    }
+
     navigate('/dashboard')
   }
 
@@ -56,7 +72,7 @@ export default function Login() {
             <span>Adresse Email</span>
             <div className="login-input">
               <FieldIcon type="mail" />
-              <input type="email" defaultValue="admin@centreatlas.com" required />
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
             </div>
           </label>
 
@@ -64,19 +80,21 @@ export default function Login() {
             <span>Mot de passe</span>
             <div className="login-input">
               <FieldIcon type="password" />
-              <input type={showPassword ? 'text' : 'password'} defaultValue="password" required />
+              <input type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required />
               <button type="button" className="password-toggle" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? 'Masquer le mot de passe' : 'Afficher le mot de passe'}>
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.8 12s3.7-5.8 9.2-5.8 9.2 5.8 9.2 5.8-3.7 5.8-9.2 5.8S2.8 12 2.8 12Z" /><circle cx="12" cy="12" r="2.5" /></svg>
               </button>
             </div>
           </label>
 
+          {error && <p className="login-error">{error}</p>}
+
           <label className="remember-me">
             <input type="checkbox" />
             <span>Se souvenir de moi</span>
           </label>
 
-          <button className="login-submit" type="submit">Se connecter <span aria-hidden="true">→</span></button>
+          <button className="login-submit" type="submit" disabled={loading}>{loading ? 'Connexion...' : 'Se connecter'} <span aria-hidden="true">→</span></button>
         </form>
       </section>
     </main>

@@ -1,7 +1,14 @@
 import { NavLink } from 'react-router-dom'
 import Icon from '../Icon'
+import { useAuth } from '../../context/AuthContext'
 
 export default function Sidebar({ sections }) {
+  const { role, signOut } = useAuth()
+
+  const visibleSections = sections.filter(
+    (section) => role === 'super_admin' || section.title !== 'Administration'
+  )
+
   return (
     <aside className="sidebar">
       <div className="brand">
@@ -13,7 +20,7 @@ export default function Sidebar({ sections }) {
       </div>
 
       <nav className="sidebar__nav" aria-label="Navigation principale">
-        {sections.map((section) => (
+        {visibleSections.map((section) => (
           <div className="sidebar__section" key={section.title}>
             <p>{section.title}</p>
             <ul>
@@ -44,7 +51,7 @@ export default function Sidebar({ sections }) {
         ))}
       </nav>
 
-      <button type="button" className="logout">
+      <button type="button" className="logout" onClick={signOut}>
         <span className="nav-link__icon">
           <Icon name="settings" />
         </span>
