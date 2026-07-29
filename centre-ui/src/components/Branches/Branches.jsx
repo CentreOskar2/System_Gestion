@@ -1,14 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { supabase } from '../../supabaseClient'
 import Icon from '../Icon'
 import './Branches.css'
-
-const initialBranches = [
-  { id: 1, name: 'Succursale Nord', address: '12 Bd Zerktouni, Casablanca', phone: '0522334455', active: true },
-  { id: 2, name: 'Succursale Sud', address: '45 Rue Ibn Sina, Marrakech', phone: '0524889977', active: true },
-  { id: 3, name: 'Succursale Centre', address: '8 Av. Hassan II, Rabat', phone: '0537221100', active: true },
-]
-
-const emptyBranch = { name: '', address: '', phone: '', active: true }
 
 function PencilIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" /><path d="m13.8 7 3.2 3.2" /></svg>
@@ -23,13 +16,20 @@ function CloseIcon() {
 }
 
 function BranchModal({ branch, onClose, onSave }) {
+  const emptyBranch = { name: '', address: '', phone: '', active: true }
   const [form, setForm] = useState(branch || emptyBranch)
+  const [saving, setSaving] = useState(false)
   const isEditing = Boolean(branch?.id)
 
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }))
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault()
-    onSave({ ...form, id: branch?.id || crypto.randomUUID() })
+    setSaving(true)
+    try {
+      await onSave(form, isEditing)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -59,7 +59,7 @@ function BranchModal({ branch, onClose, onSave }) {
 
           <footer>
             <button className="branch-cancel" type="button" onClick={onClose}>Annuler</button>
-            <button className="branch-save" type="submit">Enregistrer</button>
+            <button className="branch-save" type="submit" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button>
           </footer>
         </form>
       </section>
@@ -68,18 +68,59 @@ function BranchModal({ branch, onClose, onSave }) {
 }
 
 export default function Branches() {
-  const [branches, setBranches] = useState(initialBranches)
+  const [branches, setBranches] = useState([])
+  const [loading, setLoading] = useState(true)
   const [selectedBranch, setSelectedBranch] = useState(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+
+  useEffect(() => { fetchBranches() }, [])
+
+  async function fetchBranches() {
+    setLoading(true)
+    const { data } = await supabase.from('branches').select('*').order('created_at', { ascending: false })
+    if (data) {
+      setBranches(data.map((b) => ({ ...b, active: b.status === 'active' })))
+    }
+    setLoading(false)
+  }
 
   const openCreate = () => { setSelectedBranch(null); setIsModalOpen(true) }
   const openEdit = (branch) => { setSelectedBranch(branch); setIsModalOpen(true) }
   const closeModal = () => setIsModalOpen(false)
-  const toggleActive = (id) => setBranches((items) => items.map((item) => item.id === id ? { ...item, active: !item.active } : item))
-  const saveBranch = (branch) => {
-    setBranches((items) => items.some((item) => item.id === branch.id) ? items.map((item) => item.id === branch.id ? branch : item) : [...items, branch])
-    closeModal()
+
+  const toggleActive = async (id) => {
+    const branch = branches.find((b) => b.id === id)
+    if (!branch) return
+    const newStatus = branch.active ? 'inactive' : 'active'
+    const { error } = await supabase.from('branches').update({ status: newStatus }).eq('id', id)
+    if (!error) {
+      setBranches((items) => items.map((item) => item.id === id ? { ...item, active: !item.active, status: newStatus } : item))
+    }
   }
+
+  const saveBranch = async (branchForm, editing) => {
+    if (editing) {
+      const { error } = await supabase.from('branches').update({
+        name: branchForm.name,
+        address: branchForm.address,
+        phone: branchForm.phone,
+        status: branchForm.active ? 'active' : 'inactive'
+      }).eq('id', branchForm.id)
+      if (error) throw new Error(error.message)
+    } else {
+      const { error } = await supabase.from('branches').insert({
+        name: branchForm.name,
+        address: branchForm.address,
+        phone: branchForm.phone,
+        status: branchForm.active ? 'active' : 'inactive'
+      })
+      if (error) throw new Error(error.message)
+    }
+    closeModal()
+    await fetchBranches()
+  }
+
+  if (loading) return <div className="branches-page"><main className="branches-content" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><p>Chargement des succursales...</p></main></div>
 
   return (
     <div className="branches-page">
@@ -100,7 +141,7 @@ export default function Branches() {
           <table className="branches-table"><colgroup><col className="branch-col-name" /><col className="branch-col-address" /><col className="branch-col-phone" /><col className="branch-col-status" /><col className="branch-col-actions" /></colgroup>
             <thead><tr><th>Nom</th><th>Adresse</th><th>Téléphone</th><th>Statut</th><th>Actions</th></tr></thead>
             <tbody>
-              {branches.map((branch) => <tr key={branch.id}>
+              {branches.length === 0 ? <tr><td colSpan={5} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>Aucune succursale</td></tr> : branches.map((branch) => <tr key={branch.id}>
                 <td><strong>{branch.name}</strong></td><td>{branch.address}</td><td className="branch-phone">{branch.phone}</td>
                 <td><span className={`branch-pill ${branch.active ? 'is-active' : 'is-inactive'}`}>{branch.active ? 'Actif' : 'Inactif'}</span></td>
                 <td><div className="branch-actions"><button type="button" onClick={() => openEdit(branch)} aria-label={`Modifier ${branch.name}`}><PencilIcon /></button><button className={branch.active ? '' : 'is-off'} type="button" onClick={() => toggleActive(branch.id)} aria-label={`${branch.active ? 'Désactiver' : 'Activer'} ${branch.name}`}><PowerIcon /></button></div></td>

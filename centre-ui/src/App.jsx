@@ -12,30 +12,31 @@ const sidebarSections = [
   {
     title: 'Navigation',
     items: [
-      { label: 'Dashboard', icon: 'grid', path: '/dashboard' },
-      { label: 'Étudiants', icon: 'users', path: '/students' },
-      { label: 'Groupes', icon: 'layers', path: '/groups' },
-      { label: 'Professeurs', icon: 'cap', path: '/teachers' },
+      { label: 'Dashboard', icon: 'grid', path: '/dashboard', requiredPerm: 'dashboard' },
+      { label: 'Étudiants', icon: 'users', path: '/students', requiredPerm: 'students' },
+      { label: 'Groupes', icon: 'layers', path: '/groups', requiredPerm: 'groups' },
+      { label: 'Professeurs', icon: 'cap', path: '/teachers', requiredPerm: 'teachers' },
       {
         label: 'Comptabilité',
         icon: 'calculator',
         path: '/accounting',
+        requiredPerm: ['tuition', 'late_payments', 'teacher_salaries', 'expenses', 'net_profit'],
         children: [
-          { label: 'Frais de scolarité', path: '/accounting/fees' },
-          { label: 'Retards & Impayés', path: '/accounting/delinquencies' },
-          { label: 'Salaires Profs', path: '/accounting/salaries' },
-          { label: 'Charges', path: '/accounting/expenses' },
-          { label: 'Bénéfice net', path: '/accounting/profit' },
+          { label: 'Frais de scolarité', path: '/accounting/fees', requiredPerm: 'tuition' },
+          { label: 'Retards & Impayés', path: '/accounting/delinquencies', requiredPerm: 'late_payments' },
+          { label: 'Salaires Profs', path: '/accounting/salaries', requiredPerm: 'teacher_salaries' },
+          { label: 'Charges', path: '/accounting/expenses', requiredPerm: 'expenses' },
+          { label: 'Bénéfice net', path: '/accounting/profit', requiredPerm: 'net_profit' },
         ],
       },
-      { label: 'Paramètres', icon: 'settings', path: '/settings' },
+      { label: 'Paramètres', icon: 'settings', path: '/settings', requiredPerm: 'settings' },
     ],
   },
   {
     title: 'Administration',
     items: [
-      { label: 'Utilisateurs', icon: 'users', path: '/users' },
-      { label: 'Succursales', icon: 'building', path: '/branches' },
+      { label: 'Utilisateurs', icon: 'users', path: '/users', requiredPerm: 'administration' },
+      { label: 'Succursales', icon: 'building', path: '/branches', requiredPerm: 'administration' },
     ],
   },
 ]
@@ -99,8 +100,8 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<DashboardLayout />}>
               <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
-              <Route path="/branches" element={<Branches />} />
-              <Route path="/users" element={<Users />} />
+              <Route path="/branches" element={<ProtectedRoute requiredPerm="administration"><Branches /></ProtectedRoute>} />
+              <Route path="/users" element={<ProtectedRoute requiredPerm="administration"><Users /></ProtectedRoute>} />
               <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
             </Route>
           </Route>

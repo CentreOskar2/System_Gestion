@@ -3,11 +3,31 @@ import Icon from '../Icon'
 import { useAuth } from '../../context/AuthContext'
 
 export default function Sidebar({ sections }) {
-  const { role, signOut } = useAuth()
+  const { permissions, signOut } = useAuth()
 
-  const visibleSections = sections.filter(
-    (section) => role === 'super_admin' || section.title !== 'Administration'
-  )
+  function hasPermission(item) {
+    if (!item.requiredPerm) return true
+    if (Array.isArray(item.requiredPerm)) {
+      return item.requiredPerm.some((p) => permissions.includes(p))
+    }
+    return permissions.includes(item.requiredPerm)
+  }
+
+  const visibleSections = sections
+    .map((section) => ({
+      ...section,
+      items: section.items
+        .map((item) => {
+          if (!item.children) return item
+          const visibleChildren = item.children.filter(hasPermission)
+          return { ...item, children: visibleChildren }
+        })
+        .filter((item) => {
+          if (item.children) return item.children.length > 0
+          return hasPermission(item)
+        }),
+    }))
+    .filter((section) => section.items.length > 0)
 
   return (
     <aside className="sidebar">
