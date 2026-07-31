@@ -1,0 +1,656 @@
+/* eslint-disable no-irregular-whitespace */
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { supabase } from '../../supabaseClient'
+import Icon from '../Icon'
+import './Settings.css'
+
+const textDefault = 'Bonjour, ceci est un rappel du Centre Atlas concernant les frais de scolarité de {nom_eleve} pour le mois de {mois}.\n\nMontant dû : {montant_du}.\n\nMerci de régulariser dès que possible.\n— Centre Atlas'
+const salaryDefault = 'Bonjour {nom_prof},\n\nVoici votre bulletin de salaire pour {mois} : {montant} DH.\n\nMerci de votre engagement.\n— Centre Atlas'
+
+const Pencil = () => <svg viewBox="0 0 24 24"><path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" /><path d="m13.8 7 3.2 3.2" /></svg>
+const Trash = () => <svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6l-.9 13a2 2 0 0 1-2 1.9H7.9a2 2 0 0 1-2-1.9L5 6" /><path d="M10 11v6M14 11v6" /></svg>
+
+function Toast({ notice }) {
+  if (!notice) return null
+  return (
+    <div className={`settings-toast is-${notice.type}`} role="status">
+      <span>{notice.type === 'success' ? '✓' : '✕'}</span>
+      {notice.text}
+    </div>
+  )
+}
+
+function CycleModal({ cycle, onClose, onSave }) {
+  const editing = Boolean(cycle)
+  const [form, setForm] = useState(cycle
+    ? { name: cycle.name, has_fixed_price: Boolean(cycle.has_fixed_price), fixed_price: cycle.fixed_price != null ? String(cycle.fixed_price) : '' }
+    : { name: '', has_fixed_price: false, fixed_price: '' })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!form.name.trim()) return
+    if (form.has_fixed_price && (form.fixed_price === '' || Number(form.fixed_price) <= 0)) {
+      setError('Veuillez saisir un prix fixe valide.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(form, editing)
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="settings-dialog-bg" onMouseDown={onClose}>
+      <section className="settings-dialog" onMouseDown={(e) => e.stopPropagation()}>
+        <button className="settings-close" onClick={onClose}>×</button>
+        <h2>{editing ? 'Modifier le cycle' : 'Nouveau cycle'}</h2>
+        <form onSubmit={submit}>
+          <label>Nom du cycle *<input autoFocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="ex : Collège" required /></label>
+          <div className="cycle-fixed">
+            <div><strong>Prix fixe pour tout le cycle</strong><p>Si activé, tous les niveaux du cycle partagent ce tarif.</p></div>
+            <label className="settings-switch"><input type="checkbox" checked={form.has_fixed_price} onChange={(e) => set('has_fixed_price', e.target.checked)} /><i /></label>
+          </div>
+          {form.has_fixed_price && <label>Prix fixe (DH / mois)<input type="number" min="0" step="0.01" value={form.fixed_price} onChange={(e) => set('fixed_price', e.target.value)} placeholder="ex : 400" /></label>}
+          {error && <div className="settings-error">{error}</div>}
+          <footer><button type="button" className="settings-outline" onClick={onClose}>Annuler</button><button type="submit" className="settings-save" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function NameModal({ title, label, placeholder, onClose, onSave }) {
+  const [name, setName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (!name.trim()) return
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(name.trim())
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="settings-dialog-bg" onMouseDown={onClose}>
+      <section className="settings-dialog" onMouseDown={(e) => e.stopPropagation()}>
+        <button className="settings-close" onClick={onClose}>×</button>
+        <h2>{title}</h2>
+        <form onSubmit={submit}>
+          <label>{label}<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={placeholder} required /></label>
+          {error && <div className="settings-error">{error}</div>}
+          <footer><button type="button" className="settings-outline" onClick={onClose}>Annuler</button><button type="submit" className="settings-save" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function TariffModal({ subject, levels, cycleMap, subjectTariffs, onClose, onSave }) {
+  const [prices, setPrices] = useState(() => {
+    const init = {}
+    for (const l of levels) init[l.id] = subjectTariffs[l.id] != null ? String(subjectTariffs[l.id]) : ''
+    return init
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+
+  const submit = async (e) => {
+    e.preventDefault()
+    const rows = []
+    for (const l of levels) {
+      const raw = (prices[l.id] || '').trim()
+      if (raw !== '' && !Number.isNaN(Number(raw)) && Number(raw) > 0) {
+        rows.push({ level_id: l.id, subject_id: subject.id, price: Number(raw) })
+      }
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave(subject.id, rows, { ...prices })
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="settings-dialog-bg" onMouseDown={onClose}>
+      <section className="settings-dialog settings-dialog--wide" onMouseDown={(e) => e.stopPropagation()}>
+        <button className="settings-close" onClick={onClose}>×</button>
+        <h2>Tarifs — {subject.name}</h2>
+        <p className="settings-dialog-sub">Prix en DH / mois par niveau. Laissez vide pour ne pas appliquer de tarif.</p>
+        <form onSubmit={submit}>
+          <div className="tariff-grid">
+            {levels.length === 0
+              ? <div className="settings-empty">Aucun niveau. Ajoutez d'abord des niveaux dans l'onglet « Structure académique ».</div>
+              : levels.map((l) => {
+                const cy = cycleMap[l.cycle_id]
+                const fixed = cy && cy.has_fixed_price
+                return (
+                  <label key={l.id} className={fixed ? 'is-fixed' : ''}>
+                    <span>{l.name}{fixed && <em>Prix fixe du cycle : {cy.fixed_price} DH</em>}</span>
+                    <input type="number" min="0" step="0.01" value={prices[l.id] || ''} placeholder={fixed ? String(cy.fixed_price) : '—'} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value }))} />
+                  </label>
+                )
+              })}
+          </div>
+          {error && <div className="settings-error">{error}</div>}
+          <footer><button type="button" className="settings-outline" onClick={onClose}>Annuler</button><button type="submit" className="settings-save" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function TemplateEditor({ label, value, placeholders, onChange, saving, onSave, renderPreview }) {
+  const ref = useRef(null)
+
+  const insertPlaceholder = (ph) => {
+    const el = ref.current
+    const start = el ? el.selectionStart : value.length
+    const end = el ? el.selectionEnd : value.length
+    onChange(value.slice(0, start) + ph + value.slice(end))
+    requestAnimationFrame(() => {
+      if (el) {
+        el.focus()
+        el.selectionStart = el.selectionEnd = start + ph.length
+      }
+    })
+  }
+
+  return (
+    <div className="template-editor">
+      <header>
+        <strong>{label}</strong>
+        <button className="settings-save" onClick={onSave} disabled={saving}>{saving ? 'Enregistrement...' : '▣　Enregistrer'}</button>
+      </header>
+      <div className="template-vars"><span>Variables disponibles :</span>{placeholders.map((p) => <button type="button" key={p} onClick={() => insertPlaceholder(p)}>{p}</button>)}</div>
+      <textarea ref={ref} value={value} onChange={(e) => onChange(e.target.value)} />
+      <div className="settings-preview"><small>APERÇU</small><p>{renderPreview(value)}</p></div>
+    </div>
+  )
+}
+
+export default function Settings() {
+  const [tab, setTab] = useState('general')
+  const [cycles, setCycles] = useState([])
+  const [levels, setLevels] = useState([])
+  const [studyBranches, setStudyBranches] = useState([])
+  const [subjects, setSubjects] = useState([])
+  const [tariffs, setTariffs] = useState([])
+  const [centerSettings, setCenterSettings] = useState(null)
+  const [centerForm, setCenterForm] = useState({ center_name: '', logo_url: '', address: '', phone: '', contact_info: '' })
+  const [templates, setTemplates] = useState({})
+  const [templateDrafts, setTemplateDrafts] = useState({ payment_reminder: textDefault, salary_bulletin: salaryDefault })
+  const [generalSaving, setGeneralSaving] = useState(false)
+  const [templateSaving, setTemplateSaving] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [modal, setModal] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const [branchDrafts, setBranchDrafts] = useState({})
+  const noticeTimer = useRef(null)
+
+  const notify = (text, type = 'success') => {
+    setNotice({ text, type })
+    if (noticeTimer.current) window.clearTimeout(noticeTimer.current)
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4000)
+  }
+
+  async function loadAcademicData() {
+    const [c, l, sb, s, t, cs, wt] = await Promise.all([
+      supabase.from('cycles').select('*').order('name'),
+      supabase.from('levels').select('*').order('name'),
+      supabase.from('study_branches').select('*').order('name'),
+      supabase.from('subjects').select('*').order('name'),
+      supabase.from('tariffs').select('*'),
+      supabase.from('center_settings').select('*'),
+      supabase.from('whatsapp_templates').select('*'),
+    ])
+    const firstError = [c, l, sb, s, t, cs, wt].find((r) => r.error)
+    if (firstError) throw new Error(firstError.error.message)
+
+    let centerSettings = cs.data && cs.data.length > 0 ? cs.data[0] : null
+    if (!centerSettings) {
+      const { data: inserted, error: insErr } = await supabase.from('center_settings').insert({
+        center_name: 'Centre Atlas',
+        logo_url: '',
+        address: '12 Bd Zerktouni, Casablanca',
+        phone: '0522334455',
+        contact_info: 'contact@centre-atlas.ma',
+      }).select().single()
+      if (insErr) throw new Error(insErr.message)
+      centerSettings = inserted
+    }
+
+    const templateMap = {}
+    for (const row of wt.data || []) templateMap[row.type] = row
+
+    return {
+      cycles: c.data || [],
+      levels: l.data || [],
+      studyBranches: sb.data || [],
+      subjects: s.data || [],
+      tariffs: t.data || [],
+      centerSettings,
+      templates: templateMap,
+    }
+  }
+
+  function applyData(data) {
+    setCycles(data.cycles)
+    setLevels(data.levels)
+    setStudyBranches(data.studyBranches)
+    setSubjects(data.subjects)
+    setTariffs(data.tariffs)
+    setCenterSettings(data.centerSettings)
+    setCenterForm({
+      center_name: data.centerSettings?.center_name || '',
+      logo_url: data.centerSettings?.logo_url || '',
+      address: data.centerSettings?.address || '',
+      phone: data.centerSettings?.phone || '',
+      contact_info: data.centerSettings?.contact_info || '',
+    })
+    setTemplates(data.templates || {})
+    setTemplateDrafts({
+      payment_reminder: data.templates?.payment_reminder?.content || textDefault,
+      salary_bulletin: data.templates?.salary_bulletin?.content || salaryDefault,
+    })
+    setLoading(false)
+  }
+
+  async function fetchAll() {
+    try {
+      applyData(await loadAcademicData())
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let ignore = false
+    loadAcademicData().then((data) => {
+      if (!ignore) applyData(data)
+    }).catch((err) => {
+      if (!ignore) {
+        notify(err.message || 'Une erreur est survenue', 'error')
+        setLoading(false)
+      }
+    })
+    return () => { ignore = true }
+  }, [])
+
+  const levelsByCycle = useMemo(() => {
+    const map = {}
+    for (const l of levels) {
+      if (!map[l.cycle_id]) map[l.cycle_id] = []
+      map[l.cycle_id].push(l)
+    }
+    return map
+  }, [levels])
+
+  const branchesByLevel = useMemo(() => {
+    const map = {}
+    for (const b of studyBranches) {
+      if (!map[b.level_id]) map[b.level_id] = []
+      map[b.level_id].push(b)
+    }
+    return map
+  }, [studyBranches])
+
+  const cycleMap = useMemo(() => Object.fromEntries(cycles.map((c) => [c.id, c])), [cycles])
+
+  const branchCountByCycle = useMemo(() => {
+    const map = {}
+    for (const l of levels) {
+      const count = branchesByLevel[l.id]?.length || 0
+      map[l.cycle_id] = (map[l.cycle_id] || 0) + count
+    }
+    return map
+  }, [levels, branchesByLevel])
+
+  const subjectTariffs = useMemo(() => {
+    const map = {}
+    for (const t of tariffs) {
+      if (!map[t.subject_id]) map[t.subject_id] = {}
+      map[t.subject_id][t.level_id] = t.price
+    }
+    return map
+  }, [tariffs])
+
+  const templatePreview = (text) => text
+    .replace('{nom_eleve}', 'Yasmine Alaoui')
+    .replace('{nom_prof}', 'M. Karimi')
+    .replace('{mois}', 'Février 2026')
+    .replace('{montant_du}', '1 200 DH')
+    .replace('{montant}', '3 500 DH')
+    .replace('{succursale}', 'Centre Atlas')
+
+  const saveCenterSettings = async (e) => {
+    e.preventDefault()
+    setGeneralSaving(true)
+    try {
+      const { error } = await supabase.from('center_settings').upsert({
+        id: centerSettings?.id,
+        center_name: centerForm.center_name,
+        logo_url: centerForm.logo_url,
+        address: centerForm.address,
+        phone: centerForm.phone,
+        contact_info: centerForm.contact_info,
+      })
+      if (error) throw new Error(error.message)
+      notify('Paramètres du centre enregistrés')
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+    } finally {
+      setGeneralSaving(false)
+    }
+  }
+
+  const saveTemplate = async (type) => {
+    setTemplateSaving(type)
+    try {
+      const existing = templates[type]
+      const { error } = existing
+        ? await supabase.from('whatsapp_templates').update({ content: templateDrafts[type] }).eq('id', existing.id)
+        : await supabase.from('whatsapp_templates').insert({ type, content: templateDrafts[type] })
+      if (error) throw new Error(error.message)
+      applyData(await loadAcademicData())
+      notify('Template WhatsApp enregistré')
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+    } finally {
+      setTemplateSaving(null)
+    }
+  }
+
+  const saveCycle = async (form, editing) => {
+    const payload = {
+      name: form.name,
+      has_fixed_price: form.has_fixed_price,
+      fixed_price: form.has_fixed_price ? Number(form.fixed_price) : 0,
+    }
+    const { error } = editing
+      ? await supabase.from('cycles').update(payload).eq('id', form.id)
+      : await supabase.from('cycles').insert(payload)
+    if (error) throw new Error(error.message)
+    setModal(null)
+    await fetchAll()
+    notify(editing ? 'Cycle mis à jour' : 'Cycle ajouté')
+  }
+
+  const deleteCycle = async (id) => {
+    if (!window.confirm('Supprimer ce cycle ainsi que tous ses niveaux et filières ?')) return
+    const { error } = await supabase.from('cycles').delete().eq('id', id)
+    if (error) return notify(error.message, 'error')
+    await fetchAll()
+    notify('Cycle supprimé')
+  }
+
+  const toggleFixedPrice = async (id, value) => {
+    const cycle = cycles.find((c) => c.id === id)
+    const { error } = await supabase.from('cycles').update({
+      has_fixed_price: value,
+      fixed_price: value ? (cycle?.fixed_price ?? 0) : 0,
+    }).eq('id', id)
+    if (error) return notify(error.message, 'error')
+    await fetchAll()
+    notify(value ? 'Prix fixe activé pour le cycle' : 'Prix fixe désactivé')
+  }
+
+  const saveLevel = async (cycleId, name) => {
+    const { error } = await supabase.from('levels').insert({ cycle_id: cycleId, name })
+    if (error) throw new Error(error.message)
+    setModal(null)
+    await fetchAll()
+    notify('Niveau ajouté')
+  }
+
+  const deleteLevel = async (id) => {
+    if (!window.confirm('Supprimer ce niveau et ses filières ?')) return
+    const { error } = await supabase.from('levels').delete().eq('id', id)
+    if (error) return notify(error.message, 'error')
+    await fetchAll()
+    notify('Niveau supprimé')
+  }
+
+  const addStudyBranch = async (levelId) => {
+    const name = (branchDrafts[levelId] || '').trim()
+    if (!name) return
+    const { error } = await supabase.from('study_branches').insert({ level_id: levelId, name })
+    if (error) return notify(error.message, 'error')
+    setBranchDrafts((d) => ({ ...d, [levelId]: '' }))
+    await fetchAll()
+    notify('Filière ajoutée')
+  }
+
+  const deleteStudyBranch = async (id) => {
+    if (!window.confirm('Supprimer cette filière ?')) return
+    const { error } = await supabase.from('study_branches').delete().eq('id', id)
+    if (error) return notify(error.message, 'error')
+    await fetchAll()
+    notify('Filière supprimée')
+  }
+
+  const saveSubject = async (name) => {
+    const { error } = await supabase.from('subjects').insert({ name })
+    if (error) throw new Error(error.message)
+    setModal(null)
+    await fetchAll()
+    notify('Matière ajoutée')
+  }
+
+  const deleteSubject = async (id) => {
+    if (!window.confirm('Supprimer cette matière ainsi que ses tarifs ?')) return
+    const { error } = await supabase.from('subjects').delete().eq('id', id)
+    if (error) return notify(error.message, 'error')
+    await fetchAll()
+    notify('Matière supprimée')
+  }
+
+  const saveTariffs = async (subjectId, rows, rawPrices) => {
+    const existing = tariffs.filter((t) => t.subject_id === subjectId)
+    const cleared = existing.filter((t) => rawPrices[t.level_id] === '' || rawPrices[t.level_id] == null)
+    if (cleared.length > 0) {
+      const { error: delErr } = await supabase.from('tariffs').delete().eq('subject_id', subjectId).in('level_id', cleared.map((t) => t.level_id))
+      if (delErr) throw new Error(delErr.message)
+    }
+    if (rows.length > 0) {
+      const { error } = await supabase.from('tariffs').upsert(rows, { onConflict: 'level_id,subject_id' })
+      if (error) throw new Error(error.message)
+    }
+    setModal(null)
+    await fetchAll()
+    notify('Tarifs enregistrés')
+  }
+
+  const formatPrice = (n) => (Number(n) % 1 === 0 ? String(Number(n)) : String(Number(n)))
+
+  if (loading) {
+    return (
+      <div className="settings-page">
+        <main className="settings-content" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+          <p>Chargement de la configuration...</p>
+        </main>
+      </div>
+    )
+  }
+
+  return (
+    <div className="settings-page">
+      <header className="topbar settings-topbar">
+        <label className="searchbar"><span className="searchbar__icon"><Icon name="search" /></span><input placeholder="Rechercher un élève, professeur..." /></label>
+        <button className="branch-select">Toutes les succursales　⌄</button>
+        <button className="notifications"><Icon name="bell" /><span className="notifications__badge">40</span></button>
+        <div className="profile"><div className="profile__avatar">DA</div><div><strong>Directeur Atlas</strong><span>Administrateur</span></div></div>
+      </header>
+
+      <main className="settings-content">
+        <h1>Paramètres</h1>
+        <p>Configuration générale de la plateforme.</p>
+
+        <nav className="settings-tabs">
+          {[['general', '▦ Général'], ['academic', '≡ Structure académique'], ['pricing', '⛓ Grille tarifaire'], ['whatsapp', '□ Template WhatsApp']].map(([id, label]) => (
+            <button className={tab === id ? 'active' : ''} onClick={() => setTab(id)} key={id}>{label}</button>
+          ))}
+        </nav>
+
+        {tab === 'general' && (
+          <form className="settings-card settings-general" onSubmit={saveCenterSettings}>
+            <div>
+              <label>Nom du centre<input value={centerForm.center_name} onChange={(e) => setCenterForm((f) => ({ ...f, center_name: e.target.value }))} /></label>
+              <label>Adresse principale<input value={centerForm.address} onChange={(e) => setCenterForm((f) => ({ ...f, address: e.target.value }))} /></label>
+              <div className="settings-two">
+                <label>Téléphone<input value={centerForm.phone} onChange={(e) => setCenterForm((f) => ({ ...f, phone: e.target.value }))} /></label>
+                <label>Email<input value={centerForm.contact_info} onChange={(e) => setCenterForm((f) => ({ ...f, contact_info: e.target.value }))} /></label>
+              </div>
+            </div>
+            <div className="settings-logo-col">
+              <label className="settings-logo">⇧<span>Importer un logo</span><input type="file" hidden /></label>
+              <label>URL du logo<input value={centerForm.logo_url} onChange={(e) => setCenterForm((f) => ({ ...f, logo_url: e.target.value }))} placeholder="https://..." /></label>
+            </div>
+            <button className="settings-save" disabled={generalSaving}>{generalSaving ? 'Enregistrement...' : '▣　Enregistrer'}</button>
+          </form>
+        )}
+
+        {tab === 'academic' && (
+          <section className="settings-card settings-academic">
+            <header className="settings-card-head">
+              <div><strong>Structure académique</strong><p>Cycles (collège, lycée...), niveaux et filières d'étude.</p></div>
+              <button className="settings-outline" onClick={() => setModal({ kind: 'cycle' })}>＋　Ajouter un cycle</button>
+            </header>
+
+            {cycles.length === 0
+              ? <div className="settings-empty">Aucun cycle. Commencez par créer un cycle.</div>
+              : <div className="academic-list">
+                {cycles.map((cycle) => (
+                  <article className="academic-card" key={cycle.id}>
+                    <header className="academic-card__head">
+                      <div className="academic-card__title">
+                        <strong>{cycle.name}</strong>
+                        <span>{(levelsByCycle[cycle.id] || []).length} niveau(x) · {branchCountByCycle[cycle.id] || 0} filière(s)</span>
+                      </div>
+                      <div className="academic-card__fixed">
+                        <span>Prix fixe</span>
+                        <label className="settings-switch"><input type="checkbox" checked={Boolean(cycle.has_fixed_price)} onChange={(e) => toggleFixedPrice(cycle.id, e.target.checked)} /><i /></label>
+                        <strong className={cycle.has_fixed_price ? 'academic-fixed-price' : 'academic-fixed-price is-none'}>{cycle.has_fixed_price ? `${formatPrice(cycle.fixed_price)} DH` : '—'}</strong>
+                      </div>
+                      <div className="academic-card__actions">
+                        <button className="settings-icon-btn" onClick={() => setModal({ kind: 'cycle', cycle })} aria-label="Modifier le cycle"><Pencil /></button>
+                        <button className="settings-icon-btn is-danger" onClick={() => deleteCycle(cycle.id)} aria-label="Supprimer le cycle"><Trash /></button>
+                      </div>
+                    </header>
+
+                    <div className="academic-levels">
+                      {(levelsByCycle[cycle.id] || []).map((level) => (
+                        <div className="level-row" key={level.id}>
+                          <div className="level-row__head">
+                            <strong>{level.name}</strong>
+                            <button className="settings-icon-btn is-danger" onClick={() => deleteLevel(level.id)} aria-label={`Supprimer le niveau ${level.name}`}><Trash /></button>
+                          </div>
+                          <div className="branch-chips">
+                            {(branchesByLevel[level.id] || []).map((b) => (
+                              <span className="branch-chip" key={b.id}>{b.name}<button onClick={() => deleteStudyBranch(b.id)} aria-label={`Supprimer la filière ${b.name}`}>×</button></span>
+                            ))}
+                            {(branchesByLevel[level.id] || []).length === 0 && <span className="branch-empty">Aucune filière</span>}
+                            <span className="branch-add">
+                              <input placeholder="Nouvelle filière" value={branchDrafts[level.id] || ''} onChange={(e) => setBranchDrafts((d) => ({ ...d, [level.id]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') addStudyBranch(level.id) }} />
+                              <button onClick={() => addStudyBranch(level.id)} aria-label="Ajouter la filière">＋</button>
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      {(levelsByCycle[cycle.id] || []).length === 0 && <div className="settings-empty">Aucun niveau pour ce cycle.</div>}
+                      <button className="settings-outline settings-level-add" onClick={() => setModal({ kind: 'level', cycleId: cycle.id })}>＋　Ajouter un niveau</button>
+                    </div>
+                  </article>
+                ))}
+              </div>}
+          </section>
+        )}
+
+        {tab === 'pricing' && (
+          <section className="settings-card settings-pricing">
+            <header className="settings-card-head">
+              <div><strong>Grille tarifaire (DH / mois)</strong><p>Prix par matière et par niveau. Un cycle à prix fixe s'applique à ses niveaux.</p></div>
+              <button className="settings-outline" onClick={() => setModal({ kind: 'subject' })}>＋　Ajouter une matière</button>
+            </header>
+            <div className="settings-table">
+              <table>
+                <thead><tr><th>Matière</th><th>Niveaux tarifés</th><th>Prix</th><th>Actions</th></tr></thead>
+                <tbody>
+                  {subjects.length === 0
+                    ? <tr><td colSpan={4} className="settings-empty-row">Aucune matière. Ajoutez une matière pour commencer.</td></tr>
+                    : subjects.map((subject) => {
+                      const st = subjectTariffs[subject.id] || {}
+                      const values = Object.values(st).map(Number)
+                      const range = values.length
+                        ? `${formatPrice(Math.min(...values))} – ${formatPrice(Math.max(...values))} DH`
+                        : '—'
+                      return (
+                        <tr key={subject.id}>
+                          <td><strong>{subject.name}</strong></td>
+                          <td>{values.length} / {levels.length}</td>
+                          <td>{range}</td>
+                          <td>
+                            <div className="settings-row-actions">
+                              <button className="settings-outline settings-btn-small" onClick={() => setModal({ kind: 'tariffs', subject })}>⚙　Définir les prix</button>
+                              <button className="settings-icon-btn is-danger" onClick={() => deleteSubject(subject.id)} aria-label={`Supprimer la matière ${subject.name}`}><Trash /></button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
+
+        {tab === 'whatsapp' && (
+          <section className="settings-card settings-whatsapp">
+            <TemplateEditor
+              label="Rappel de paiement"
+              value={templateDrafts.payment_reminder}
+              placeholders={['{nom_eleve}', '{montant_du}', '{mois}', '{succursale}']}
+              onChange={(v) => setTemplateDrafts((d) => ({ ...d, payment_reminder: v }))}
+              saving={templateSaving === 'payment_reminder'}
+              onSave={() => saveTemplate('payment_reminder')}
+              renderPreview={templatePreview}
+            />
+            <TemplateEditor
+              label="Bulletin de salaire"
+              value={templateDrafts.salary_bulletin}
+              placeholders={['{nom_prof}', '{montant}', '{mois}', '{succursale}']}
+              onChange={(v) => setTemplateDrafts((d) => ({ ...d, salary_bulletin: v }))}
+              saving={templateSaving === 'salary_bulletin'}
+              onSave={() => saveTemplate('salary_bulletin')}
+              renderPreview={templatePreview}
+            />
+          </section>
+        )}
+      </main>
+
+      {modal?.kind === 'cycle' && <CycleModal cycle={modal.cycle} onClose={() => setModal(null)} onSave={saveCycle} />}
+      {modal?.kind === 'level' && <NameModal title="Ajouter un niveau" label="Nom du niveau" placeholder="ex : 1ère année" onClose={() => setModal(null)} onSave={(name) => saveLevel(modal.cycleId, name)} />}
+      {modal?.kind === 'subject' && <NameModal title="Ajouter une matière" label="Nom de la matière" placeholder="ex : Philosophie" onClose={() => setModal(null)} onSave={saveSubject} />}
+      {modal?.kind === 'tariffs' && <TariffModal subject={modal.subject} levels={levels} cycleMap={cycleMap} subjectTariffs={subjectTariffs[modal.subject.id] || {}} onClose={() => setModal(null)} onSave={saveTariffs} />}
+
+      <Toast notice={notice} />
+    </div>
+  )
+}

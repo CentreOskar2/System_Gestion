@@ -7,6 +7,10 @@ import Branches from './components/Branches/Branches'
 import Users from './components/Users/Users'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import Settings from './components/Settings/Settings'
+import Teachers from './components/Teachers/Teachers'
+import Groups from './components/Groups/GroupsPage'
+import Students from './components/Students/StudentsPage'
 
 const sidebarSections = [
   {
@@ -100,6 +104,10 @@ function App() {
           <Route element={<ProtectedRoute />}>
             <Route element={<DashboardLayout />}>
               <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+              <Route path="/students" element={<ProtectedRoute requiredPerm="students"><Students /></ProtectedRoute>} />
+              <Route path="/groups" element={<ProtectedRoute requiredPerm="groups"><Groups /></ProtectedRoute>} />
+              <Route path="/teachers" element={<ProtectedRoute requiredPerm="teachers"><Teachers /></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute requiredPerm="settings"><Settings /></ProtectedRoute>} />
               <Route path="/branches" element={<ProtectedRoute requiredPerm="administration"><Branches /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute requiredPerm="administration"><Users /></ProtectedRoute>} />
               <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />

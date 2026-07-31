@@ -49,16 +49,16 @@ export default function Login() {
       <section className="login-showcase" aria-label="Présentation Centre Atlas">
         <div className="login-brand">
           <GraduationCap />
-          <span>Centre Atlas</span>
+          <span>Centre Oscar</span>
         </div>
 
         <div className="login-showcase__content">
-          <img src="/image-login.png" alt="Plateforme Centre Atlas" className="login-showcase__image" />
+          <img src="/image-login.png" alt="Plateforme Centre Oscar" className="login-showcase__image" />
           <h1>Plateforme de Gestion<br />Administrative</h1>
           <p>Centralisez vos dossiers étudiants, professeurs et<br />comptabilité en un seul endroit sécurisé.</p>
         </div>
 
-        <small>© 2024 Centre Atlas. Tous droits réservés.</small>
+        <small>© 2024 Centre Oscar. Tous droits réservés.</small>
       </section>
 
       <section className="login-panel" aria-labelledby="login-title">

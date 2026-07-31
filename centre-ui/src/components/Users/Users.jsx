@@ -21,8 +21,6 @@ const permColumn = {
   'Administration (Utilisateurs & Succursales)': 'administration',
 }
 
-const colToLabel = Object.fromEntries(Object.entries(permColumn).map(([k, v]) => [v, k]))
-
 const Pencil = () => <svg viewBox="0 0 24 24"><path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" /><path d="m13.8 7 3.2 3.2" /></svg>
 const Power = () => <svg viewBox="0 0 24 24"><path d="M12 3v8" /><path d="M6.3 5.8a8 8 0 1 0 11.4 0" /></svg>
 const Close = () => <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></svg>
@@ -201,7 +199,7 @@ export default function Users() {
     })
     if (!res.ok) {
       let msg = 'Failed to create user'
-      try { const err = await res.json(); msg = err.error || msg } catch {}
+      try { const err = await res.json(); msg = err.error || msg } catch { /* invalid response body */ }
       throw new Error(msg)
     }
     setOpen(false)
