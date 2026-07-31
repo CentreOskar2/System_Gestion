@@ -92,6 +92,22 @@ export default function Icon({ name }) {
           <circle cx="12" cy="12" r="2.8" {...common} />
         </svg>
       )
+    case 'pencil':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" {...common} />
+          <path d="m13.8 7 3.2 3.2" {...common} />
+        </svg>
+      )
+    case 'power':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3v8" {...common} />
+          <path d="M6.3 5.8a8 8 0 1 0 11.4 0" {...common} />
+        </svg>
+      )
+    case 'close':
+      return <span aria-hidden="true">×</span>
     default:
       return null
   }

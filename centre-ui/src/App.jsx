@@ -5,6 +5,10 @@ import Dashboard from './components/Dashboard/Dashboard'
 import Login from './components/Login/Login'
 import Branches from './components/Branches/Branches'
 import Users from './components/Users/Users'
+import Settings from './components/Settings/Settings'
+import Teachers from './components/Teachers/Teachers'
+import Groups from './components/Groups/GroupsPage'
+import Students from './components/Students/StudentsPage'
 
 const sidebarSections = [
   {
@@ -86,6 +90,10 @@ function DashboardLayout() {
         <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
         <Route path="/branches" element={<Branches />} />
         <Route path="/users" element={<Users />} />
+        <Route path="/teachers" element={<Teachers />} />
+        <Route path="/groups" element={<Groups />} />
+        <Route path="/students" element={<Students />} />
+        <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
       </Routes>
     </div>
