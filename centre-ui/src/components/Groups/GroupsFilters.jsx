@@ -1,4 +1,5 @@
 import Icon from '../Icon'
+import FilterSelect from '../shared/FilterSelect'
 import { subjects, levels, teachers, branches } from './data/mockGroups'
 
 export default function GroupsFilters({
@@ -8,18 +9,14 @@ export default function GroupsFilters({
   onFilterChange,
 }) {
   const renderSelect = (key, list, label) => (
-    <label className="group-filter">
-      {label} :
-      <select
+    <div className="group-filter">
+      <FilterSelect
+        ariaLabel={`Filtrer par ${label}`}
         value={filters[key]}
-        onChange={(e) => onFilterChange(key, e.target.value)}
-      >
-        <option value="">tous</option>
-        {list.map((item) => (
-          <option key={item}>{item}</option>
-        ))}
-      </select>
-    </label>
+        options={[{ value: '', label: `${label} : tous` }, ...list.map((item) => ({ value: item, label: item }))]}
+        onChange={(value) => onFilterChange(key, value)}
+      />
+    </div>
   )
 
   return (

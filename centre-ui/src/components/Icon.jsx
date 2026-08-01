@@ -85,6 +85,12 @@ export default function Icon({ name }) {
           <path d="M8 3.5v3M16 3.5v3M4.5 9h15" {...common} />
         </svg>
       )
+    case 'phone':
+      return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3.8 9 3l1.7 4.7-2.1 1.6a15 15 0 0 0 6.1 6.1l1.6-2.1L21 15l-.8 3c-.3 1.1-1.4 1.8-2.5 1.5C10.8 17.5 6.5 13.2 4.5 6.3 4.2 5.2 4.9 4.1 6 3.8Z" {...common} /></svg>
+    case 'pin':
+      return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 10.2c0 5-7 10.3-7 10.3S5 15.2 5 10.2a7 7 0 1 1 14 0Z" {...common} /><circle cx="12" cy="10.2" r="2.3" {...common} /></svg>
+    case 'id':
+      return <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2" {...common} /><circle cx="9" cy="11" r="2" {...common} /><path d="M6.5 16c.5-1.5 1.3-2.3 2.5-2.3s2 .8 2.5 2.3M14 10h3.5M14 14h3.5" {...common} /></svg>
     case 'eye':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">

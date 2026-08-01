@@ -1,9 +1,17 @@
 import Icon from '../Icon'
+import FilterSelect from '../shared/FilterSelect'
 
 export default function StudentsFilters({
   cycles,
   activeCycle,
   onCycleChange,
+  levels,
+  activeLevel,
+  onLevelChange,
+  showSubjectFilter,
+  subjects,
+  activeSubject,
+  onSubjectChange,
   studentsCount,
   searchQuery,
   onSearchChange,
@@ -25,6 +33,24 @@ export default function StudentsFilters({
           </button>
         ))}
       </div>
+      {levels.length > 0 && (
+        <div className="student-filter-row" aria-label="Filtrer par niveau">
+          <span>Niveau</span>
+          <div className="student-filter-chips">
+            <button className={activeLevel === 'Tous' ? 'active' : ''} onClick={() => onLevelChange('Tous')}>Tous</button>
+            {levels.map((level) => <button key={level} className={activeLevel === level ? 'active' : ''} onClick={() => onLevelChange(level)}>{level}</button>)}
+          </div>
+        </div>
+      )}
+      {showSubjectFilter && (
+        <div className="student-filter-row" aria-label="Filtrer par matière">
+          <span>Matière</span>
+          <div className="student-filter-chips">
+            <button className={activeSubject === 'Tous' ? 'active' : ''} onClick={() => onSubjectChange('Tous')}>Toutes les matières</button>
+            {subjects.map((subject) => <button key={subject} className={activeSubject === subject ? 'active' : ''} onClick={() => onSubjectChange(subject)}>{subject}</button>)}
+          </div>
+        </div>
+      )}
       <div className="students-filters">
         <label className="search-bar">
           <Icon name="search" />
@@ -37,12 +63,10 @@ export default function StudentsFilters({
           />
         </label>
         {/* This group filter was in the original plan, so I'm adding it as a placeholder */}
-        <label className="filter-select">
+        <div className="filter-select">
           <Icon name="users" />
-          <select aria-label="Filtrer par groupe" /* value={groupFilter} onChange={onGroupFilterChange} */>
-            <option>Tous les groupes</option>
-          </select>
-        </label>
+          <FilterSelect ariaLabel="Filtrer par groupe" value="" options={[{ value: '', label: 'Tous les groupes' }]} onChange={() => {}} />
+        </div>
       </div>
       <p className="students-count">{studentsCount} élèves affichés</p>
     </>

@@ -1,6 +1,6 @@
 import Icon from '../Icon'
 
-export default function TeachersTable({ teachers, onEdit, onToggleStatus }) {
+export default function TeachersTable({ teachers, onEdit, onToggleStatus, onView }) {
   return (
     <div className="teachers-table-wrap">
       <table className="teachers-table">
@@ -16,7 +16,7 @@ export default function TeachersTable({ teachers, onEdit, onToggleStatus }) {
         </thead>
         <tbody>
           {teachers.map((teacher) => (
-            <tr key={teacher.id}>
+            <tr key={teacher.id} className="teacher-table-row" onClick={() => onView(teacher)}>
               <td>
                 <div className="teacher-name">
                   <span>
@@ -53,12 +53,12 @@ export default function TeachersTable({ teachers, onEdit, onToggleStatus }) {
               </td>
               <td>
                 <div className="teacher-actions">
-                  <button onClick={() => onEdit(teacher)} aria-label="Modifier">
+                  <button onClick={(event) => { event.stopPropagation(); onEdit(teacher) }} aria-label="Modifier">
                     <Icon name="pencil" />
                   </button>
                   <button
                     className={teacher.active ? '' : 'is-off'}
-                    onClick={() => onToggleStatus(teacher.id)}
+                    onClick={(event) => { event.stopPropagation(); onToggleStatus(teacher.id) }}
                     aria-label="Activer ou désactiver"
                   >
                     <Icon name="power" />
