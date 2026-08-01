@@ -29,11 +29,11 @@ export default function Step1PersonalDetails({ form, set }) {
           />
         </label>
         <label>
-          Date de naissance *
+          Date d'inscription *
           <input
             type="date"
-            value={form.birthDate}
-            onChange={(e) => set('birthDate', e.target.value)}
+            value={form.registrationDate}
+            onChange={(e) => set('registrationDate', e.target.value)}
             required
           />
         </label>

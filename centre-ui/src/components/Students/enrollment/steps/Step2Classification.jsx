@@ -1,9 +1,10 @@
-import { levelsByCycle, branchesByLevel } from '../../data/mockStudents'
+export default function Step2Classification({ form, set, catalog }) {
+  const cycles = catalog.cycles || []
+  const levels = (catalog.levelsByCycle && catalog.levelsByCycle[form.cycle]) || []
+  const filieres = (catalog.branchesByLevel && catalog.branchesByLevel[form.level]) || []
 
-export default function Step2Classification({ form, set }) {
   const handleCycleChange = (e) => {
     const newCycle = e.target.value
-    // Reset level and track when cycle changes
     set('cycle', newCycle)
     set('level', '')
     set('track', '')
@@ -11,7 +12,6 @@ export default function Step2Classification({ form, set }) {
 
   const handleLevelChange = (e) => {
     const newLevel = e.target.value
-    // Reset track when level changes
     set('level', newLevel)
     set('track', '')
   }
@@ -24,8 +24,9 @@ export default function Step2Classification({ form, set }) {
         <label>
           Cycle *
           <select value={form.cycle} onChange={handleCycleChange} required>
-            {Object.keys(levelsByCycle).map((cycle) => (
-              <option key={cycle}>{cycle}</option>
+            <option value="">— Sélectionner cycle —</option>
+            {cycles.map((cycle) => (
+              <option key={cycle.id} value={cycle.name}>{cycle.name}</option>
             ))}
           </select>
         </label>
@@ -33,12 +34,12 @@ export default function Step2Classification({ form, set }) {
           Niveau *
           <select value={form.level} onChange={handleLevelChange} required>
             <option value="">— Sélectionner niveau —</option>
-            {(levelsByCycle[form.cycle] || []).map((level) => (
-              <option key={level}>{level}</option>
+            {levels.map((level) => (
+              <option key={level} value={level}>{level}</option>
             ))}
           </select>
         </label>
-        {branchesByLevel[form.level] && (
+        {filieres.length > 0 && (
           <label>
             Filière *
             <select
@@ -47,8 +48,8 @@ export default function Step2Classification({ form, set }) {
               required
             >
               <option value="">— Sélectionner filière —</option>
-              {(branchesByLevel[form.level] || []).map((branch) => (
-                <option key={branch}>{branch}</option>
+              {filieres.map((filiere) => (
+                <option key={filiere} value={filiere}>{filiere}</option>
               ))}
             </select>
           </label>

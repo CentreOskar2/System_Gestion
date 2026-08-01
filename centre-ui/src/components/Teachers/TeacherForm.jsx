@@ -1,14 +1,77 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Header from '../shared/Header'
-import { subjects, branches, emptyTeacher } from './data/mockTeachers'
+import { supabase } from '../../supabaseClient'
 import UploadIcon from './ui/UploadIcon'
 import Toggle from './ui/Toggle'
 
+const toForm = (teacher) =>
+  teacher
+    ? {
+        id: teacher.id,
+        first_name: teacher.firstName || '',
+        last_name: teacher.lastName || '',
+        cin: teacher.cin || '',
+        phone: teacher.phone || '',
+        address: teacher.address || '',
+        hire_date: teacher.hiredAt || '',
+        photo_url: teacher.photoUrl || '',
+        active: teacher.active,
+        remuneration_type: teacher.paymentType || 'fixe',
+        remuneration_amount: teacher.remuneration_amount ?? teacher.salary ?? '',
+        subject_ids: teacher.subject_ids || [],
+        branch_ids: teacher.branch_ids || [],
+      }
+    : {
+        first_name: '',
+        last_name: '',
+        cin: '',
+        phone: '',
+        address: '',
+        hire_date: '',
+        photo_url: '',
+        active: true,
+        remuneration_type: 'fixe',
+        remuneration_amount: '',
+        subject_ids: [],
+        branch_ids: [],
+      }
+
+function Toast({ notice }) {
+  if (!notice) return null
+  return (
+    <div className={`teacher-toast is-${notice.type}`} role="status">
+      <span>{notice.type === 'success' ? '✓' : '✕'}</span>
+      {notice.text}
+    </div>
+  )
+}
+
 export default function TeacherForm({ teacher, onClose, onSave }) {
-  const [form, setForm] = useState(teacher ? { ...teacher } : emptyTeacher)
+  const [form, setForm] = useState(() => toForm(teacher))
+  const [subjects, setSubjects] = useState([])
+  const [branches, setBranches] = useState([])
+  const [loadingOptions, setLoadingOptions] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const [subjectsRes, branchesRes] = await Promise.all([
+        supabase.from('subjects').select('id, name').order('name'),
+        supabase.from('branches').select('id, name').order('name'),
+      ])
+      if (cancelled) return
+      if (subjectsRes.data) setSubjects(subjectsRes.data)
+      if (branchesRes.data) setBranches(branchesRes.data)
+      setLoadingOptions(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
 
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }))
-  
+
   const toggle = (field, value) => {
     set(
       field,
@@ -18,16 +81,20 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
     )
   }
 
-  const setRate = (subject, value) => {
-    set('rates', { ...form.rates, [subject]: value })
-  }
-
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault()
-    onSave({ ...form, id: teacher?.id || crypto.randomUUID() })
+    setSaving(true)
+    setNotice(null)
+    try {
+      await onSave({ ...form }, Boolean(teacher))
+    } catch (err) {
+      setNotice({ type: 'error', text: err.message || 'Une erreur est survenue' })
+      setSaving(false)
+    }
   }
 
   const editing = Boolean(teacher)
+  const amountLabel = form.remuneration_type === 'fixe' ? 'Montant mensuel (DH)' : 'Pourcentage (%)'
 
   return (
     <div className="teacher-form-page">
@@ -47,14 +114,14 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
               <input type="file" accept="image/*" />
             </label>
             <div className="teacher-grid">
-              <label>Prénom<input value={form.firstName} onChange={(e) => set('firstName', e.target.value)} required /></label>
-              <label>Nom<input value={form.lastName} onChange={(e) => set('lastName', e.target.value)} required /></label>
+              <label>Prénom<input value={form.first_name} onChange={(e) => set('first_name', e.target.value)} required /></label>
+              <label>Nom<input value={form.last_name} onChange={(e) => set('last_name', e.target.value)} required /></label>
               <label>CIN<input value={form.cin} onChange={(e) => set('cin', e.target.value)} required /></label>
               <label>Téléphone<input type="tel" value={form.phone} onChange={(e) => set('phone', e.target.value)} required /></label>
             </div>
             <label>Adresse<input value={form.address} onChange={(e) => set('address', e.target.value)} /></label>
             <div className="teacher-date-status">
-              <label>Date d'embauche<input type="date" value={form.hiredAt} onChange={(e) => set('hiredAt', e.target.value)} required /></label>
+              <label>Date d'embauche<input type="date" value={form.hire_date} onChange={(e) => set('hire_date', e.target.value)} required /></label>
               <div className="teacher-active">
                 <Toggle checked={form.active} onChange={(value) => set('active', value)} />
                 <span>Actif</span>
@@ -65,61 +132,65 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
             <h2>Informations professionnelles</h2>
             <fieldset>
               <legend>Matières enseignées</legend>
-              <div className="choice-grid">
-                {subjects.map((subject) => (
-                  <label className={form.subjects.includes(subject) ? 'is-checked' : ''} key={subject}>
-                    <input type="checkbox" checked={form.subjects.includes(subject)} onChange={() => toggle('subjects', subject)} />
-                    {subject}
-                  </label>
-                ))}
-              </div>
+              {loadingOptions ? (
+                <p className="teacher-options-loading">Chargement des matières...</p>
+              ) : (
+                <div className="choice-grid">
+                  {subjects.map((subject) => (
+                    <label className={form.subject_ids.includes(subject.id) ? 'is-checked' : ''} key={subject.id}>
+                      <input type="checkbox" checked={form.subject_ids.includes(subject.id)} onChange={() => toggle('subject_ids', subject.id)} />
+                      {subject.name}
+                    </label>
+                  ))}
+                </div>
+              )}
             </fieldset>
             <fieldset>
               <legend>Succursale(s) d'affectation</legend>
-              <div className="choice-grid choice-grid--branches">
-                {branches.map((branch) => (
-                  <label className={form.branches.includes(branch) ? 'is-checked' : ''} key={branch}>
-                    <input type="checkbox" checked={form.branches.includes(branch)} onChange={() => toggle('branches', branch)} />
-                    {branch}
-                  </label>
-                ))}
-              </div>
+              {loadingOptions ? (
+                <p className="teacher-options-loading">Chargement des succursales...</p>
+              ) : (
+                <div className="choice-grid choice-grid--branches">
+                  {branches.map((branch) => (
+                    <label className={form.branch_ids.includes(branch.id) ? 'is-checked' : ''} key={branch.id}>
+                      <input type="checkbox" checked={form.branch_ids.includes(branch.id)} onChange={() => toggle('branch_ids', branch.id)} />
+                      {branch.name}
+                    </label>
+                  ))}
+                </div>
+              )}
             </fieldset>
             <fieldset className="payment-type">
               <legend>Type de rémunération</legend>
               <div>
-                <button type="button" onClick={() => set('paymentType', 'fixe')} className={form.paymentType === 'fixe' ? 'is-selected' : ''}>Fixe</button>
-                <button type="button" onClick={() => set('paymentType', 'pourcentage')} className={form.paymentType === 'pourcentage' ? 'is-selected' : ''}>Pourcentage</button>
+                <button type="button" onClick={() => set('remuneration_type', 'fixe')} className={form.remuneration_type === 'fixe' ? 'is-selected' : ''}>Fixe</button>
+                <button type="button" onClick={() => set('remuneration_type', 'pourcentage')} className={form.remuneration_type === 'pourcentage' ? 'is-selected' : ''}>Pourcentage</button>
               </div>
             </fieldset>
-            {form.paymentType === 'fixe' ? (
-              <label className="salary-field">
-                Montant mensuel (DH)
-                <input type="number" min="0" value={form.salary} onChange={(e) => set('salary', e.target.value)} required />
-                <small>{form.salary ? `${Number(form.salary).toLocaleString('fr-FR')} DH` : ''}</small>
-              </label>
-            ) : (
-              <fieldset className="rates">
-                <legend>Taux par matière (%)</legend>
-                {form.subjects.length ? (
-                  form.subjects.map((subject) => (
-                    <label key={subject}>
-                      <strong>{subject}</strong>
-                      <span>
-                        <input type="number" min="0" max="100" value={form.rates[subject] || ''} onChange={(e) => setRate(subject, e.target.value)} required />
-                        %
-                      </span>
-                    </label>
-                  ))
-                ) : (
-                  <p>Sélectionnez au moins une matière.</p>
-                )}
-              </fieldset>
-            )}
+            <label className="salary-field">
+              {amountLabel}
+              <input
+                type="number"
+                min="0"
+                step="any"
+                {...(form.remuneration_type === 'pourcentage' ? { max: 100 } : {})}
+                value={form.remuneration_amount}
+                onChange={(e) => set('remuneration_amount', e.target.value)}
+                required
+              />
+              <small>
+                {form.remuneration_type === 'fixe' && form.remuneration_amount
+                  ? `${Number(form.remuneration_amount).toLocaleString('fr-FR')} DH`
+                  : ''}
+              </small>
+            </label>
           </section>
           <footer className="teacher-form-footer">
+            <Toast notice={notice} />
             <button type="button" onClick={onClose}>Annuler</button>
-            <button type="submit">Enregistrer</button>
+            <button type="submit" disabled={saving}>
+              {saving ? 'Enregistrement...' : 'Enregistrer'}
+            </button>
           </footer>
         </form>
       </main>

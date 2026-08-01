@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Header from '../shared/Header'
 import StudentsToolbar from './StudentsToolbar'
 import StudentsFilters from './StudentsFilters'
@@ -6,12 +6,14 @@ import StudentsTable from './StudentsTable'
 import AttendanceModal from './modals/AttendanceModal'
 import StudentSheetModal from './modals/StudentSheetModal'
 import EnrollmentPage from './enrollment/EnrollmentPage'
+import { fetchCatalog, fetchStudents, setStudentStatus, deactivateAllStudents } from './enrollment/enrollmentApi'
 
-import { students as initialStudents, levelsByCycle, subjects } from './data/mockStudents'
 import './Students.css'
 
 export default function StudentsPage() {
-  const [items, setItems] = useState(initialStudents)
+  const [items, setItems] = useState([])
+  const [catalog, setCatalog] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [activeCycle, setActiveCycle] = useState('Tous')
   const [activeLevel, setActiveLevel] = useState('Tous')
@@ -20,6 +22,39 @@ export default function StudentsPage() {
   const [sheetStudent, setSheetStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
   const [isEnrolling, setIsEnrolling] = useState(false)
+
+  const refresh = async () => {
+    setLoading(true)
+    try {
+      const [nextCatalog, students] = await Promise.all([fetchCatalog(), fetchStudents()])
+      setCatalog(nextCatalog)
+      setItems(students)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    let active = true
+    Promise.all([fetchCatalog(), fetchStudents()])
+      .then(([nextCatalog, students]) => {
+        if (!active) return
+        setCatalog(nextCatalog)
+        setItems(students)
+        setLoading(false)
+      })
+      .catch((err) => {
+        if (active) {
+          console.error(err)
+          setLoading(false)
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   const shownStudents = useMemo(
     () =>
@@ -37,26 +72,38 @@ export default function StudentsPage() {
 
   const cycleTabs = useMemo(() => {
     const all = [{ name: 'Tous', count: items.length }]
-    const cycles = [...new Set(items.map(item => item.cycle))]
-    const cycleCounts = cycles.map(cycle => ({
-        name: cycle,
-        count: items.filter(student => student.cycle === cycle).length
+    const cycles = (catalog?.cycles || []).map((cycle) => ({
+      name: cycle.name,
+      count: items.filter((student) => student.cycle === cycle.name).length,
     }))
-    return [...all, ...cycleCounts];
-  }, [items])
+    return [...all, ...cycles]
+  }, [catalog, items])
 
-  const handleDeactivateAll = () => {
-    setItems(items.map((student) => ({ ...student, active: false })))
+  const subjects = useMemo(() => (catalog?.subjects || []).map((subject) => subject.name), [catalog])
+
+  const handleDeactivateAll = async () => {
+    try {
+      await deactivateAllStudents()
+      await refresh()
+    } catch (err) {
+      console.error(err)
+    }
   }
 
-  const handleToggleStatus = (studentId) => {
-    setItems(
-      items.map((student) =>
-        student.id === studentId
-          ? { ...student, active: !student.active }
-          : student
+  const handleToggleStatus = async (studentId) => {
+    const student = items.find((item) => item.id === studentId)
+    if (!student) return
+    const newStatus = student.active ? 'inactive' : 'active'
+    try {
+      await setStudentStatus(studentId, newStatus)
+      setItems((list) =>
+        list.map((item) =>
+          item.id === studentId ? { ...item, active: newStatus === 'active' } : item
+        )
       )
-    )
+    } catch (err) {
+      console.error(err)
+    }
   }
 
   const handleCycleChange = (cycle) => {
@@ -65,48 +112,14 @@ export default function StudentsPage() {
     setActiveSubject('Tous')
   }
 
-  const handleFinishEnrollment = (newStudentForm) => {
-    const newStudent = {
-      id: crypto.randomUUID(),
-      name: `${newStudentForm.firstName} ${newStudentForm.lastName}`,
-      code: newStudentForm.code,
-      cycle: newStudentForm.cycle,
-      level: newStudentForm.level,
-      branch: 'Succursale Nord', // Default branch for new students
-      subjects: newStudentForm.chosen.length,
-      payment: 'N/A',
-      active: true,
-      phone: newStudentForm.phone,
-      school: newStudentForm.school,
-      alerts: newStudentForm.alerts,
-      chosen: newStudentForm.chosen,
-      subjectDetails: newStudentForm.subjectDetails,
-    }
-    setItems([...items, newStudent])
+  const handleFinishEnrollment = async () => {
     setIsEnrolling(false)
+    await refresh()
   }
 
-  const handleFinishEdit = (updatedStudentForm) => {
-    setItems(
-      items.map((student) =>
-        student.id === editingStudent.id
-          ? {
-              ...student,
-              name: `${updatedStudentForm.firstName} ${updatedStudentForm.lastName}`,
-              code: updatedStudentForm.code,
-              cycle: updatedStudentForm.cycle,
-              level: updatedStudentForm.level,
-              phone: updatedStudentForm.phone,
-              subjects: updatedStudentForm.chosen.length,
-              school: updatedStudentForm.school,
-              alerts: updatedStudentForm.alerts,
-              chosen: updatedStudentForm.chosen,
-              subjectDetails: updatedStudentForm.subjectDetails,
-            }
-          : student
-      )
-    )
+  const handleFinishEdit = async () => {
     setEditingStudent(null)
+    await refresh()
   }
 
   const handleOpenEdit = (student) => {
@@ -118,6 +131,7 @@ export default function StudentsPage() {
   if (isEnrolling) {
     return (
       <EnrollmentPage
+        catalog={catalog}
         close={() => setIsEnrolling(false)}
         finish={handleFinishEnrollment}
       />
@@ -127,6 +141,7 @@ export default function StudentsPage() {
   if (editingStudent) {
     return (
       <EnrollmentPage
+        catalog={catalog}
         close={() => setEditingStudent(null)}
         finish={handleFinishEdit}
         student={editingStudent}
@@ -144,27 +159,31 @@ export default function StudentsPage() {
           onDeactivateAll={handleDeactivateAll}
         />
         <StudentsFilters
-            cycles={cycleTabs}
-            activeCycle={activeCycle}
-            onCycleChange={handleCycleChange}
-            levels={activeCycle === 'Tous' ? [] : levelsByCycle[activeCycle] || []}
-            activeLevel={activeLevel}
-            onLevelChange={setActiveLevel}
-            showSubjectFilter={['Collège', 'Lycée', 'Formation'].includes(activeCycle)}
-            subjects={subjects}
-            activeSubject={activeSubject}
-            onSubjectChange={setActiveSubject}
-            studentsCount={shownStudents.length}
-            searchQuery={query}
-            onSearchChange={setQuery}
+          cycles={cycleTabs}
+          activeCycle={activeCycle}
+          onCycleChange={handleCycleChange}
+          levels={activeCycle === 'Tous' ? [] : (catalog?.levelsByCycle?.[activeCycle] || [])}
+          activeLevel={activeLevel}
+          onLevelChange={setActiveLevel}
+          showSubjectFilter={['Collège', 'Lycée', 'Formation'].includes(activeCycle)}
+          subjects={subjects}
+          activeSubject={activeSubject}
+          onSubjectChange={setActiveSubject}
+          studentsCount={shownStudents.length}
+          searchQuery={query}
+          onSearchChange={setQuery}
         />
-        <StudentsTable
-          students={shownStudents}
-          onOpenSheet={setSheetStudent}
-          onEditStudent={handleOpenEdit}
-          onToggleStatus={handleToggleStatus}
-          onOpenAttendance={setAttendanceStudent}
-        />
+        {loading ? (
+          <div className="students-loading">Chargement des étudiants...</div>
+        ) : (
+          <StudentsTable
+            students={shownStudents}
+            onOpenSheet={setSheetStudent}
+            onEditStudent={handleOpenEdit}
+            onToggleStatus={handleToggleStatus}
+            onOpenAttendance={setAttendanceStudent}
+          />
+        )}
       </main>
       {attendanceStudent && (
         <AttendanceModal

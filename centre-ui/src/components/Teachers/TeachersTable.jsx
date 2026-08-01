@@ -15,6 +15,11 @@ export default function TeachersTable({ teachers, onEdit, onToggleStatus, onView
           </tr>
         </thead>
         <tbody>
+          {teachers.length === 0 && (
+            <tr>
+              <td colSpan="6" className="teachers-empty">Aucun professeur enregistré.</td>
+            </tr>
+          )}
           {teachers.map((teacher) => (
             <tr key={teacher.id} className="teacher-table-row" onClick={() => onView(teacher)}>
               <td>

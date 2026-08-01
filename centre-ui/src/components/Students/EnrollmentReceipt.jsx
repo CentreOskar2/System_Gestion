@@ -1,12 +1,13 @@
-import { initials, price } from './utils/studentHelpers'
+import { initials } from './utils/studentHelpers'
+import { getPrice } from './enrollment/enrollmentApi'
 import './EnrollmentReceipt.css'
 
 const formatDate = (date) => new Intl.DateTimeFormat('fr-MA').format(date)
 
-export default function EnrollmentReceipt({ form, close }) {
+export default function EnrollmentReceipt({ form, close, catalog }) {
   const amountFor = (subject) => {
     const details = form.subjectDetails?.[subject]
-    return details?.priceType === 'manual' ? Number(details.manualPrice || 0) : price(subject)
+    return details?.priceType === 'manual' ? Number(details.manualPrice || 0) : getPrice(catalog, form.level, subject)
   }
   const total = form.chosen.reduce((sum, subject) => sum + amountFor(subject), 0)
 

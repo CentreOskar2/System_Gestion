@@ -1,9 +1,9 @@
-import { price } from '../../utils/studentHelpers'
+import { getPrice } from '../enrollmentApi'
 
-export default function Step4Billing({ form }) {
+export default function Step4Billing({ form, catalog }) {
   const amountFor = (subject) => {
     const details = form.subjectDetails?.[subject]
-    return details?.priceType === 'manual' ? Number(details.manualPrice || 0) : price(subject)
+    return details?.priceType === 'manual' ? Number(details.manualPrice || 0) : getPrice(catalog, form.level, subject)
   }
   const total = form.chosen.reduce((acc, subject) => acc + amountFor(subject), 0)
   const studentName = `${form.firstName} ${form.lastName}`.trim() || '—'

@@ -1,22 +1,84 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Header from '../shared/Header'
 import GroupsToolbar from './GroupsToolbar'
 import GroupsFilters from './GroupsFilters'
 import GroupsTable from './GroupsTable'
 import GroupModal from './modals/GroupModal'
-import { initialGroups } from './data/mockGroups'
+import GroupDetailsModal from './modals/GroupDetailsModal'
+import { supabase } from '../../supabaseClient'
 import './Groups.css'
 
+function Toast({ notice }) {
+  if (!notice) return null
+  return (
+    <div className={`group-toast is-${notice.type}`} role="status">
+      <span>{notice.type === 'success' ? '✓' : '✕'}</span>
+      {notice.text}
+    </div>
+  )
+}
+
 export default function GroupsPage() {
-  const [groups, setGroups] = useState(initialGroups)
+  const [groups, setGroups] = useState([])
+  const [loading, setLoading] = useState(true)
   const [selectedGroup, setSelectedGroup] = useState(undefined) // undefined: modal closed, null: new group, object: edit group
+  const [viewingGroup, setViewingGroup] = useState(undefined)
   const [search, setSearch] = useState('')
-  const [filters, setFilters] = useState({
-    subject: '',
-    level: '',
-    teacher: '',
-    branch: '',
-  })
+  const [filters, setFilters] = useState({ subject: '', level: '', teacher: '', branch: '' })
+  const [options, setOptions] = useState({ subjects: [], levels: [], teachers: [], branches: [] })
+  const [notice, setNotice] = useState(null)
+
+  useEffect(() => { fetchAll() }, [])
+
+  async function fetchAll() {
+    setLoading(true)
+    const [groupsRes, subjectsRes, levelsRes, branchesRes, teachersRes, gsRes] = await Promise.all([
+      supabase.from('groups').select('*').order('created_at', { ascending: false }),
+      supabase.from('subjects').select('id, name').order('name'),
+      supabase.from('levels').select('id, name').order('name'),
+      supabase.from('branches').select('id, name').order('name'),
+      supabase.from('teachers').select('id, first_name, last_name').order('first_name'),
+      supabase.from('group_students').select('group_id, student_id'),
+    ])
+    if (groupsRes.data) {
+      const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
+      const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
+      const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
+      const teacherMap = Object.fromEntries(
+        (teachersRes.data || []).map((t) => [t.id, `${t.first_name} ${t.last_name}`])
+      )
+      const studentsByGroup = {}
+      for (const row of gsRes.data || []) {
+        studentsByGroup[row.group_id] = [...(studentsByGroup[row.group_id] || []), row.student_id]
+      }
+      setGroups(
+        groupsRes.data.map((g) => ({
+          id: g.id,
+          name: g.name,
+          subject_id: g.subject_id,
+          level_id: g.level_id,
+          teacher_id: g.teacher_id,
+          branch_id: g.branch_id,
+          subject: subjectMap[g.subject_id] || '',
+          level: levelMap[g.level_id] || '',
+          teacher: teacherMap[g.teacher_id] || '',
+          branch: branchMap[g.branch_id] || '',
+          student_ids: studentsByGroup[g.id] || [],
+          studentIds: studentsByGroup[g.id] || [],
+          capacity: g.capacity,
+          active: g.status === 'active',
+          status: g.status,
+        }))
+      )
+    }
+    setOptions({
+      subjects: (subjectsRes.data || []).map((s) => s.name),
+      levels: (levelsRes.data || []).map((l) => l.name),
+      teachers: (teachersRes.data || []).map((t) => `${t.first_name} ${t.last_name}`),
+      branches: (branchesRes.data || []).map((b) => b.name),
+    })
+    setLoading(false)
+  }
 
   const shownGroups = useMemo(
     () =>
@@ -30,25 +92,67 @@ export default function GroupsPage() {
     [groups, search, filters]
   )
 
-  const handleSaveGroup = (group) => {
-    setGroups((items) =>
-      items.some((item) => item.id === group.id)
-        ? items.map((item) => (item.id === group.id ? group : item))
-        : [...items, group]
-    )
+  async function syncGroupStudents(groupId, newIds) {
+    const { data } = await supabase.from('group_students').select('student_id').eq('group_id', groupId)
+    const currentIds = (data || []).map((row) => row.student_id)
+    const toRemove = currentIds.filter((id) => !newIds.includes(id))
+    const toAdd = newIds.filter((id) => !currentIds.includes(id))
+    if (toRemove.length > 0) {
+      const { error } = await supabase.from('group_students').delete().eq('group_id', groupId).in('student_id', toRemove)
+      if (error) throw new Error(error.message)
+    }
+    if (toAdd.length > 0) {
+      const { error } = await supabase.from('group_students').insert(
+        toAdd.map((student_id) => ({ group_id: groupId, student_id }))
+      )
+      if (error) throw new Error(error.message)
+    }
+  }
+
+  async function saveGroup(form, editing) {
+    const payload = {
+      name: form.name,
+      subject_id: form.subject_id || null,
+      level_id: form.level_id || null,
+      teacher_id: form.teacher_id || null,
+      branch_id: form.branch_id || null,
+    }
+    let groupId = form.id
+    if (editing) {
+      const { error } = await supabase.from('groups').update(payload).eq('id', groupId)
+      if (error) throw new Error(error.message)
+    } else {
+      const { data, error } = await supabase.from('groups').insert(payload).select('id').single()
+      if (error) throw new Error(error.message)
+      groupId = data.id
+    }
+    await syncGroupStudents(groupId, form.student_ids)
+    await fetchAll()
     setSelectedGroup(undefined)
+    setNotice({
+      type: 'success',
+      text: editing ? 'Groupe modifié avec succès' : 'Groupe créé avec succès',
+    })
   }
 
   const handleFilterChange = (key, value) => {
     setFilters({ ...filters, [key]: value })
   }
 
-  const handleToggleStatus = (groupId) => {
-    setGroups((items) =>
-      items.map((item) =>
-        item.id === groupId ? { ...item, active: !item.active } : item
+  const handleToggleStatus = async (groupId) => {
+    const group = groups.find((item) => item.id === groupId)
+    if (!group) return
+    const newStatus = group.active ? 'inactive' : 'active'
+    const { error } = await supabase.from('groups').update({ status: newStatus }).eq('id', groupId)
+    if (!error) {
+      setGroups((items) =>
+        items.map((item) =>
+          item.id === groupId
+            ? { ...item, active: newStatus === 'active', status: newStatus }
+            : item
+        )
       )
-    )
+    }
   }
 
   return (
@@ -64,20 +168,37 @@ export default function GroupsPage() {
           onSearchChange={setSearch}
           filters={filters}
           onFilterChange={handleFilterChange}
+          options={options}
         />
-        <GroupsTable
-          groups={shownGroups}
-          onEdit={setSelectedGroup}
-          onToggleStatus={handleToggleStatus}
-        />
+        {loading ? (
+          <div className="groups-loading">Chargement des groupes...</div>
+        ) : (
+          <GroupsTable
+            groups={shownGroups}
+            onView={setViewingGroup}
+            onEdit={setSelectedGroup}
+            onToggleStatus={handleToggleStatus}
+          />
+        )}
       </main>
+      {viewingGroup && (
+        <GroupDetailsModal
+          group={viewingGroup}
+          close={() => setViewingGroup(undefined)}
+          onManage={() => {
+            setSelectedGroup(viewingGroup)
+            setViewingGroup(undefined)
+          }}
+        />
+      )}
       {selectedGroup !== undefined && (
         <GroupModal
           group={selectedGroup}
           close={() => setSelectedGroup(undefined)}
-          save={handleSaveGroup}
+          save={saveGroup}
         />
       )}
+      <Toast notice={notice} />
     </div>
   )
 }

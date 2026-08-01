@@ -1,6 +1,6 @@
 import Icon from '../Icon'
 
-export default function GroupsTable({ groups, onEdit, onToggleStatus }) {
+export default function GroupsTable({ groups, onView, onEdit, onToggleStatus }) {
   return (
     <div className="groups-table-wrap">
       <table className="groups-table">
@@ -17,10 +17,17 @@ export default function GroupsTable({ groups, onEdit, onToggleStatus }) {
           </tr>
         </thead>
         <tbody>
+          {groups.length === 0 && (
+            <tr>
+              <td colSpan="8" className="groups-empty">Aucun groupe enregistré.</td>
+            </tr>
+          )}
           {groups.map((group) => (
             <tr key={group.id}>
               <td>
-                <strong>{group.name}</strong>
+                <button className="group-name-btn" onClick={() => onView(group)}>
+                  <strong>{group.name}</strong>
+                </button>
               </td>
               <td>
                 <span className="group-subject">{group.subject}</span>
@@ -38,12 +45,16 @@ export default function GroupsTable({ groups, onEdit, onToggleStatus }) {
               </td>
               <td>
                 <div className="group-actions">
-                  <button onClick={() => onEdit(group)}>
+                  <button onClick={() => onView(group)} aria-label="Voir les détails">
+                    <Icon name="eye" />
+                  </button>
+                  <button onClick={() => onEdit(group)} aria-label="Modifier">
                     <Icon name="pencil" />
                   </button>
                   <button
                     onClick={() => onToggleStatus(group.id)}
                     className={group.active ? '' : 'off'}
+                    aria-label={group.active ? 'Désactiver' : 'Activer'}
                   >
                     <Icon name="power" />
                   </button>

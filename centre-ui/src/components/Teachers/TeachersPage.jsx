@@ -1,18 +1,83 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Header from '../shared/Header'
 import TeacherForm from './TeacherForm'
 import TeachersToolbar from './TeachersToolbar'
 import TeachersFilters from './TeachersFilters'
 import TeachersTable from './TeachersTable'
 import TeacherProfile from './TeacherProfile'
-import { initialTeachers } from './data/mockTeachers'
+import { supabase } from '../../supabaseClient'
 import './Teachers.css'
 
+function Toast({ notice }) {
+  if (!notice) return null
+  return (
+    <div className={`teacher-toast is-${notice.type}`} role="status">
+      <span>{notice.type === 'success' ? '✓' : '✕'}</span>
+      {notice.text}
+    </div>
+  )
+}
+
 export default function TeachersPage() {
-  const [teachers, setTeachers] = useState(initialTeachers)
+  const [teachers, setTeachers] = useState([])
+  const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [formTeacher, setFormTeacher] = useState(undefined) // undefined: list, null: new, object: edit
   const [selectedTeacher, setSelectedTeacher] = useState(null)
+  const [notice, setNotice] = useState(null)
+
+  useEffect(() => { fetchTeachers() }, [])
+
+  async function fetchTeachers() {
+    setLoading(true)
+    const [teachersRes, subjectsRes, branchesRes, tsRes, tbRes] = await Promise.all([
+      supabase.from('teachers').select('*').order('created_at', { ascending: false }),
+      supabase.from('subjects').select('id, name'),
+      supabase.from('branches').select('id, name'),
+      supabase.from('teacher_subjects').select('teacher_id, subject_id'),
+      supabase.from('teacher_branches').select('teacher_id, branch_id'),
+    ])
+    if (teachersRes.data) {
+      const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
+      const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
+      const subjectsByTeacher = {}
+      for (const row of tsRes.data || []) {
+        subjectsByTeacher[row.teacher_id] = [...(subjectsByTeacher[row.teacher_id] || []), row.subject_id]
+      }
+      const branchesByTeacher = {}
+      for (const row of tbRes.data || []) {
+        branchesByTeacher[row.teacher_id] = [...(branchesByTeacher[row.teacher_id] || []), row.branch_id]
+      }
+      setTeachers(
+        teachersRes.data.map((t) => {
+          const subjectIds = subjectsByTeacher[t.id] || []
+          const branchIds = branchesByTeacher[t.id] || []
+          return {
+            id: t.id,
+            firstName: t.first_name,
+            lastName: t.last_name,
+            cin: t.cin || '',
+            phone: t.phone || '',
+            address: t.address || '',
+            hiredAt: t.hire_date || '',
+            photoUrl: t.photo_url || '',
+            status: t.status,
+            active: t.status === 'active',
+            paymentType: t.remuneration_type,
+            salary: t.remuneration_type === 'fixe' ? String(t.remuneration_amount ?? '') : '',
+            remuneration_amount: t.remuneration_amount,
+            rates: {},
+            subject_ids: subjectIds,
+            branch_ids: branchIds,
+            branch_id: t.branch_id,
+            subjects: subjectIds.map((id) => subjectMap[id]).filter(Boolean),
+            branches: branchIds.map((id) => branchMap[id]).filter(Boolean),
+          }
+        })
+      )
+    }
+    setLoading(false)
+  }
 
   const filteredTeachers = useMemo(
     () =>
@@ -24,21 +89,94 @@ export default function TeachersPage() {
     [teachers, query]
   )
 
-  const handleSave = (teacher) => {
-    setTeachers((items) =>
-      items.some((item) => item.id === teacher.id)
-        ? items.map((item) => (item.id === teacher.id ? teacher : item))
-        : [...items, teacher]
-    )
-    setFormTeacher(undefined)
+  async function syncJunction(teacherId, table, currentIds, newIds) {
+    const toRemove = currentIds.filter((id) => !newIds.includes(id))
+    const toAdd = newIds.filter((id) => !currentIds.includes(id))
+    if (toRemove.length > 0) {
+      const { error } = await supabase.from(table).delete().eq('teacher_id', teacherId).in(
+        table === 'teacher_subjects' ? 'subject_id' : 'branch_id',
+        toRemove
+      )
+      if (error) throw new Error(error.message)
+    }
+    if (toAdd.length > 0) {
+      const { error } = await supabase.from(table).insert(
+        toAdd.map((id) => ({ teacher_id: teacherId, [table === 'teacher_subjects' ? 'subject_id' : 'branch_id']: id }))
+      )
+      if (error) throw new Error(error.message)
+    }
   }
 
-  const handleToggleStatus = (teacherId) => {
-    setTeachers((items) =>
-      items.map((item) =>
-        item.id === teacherId ? { ...item, active: !item.active } : item
+  async function saveTeacher(form, editing) {
+    const payload = {
+      first_name: form.first_name,
+      last_name: form.last_name,
+      cin: form.cin,
+      phone: form.phone,
+      address: form.address,
+      hire_date: form.hire_date,
+      photo_url: form.photo_url,
+      status: form.active ? 'active' : 'inactive',
+      remuneration_type: form.remuneration_type,
+      remuneration_amount: form.remuneration_amount === '' || form.remuneration_amount == null
+        ? null
+        : Number(form.remuneration_amount),
+      branch_id: form.branch_ids[0] || null,
+    }
+
+    let teacherId = form.id
+    if (editing) {
+      const { error } = await supabase.from('teachers').update(payload).eq('id', teacherId)
+      if (error) throw new Error(error.message)
+
+      const [subsRes, brsRes] = await Promise.all([
+        supabase.from('teacher_subjects').select('subject_id').eq('teacher_id', teacherId),
+        supabase.from('teacher_branches').select('branch_id').eq('teacher_id', teacherId),
+      ])
+      await syncJunction(
+        teacherId,
+        'teacher_subjects',
+        (subsRes.data || []).map((r) => r.subject_id),
+        form.subject_ids
       )
-    )
+      await syncJunction(
+        teacherId,
+        'teacher_branches',
+        (brsRes.data || []).map((r) => r.branch_id),
+        form.branch_ids
+      )
+    } else {
+      const { data, error } = await supabase.from('teachers').insert(payload).select('id').single()
+      if (error) throw new Error(error.message)
+      teacherId = data.id
+      if (form.subject_ids.length > 0) {
+        await syncJunction(teacherId, 'teacher_subjects', [], form.subject_ids)
+      }
+      if (form.branch_ids.length > 0) {
+        await syncJunction(teacherId, 'teacher_branches', [], form.branch_ids)
+      }
+    }
+
+    await fetchTeachers()
+    setFormTeacher(undefined)
+    setNotice({
+      type: 'success',
+      text: editing ? 'Professeur modifié avec succès' : 'Professeur ajouté avec succès',
+    })
+  }
+
+  const handleToggleStatus = async (teacherId) => {
+    const teacher = teachers.find((item) => item.id === teacherId)
+    if (!teacher) return
+    const newStatus = teacher.active ? 'inactive' : 'active'
+    const { error } = await supabase.from('teachers').update({ status: newStatus }).eq('id', teacherId)
+    if (!error) {
+      setTeachers((items) =>
+        items.map((item) =>
+          item.id === teacherId ? { ...item, active: newStatus === 'active', status: newStatus } : item
+        )
+      )
+    }
   }
 
   if (formTeacher !== undefined) {
@@ -46,7 +184,7 @@ export default function TeachersPage() {
       <TeacherForm
         teacher={formTeacher || null}
         onClose={() => setFormTeacher(undefined)}
-        onSave={handleSave}
+        onSave={saveTeacher}
       />
     )
   }
@@ -64,13 +202,18 @@ export default function TeachersPage() {
           onAdd={() => setFormTeacher(null)}
         />
         <TeachersFilters query={query} onQueryChange={setQuery} />
-        <TeachersTable
-          teachers={filteredTeachers}
-          onEdit={setFormTeacher}
-          onToggleStatus={handleToggleStatus}
-          onView={setSelectedTeacher}
-        />
+        {loading ? (
+          <div className="teachers-loading">Chargement des professeurs...</div>
+        ) : (
+          <TeachersTable
+            teachers={filteredTeachers}
+            onEdit={setFormTeacher}
+            onToggleStatus={handleToggleStatus}
+            onView={setSelectedTeacher}
+          />
+        )}
       </main>
+      <Toast notice={notice} />
     </div>
   )
 }

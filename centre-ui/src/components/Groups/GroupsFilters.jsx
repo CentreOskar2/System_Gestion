@@ -1,12 +1,12 @@
 import Icon from '../Icon'
 import FilterSelect from '../shared/FilterSelect'
-import { subjects, levels, teachers, branches } from './data/mockGroups'
 
 export default function GroupsFilters({
   searchQuery,
   onSearchChange,
   filters,
   onFilterChange,
+  options,
 }) {
   const renderSelect = (key, list, label) => (
     <div className="group-filter">
@@ -29,10 +29,10 @@ export default function GroupsFilters({
           placeholder="Rechercher un groupe..."
         />
       </label>
-      {renderSelect('subject', subjects, 'Matière')}
-      {renderSelect('level', levels, 'Niveau')}
-      {renderSelect('teacher', teachers, 'Professeur')}
-      {renderSelect('branch', branches, 'Succursale')}
+      {renderSelect('subject', options.subjects, 'Matière')}
+      {renderSelect('level', options.levels, 'Niveau')}
+      {renderSelect('teacher', options.teachers, 'Professeur')}
+      {renderSelect('branch', options.branches, 'Succursale')}
     </div>
   )
 }
