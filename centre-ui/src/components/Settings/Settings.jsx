@@ -7,8 +7,8 @@ import './Settings.css'
 const textDefault = 'Bonjour, ceci est un rappel du Centre Atlas concernant les frais de scolarité de {nom_eleve} pour le mois de {mois}.\n\nMontant dû : {montant_du}.\n\nMerci de régulariser dès que possible.\n— Centre Atlas'
 const salaryDefault = 'Bonjour {nom_prof},\n\nVoici votre bulletin de salaire pour {mois} : {montant} DH.\n\nMerci de votre engagement.\n— Centre Atlas'
 
-const Pencil = () => <svg viewBox="0 0 24 24"><path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" /><path d="m13.8 7 3.2 3.2" /></svg>
 const Trash = () => <svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6l-.9 13a2 2 0 0 1-2 1.9H7.9a2 2 0 0 1-2-1.9L5 6" /><path d="M10 11v6M14 11v6" /></svg>
+const Pencil = () => <svg viewBox="0 0 24 24"><path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" /><path d="m13.8 7 3.2 3.2" /></svg>
 
 function Toast({ notice }) {
   if (!notice) return null
@@ -20,26 +20,19 @@ function Toast({ notice }) {
   )
 }
 
-function CycleModal({ cycle, onClose, onSave }) {
-  const editing = Boolean(cycle)
-  const [form, setForm] = useState(cycle
-    ? { name: cycle.name, has_fixed_price: Boolean(cycle.has_fixed_price), fixed_price: cycle.fixed_price != null ? String(cycle.fixed_price) : '' }
-    : { name: '', has_fixed_price: false, fixed_price: '' })
+function LevelModal({ cycles, onClose, onSave }) {
+  const [name, setName] = useState('')
+  const [cycleId, setCycleId] = useState(cycles[0]?.id || '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const submit = async (e) => {
     e.preventDefault()
-    if (!form.name.trim()) return
-    if (form.has_fixed_price && (form.fixed_price === '' || Number(form.fixed_price) <= 0)) {
-      setError('Veuillez saisir un prix fixe valide.')
-      return
-    }
+    if (!name.trim() || !cycleId) return
     setSaving(true)
     setError(null)
     try {
-      await onSave(form, editing)
+      await onSave(name.trim(), cycleId)
     } catch (err) {
       setError(err.message || 'Une erreur est survenue')
       setSaving(false)
@@ -50,16 +43,19 @@ function CycleModal({ cycle, onClose, onSave }) {
     <div className="settings-dialog-bg" onMouseDown={onClose}>
       <section className="settings-dialog" onMouseDown={(e) => e.stopPropagation()}>
         <button className="settings-close" onClick={onClose}>×</button>
-        <h2>{editing ? 'Modifier le cycle' : 'Nouveau cycle'}</h2>
+        <h2>Ajouter un niveau</h2>
         <form onSubmit={submit}>
-          <label>Nom du cycle *<input autoFocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="ex : Collège" required /></label>
-          <div className="cycle-fixed">
-            <div><strong>Prix fixe pour tout le cycle</strong><p>Si activé, tous les niveaux du cycle partagent ce tarif.</p></div>
-            <label className="settings-switch"><input type="checkbox" checked={form.has_fixed_price} onChange={(e) => set('has_fixed_price', e.target.checked)} /><i /></label>
-          </div>
-          {form.has_fixed_price && <label>Prix fixe (DH / mois)<input type="number" min="0" step="0.01" value={form.fixed_price} onChange={(e) => set('fixed_price', e.target.value)} placeholder="ex : 400" /></label>}
+          <label>Nom du niveau<input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="ex : 1ère année" required /></label>
+          <label>Cycle
+            <select value={cycleId} onChange={(e) => setCycleId(e.target.value)} required>
+              {cycles.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </label>
           {error && <div className="settings-error">{error}</div>}
-          <footer><button type="button" className="settings-outline" onClick={onClose}>Annuler</button><button type="submit" className="settings-save" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></footer>
+          <footer>
+            <button type="button" className="settings-outline" onClick={onClose}>Annuler</button>
+            <button type="submit" className="settings-save" disabled={saving || !cycleId}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button>
+          </footer>
         </form>
       </section>
     </div>
@@ -99,28 +95,26 @@ function NameModal({ title, label, placeholder, onClose, onSave }) {
   )
 }
 
-function TariffModal({ subject, levels, cycleMap, subjectTariffs, onClose, onSave }) {
-  const [prices, setPrices] = useState(() => {
-    const init = {}
-    for (const l of levels) init[l.id] = subjectTariffs[l.id] != null ? String(subjectTariffs[l.id]) : ''
-    return init
-  })
+function CycleModal({ cycle, onClose, onSave }) {
+  const editing = Boolean(cycle)
+  const [form, setForm] = useState(cycle
+    ? { id: cycle.id, name: cycle.name, has_fixed_price: Boolean(cycle.has_fixed_price), fixed_price: cycle.fixed_price != null ? String(cycle.fixed_price) : '' }
+    : { id: undefined, name: '', has_fixed_price: false, fixed_price: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const submit = async (e) => {
     e.preventDefault()
-    const rows = []
-    for (const l of levels) {
-      const raw = (prices[l.id] || '').trim()
-      if (raw !== '' && !Number.isNaN(Number(raw)) && Number(raw) > 0) {
-        rows.push({ level_id: l.id, subject_id: subject.id, price: Number(raw) })
-      }
+    if (!form.name.trim()) return
+    if (form.has_fixed_price && (form.fixed_price === '' || Number(form.fixed_price) <= 0)) {
+      setError('Veuillez saisir un prix fixe valide.')
+      return
     }
     setSaving(true)
     setError(null)
     try {
-      await onSave(subject.id, rows, { ...prices })
+      await onSave(form, editing)
     } catch (err) {
       setError(err.message || 'Une erreur est survenue')
       setSaving(false)
@@ -129,25 +123,16 @@ function TariffModal({ subject, levels, cycleMap, subjectTariffs, onClose, onSav
 
   return (
     <div className="settings-dialog-bg" onMouseDown={onClose}>
-      <section className="settings-dialog settings-dialog--wide" onMouseDown={(e) => e.stopPropagation()}>
+      <section className="settings-dialog" onMouseDown={(e) => e.stopPropagation()}>
         <button className="settings-close" onClick={onClose}>×</button>
-        <h2>Tarifs — {subject.name}</h2>
-        <p className="settings-dialog-sub">Prix en DH / mois par niveau. Laissez vide pour ne pas appliquer de tarif.</p>
+        <h2>{editing ? 'Modifier le cycle' : 'Nouveau cycle'}</h2>
         <form onSubmit={submit}>
-          <div className="tariff-grid">
-            {levels.length === 0
-              ? <div className="settings-empty">Aucun niveau. Ajoutez d'abord des niveaux dans l'onglet « Structure académique ».</div>
-              : levels.map((l) => {
-                const cy = cycleMap[l.cycle_id]
-                const fixed = cy && cy.has_fixed_price
-                return (
-                  <label key={l.id} className={fixed ? 'is-fixed' : ''}>
-                    <span>{l.name}{fixed && <em>Prix fixe du cycle : {cy.fixed_price} DH</em>}</span>
-                    <input type="number" min="0" step="0.01" value={prices[l.id] || ''} placeholder={fixed ? String(cy.fixed_price) : '—'} onChange={(e) => setPrices((p) => ({ ...p, [l.id]: e.target.value }))} />
-                  </label>
-                )
-              })}
+          <label>Nom du cycle *<input autoFocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="ex : Collège" required /></label>
+          <div className="cycle-fixed">
+            <div><strong>Prix fixe pour tout le cycle</strong><p>Si activé, tous les niveaux du cycle partagent ce tarif.</p></div>
+            <label className="settings-switch"><input type="checkbox" checked={form.has_fixed_price} onChange={(e) => set('has_fixed_price', e.target.checked)} /><i /></label>
           </div>
+          {form.has_fixed_price && <label>Prix fixe (DH / mois)<input type="number" min="0" step="0.01" value={form.fixed_price} onChange={(e) => set('fixed_price', e.target.value)} placeholder="ex : 400" /></label>}
           {error && <div className="settings-error">{error}</div>}
           <footer><button type="button" className="settings-outline" onClick={onClose}>Annuler</button><button type="submit" className="settings-save" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></footer>
         </form>
@@ -192,6 +177,8 @@ export default function Settings() {
   const [studyBranches, setStudyBranches] = useState([])
   const [subjects, setSubjects] = useState([])
   const [tariffs, setTariffs] = useState([])
+  const [tariffDrafts, setTariffDrafts] = useState({})
+  const [tariffSaving, setTariffSaving] = useState(false)
   const [centerSettings, setCenterSettings] = useState(null)
   const [centerForm, setCenterForm] = useState({ center_name: '', logo_url: '', address: '', phone: '', contact_info: '' })
   const [templates, setTemplates] = useState({})
@@ -250,12 +237,17 @@ export default function Settings() {
     }
   }
 
-  function applyData(data) {
+  function applyData(data, opts = {}) {
     setCycles(data.cycles)
     setLevels(data.levels)
     setStudyBranches(data.studyBranches)
     setSubjects(data.subjects)
     setTariffs(data.tariffs)
+    if (opts.resetTariffDrafts) {
+      const drafts = {}
+      for (const row of data.tariffs) drafts[`${row.level_id}::${row.subject_id}`] = String(row.price)
+      setTariffDrafts(drafts)
+    }
     setCenterSettings(data.centerSettings)
     setCenterForm({
       center_name: data.centerSettings?.center_name || '',
@@ -284,7 +276,7 @@ export default function Settings() {
   useEffect(() => {
     let ignore = false
     loadAcademicData().then((data) => {
-      if (!ignore) applyData(data)
+      if (!ignore) applyData(data, { resetTariffDrafts: true })
     }).catch((err) => {
       if (!ignore) {
         notify(err.message || 'Une erreur est survenue', 'error')
@@ -293,6 +285,8 @@ export default function Settings() {
     })
     return () => { ignore = true }
   }, [])
+
+  const cycleMap = useMemo(() => Object.fromEntries(cycles.map((c) => [c.id, c])), [cycles])
 
   const levelsByCycle = useMemo(() => {
     const map = {}
@@ -312,8 +306,6 @@ export default function Settings() {
     return map
   }, [studyBranches])
 
-  const cycleMap = useMemo(() => Object.fromEntries(cycles.map((c) => [c.id, c])), [cycles])
-
   const branchCountByCycle = useMemo(() => {
     const map = {}
     for (const l of levels) {
@@ -323,15 +315,6 @@ export default function Settings() {
     return map
   }, [levels, branchesByLevel])
 
-  const subjectTariffs = useMemo(() => {
-    const map = {}
-    for (const t of tariffs) {
-      if (!map[t.subject_id]) map[t.subject_id] = {}
-      map[t.subject_id][t.level_id] = t.price
-    }
-    return map
-  }, [tariffs])
-
   const templatePreview = (text) => text
     .replace('{nom_eleve}', 'Yasmine Alaoui')
     .replace('{nom_prof}', 'M. Karimi')
@@ -339,6 +322,9 @@ export default function Settings() {
     .replace('{montant_du}', '1 200 DH')
     .replace('{montant}', '3 500 DH')
     .replace('{succursale}', 'Centre Atlas')
+
+  const setPricingValue = (levelId, subjectId, value) =>
+    setTariffDrafts((d) => ({ ...d, [`${levelId}::${subjectId}`]: value }))
 
   const saveCenterSettings = async (e) => {
     e.preventDefault()
@@ -378,6 +364,22 @@ export default function Settings() {
     }
   }
 
+  const saveLevel = async (name, cycleId) => {
+    const { error } = await supabase.from('levels').insert({ cycle_id: cycleId, name })
+    if (error) throw new Error(error.message)
+    setModal(null)
+    await fetchAll()
+    notify('Niveau ajouté')
+  }
+
+  const saveSubject = async (name) => {
+    const { error } = await supabase.from('subjects').insert({ name })
+    if (error) throw new Error(error.message)
+    setModal(null)
+    await fetchAll()
+    notify('Matière ajoutée')
+  }
+
   const saveCycle = async (form, editing) => {
     const payload = {
       name: form.name,
@@ -412,14 +414,6 @@ export default function Settings() {
     notify(value ? 'Prix fixe activé pour le cycle' : 'Prix fixe désactivé')
   }
 
-  const saveLevel = async (cycleId, name) => {
-    const { error } = await supabase.from('levels').insert({ cycle_id: cycleId, name })
-    if (error) throw new Error(error.message)
-    setModal(null)
-    await fetchAll()
-    notify('Niveau ajouté')
-  }
-
   const deleteLevel = async (id) => {
     if (!window.confirm('Supprimer ce niveau et ses filières ?')) return
     const { error } = await supabase.from('levels').delete().eq('id', id)
@@ -446,39 +440,39 @@ export default function Settings() {
     notify('Filière supprimée')
   }
 
-  const saveSubject = async (name) => {
-    const { error } = await supabase.from('subjects').insert({ name })
-    if (error) throw new Error(error.message)
-    setModal(null)
-    await fetchAll()
-    notify('Matière ajoutée')
-  }
-
-  const deleteSubject = async (id) => {
-    if (!window.confirm('Supprimer cette matière ainsi que ses tarifs ?')) return
-    const { error } = await supabase.from('subjects').delete().eq('id', id)
-    if (error) return notify(error.message, 'error')
-    await fetchAll()
-    notify('Matière supprimée')
-  }
-
-  const saveTariffs = async (subjectId, rows, rawPrices) => {
-    const existing = tariffs.filter((t) => t.subject_id === subjectId)
-    const cleared = existing.filter((t) => rawPrices[t.level_id] === '' || rawPrices[t.level_id] == null)
-    if (cleared.length > 0) {
-      const { error: delErr } = await supabase.from('tariffs').delete().eq('subject_id', subjectId).in('level_id', cleared.map((t) => t.level_id))
-      if (delErr) throw new Error(delErr.message)
+  const saveAllTariffs = async () => {
+    setTariffSaving(true)
+    try {
+      const existing = new Map(tariffs.map((t) => [`${t.level_id}::${t.subject_id}`, t]))
+      const rows = []
+      const toDelete = []
+      for (const [key, raw] of Object.entries(tariffDrafts)) {
+        const [level_id, subject_id] = key.split('::')
+        const trimmed = String(raw).trim()
+        if (trimmed !== '' && !Number.isNaN(Number(trimmed)) && Number(trimmed) > 0) {
+          rows.push({ level_id, subject_id, price: Number(trimmed) })
+        } else if (existing.has(key)) {
+          toDelete.push({ level_id, subject_id })
+        }
+      }
+      if (toDelete.length > 0) {
+        for (const d of toDelete) {
+          const { error } = await supabase.from('tariffs').delete().eq('level_id', d.level_id).eq('subject_id', d.subject_id)
+          if (error) throw new Error(error.message)
+        }
+      }
+      if (rows.length > 0) {
+        const { error } = await supabase.from('tariffs').upsert(rows, { onConflict: 'level_id,subject_id' })
+        if (error) throw new Error(error.message)
+      }
+      applyData(await loadAcademicData(), { resetTariffDrafts: true })
+      notify('Grille tarifaire enregistrée')
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+    } finally {
+      setTariffSaving(false)
     }
-    if (rows.length > 0) {
-      const { error } = await supabase.from('tariffs').upsert(rows, { onConflict: 'level_id,subject_id' })
-      if (error) throw new Error(error.message)
-    }
-    setModal(null)
-    await fetchAll()
-    notify('Tarifs enregistrés')
   }
-
-  const formatPrice = (n) => (Number(n) % 1 === 0 ? String(Number(n)) : String(Number(n)))
 
   if (loading) {
     return (
@@ -547,7 +541,7 @@ export default function Settings() {
                       <div className="academic-card__fixed">
                         <span>Prix fixe</span>
                         <label className="settings-switch"><input type="checkbox" checked={Boolean(cycle.has_fixed_price)} onChange={(e) => toggleFixedPrice(cycle.id, e.target.checked)} /><i /></label>
-                        <strong className={cycle.has_fixed_price ? 'academic-fixed-price' : 'academic-fixed-price is-none'}>{cycle.has_fixed_price ? `${formatPrice(cycle.fixed_price)} DH` : '—'}</strong>
+                        <strong className={cycle.has_fixed_price ? 'academic-fixed-price' : 'academic-fixed-price is-none'}>{cycle.has_fixed_price ? `${cycle.fixed_price} DH` : '—'}</strong>
                       </div>
                       <div className="academic-card__actions">
                         <button className="settings-icon-btn" onClick={() => setModal({ kind: 'cycle', cycle })} aria-label="Modifier le cycle"><Pencil /></button>
@@ -575,7 +569,7 @@ export default function Settings() {
                         </div>
                       ))}
                       {(levelsByCycle[cycle.id] || []).length === 0 && <div className="settings-empty">Aucun niveau pour ce cycle.</div>}
-                      <button className="settings-outline settings-level-add" onClick={() => setModal({ kind: 'level', cycleId: cycle.id })}>＋　Ajouter un niveau</button>
+                      <button className="settings-outline settings-level-add" onClick={() => setModal({ kind: 'academicLevel', cycleId: cycle.id })}>＋　Ajouter un niveau</button>
                     </div>
                   </article>
                 ))}
@@ -586,38 +580,67 @@ export default function Settings() {
         {tab === 'pricing' && (
           <section className="settings-card settings-pricing">
             <header className="settings-card-head">
-              <div><strong>Grille tarifaire (DH / mois)</strong><p>Prix par matière et par niveau. Un cycle à prix fixe s'applique à ses niveaux.</p></div>
-              <button className="settings-outline" onClick={() => setModal({ kind: 'subject' })}>＋　Ajouter une matière</button>
+              <div><strong>Grille tarifaire (DH / mois)</strong><p>Prix par matière et par niveau. Modifiez les tarifs puis enregistrez.</p></div>
+              <button className="settings-outline" onClick={() => setModal({ kind: 'level' })}>＋　Ajouter un niveau</button>
             </header>
-            <div className="settings-table">
-              <table>
-                <thead><tr><th>Matière</th><th>Niveaux tarifés</th><th>Prix</th><th>Actions</th></tr></thead>
-                <tbody>
-                  {subjects.length === 0
-                    ? <tr><td colSpan={4} className="settings-empty-row">Aucune matière. Ajoutez une matière pour commencer.</td></tr>
-                    : subjects.map((subject) => {
-                      const st = subjectTariffs[subject.id] || {}
-                      const values = Object.values(st).map(Number)
-                      const range = values.length
-                        ? `${formatPrice(Math.min(...values))} – ${formatPrice(Math.max(...values))} DH`
-                        : '—'
-                      return (
-                        <tr key={subject.id}>
-                          <td><strong>{subject.name}</strong></td>
-                          <td>{values.length} / {levels.length}</td>
-                          <td>{range}</td>
-                          <td>
-                            <div className="settings-row-actions">
-                              <button className="settings-outline settings-btn-small" onClick={() => setModal({ kind: 'tariffs', subject })}>⚙　Définir les prix</button>
-                              <button className="settings-icon-btn is-danger" onClick={() => deleteSubject(subject.id)} aria-label={`Supprimer la matière ${subject.name}`}><Trash /></button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    })}
-                </tbody>
-              </table>
-            </div>
+
+            {levels.length === 0 || subjects.length === 0
+              ? <div className="settings-empty">{levels.length === 0 ? 'Aucun niveau. Ajoutez un niveau pour commencer.' : 'Aucune matière. Ajoutez une matière pour commencer.'}</div>
+              : (
+                <div className="pricing-matrix">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th className="pricing-level-col">Niveau</th>
+                        {subjects.map((subject) => <th key={subject.id}>{subject.name}</th>)}
+                        <th className="pricing-add-col">Matière</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {levels.map((level) => {
+                        const cycle = cycleMap[level.cycle_id]
+                        return (
+                          <tr key={level.id}>
+                            <td className="pricing-level-cell">
+                              <strong>{level.name}</strong>
+                              {cycle && <span>{cycle.name}</span>}
+                            </td>
+                            {subjects.map((subject) => {
+                              const key = `${level.id}::${subject.id}`
+                              const value = tariffDrafts[key] || ''
+                              return (
+                                <td key={subject.id}>
+                                  <div className="pricing-cell">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      value={value}
+                                      placeholder="—"
+                                      aria-label={`Tarif ${subject.name} pour ${level.name}`}
+                                      onChange={(e) => setPricingValue(level.id, subject.id, e.target.value)}
+                                    />
+                                    {value !== '' && (
+                                      <button className="pricing-cell-trash" onClick={() => setPricingValue(level.id, subject.id, '')} aria-label={`Supprimer le tarif ${subject.name} pour ${level.name}`}><Trash /></button>
+                                    )}
+                                  </div>
+                                </td>
+                              )
+                            })}
+                            <td className="pricing-add-col">
+                              <button className="pricing-add-subject" onClick={() => setModal({ kind: 'subject' })}>＋　Matière</button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+            <footer className="pricing-footer">
+              <button className="settings-save" onClick={saveAllTariffs} disabled={tariffSaving}>{tariffSaving ? 'Enregistrement...' : '▣　Enregistrer'}</button>
+            </footer>
           </section>
         )}
 
@@ -646,9 +669,9 @@ export default function Settings() {
       </main>
 
       {modal?.kind === 'cycle' && <CycleModal cycle={modal.cycle} onClose={() => setModal(null)} onSave={saveCycle} />}
-      {modal?.kind === 'level' && <NameModal title="Ajouter un niveau" label="Nom du niveau" placeholder="ex : 1ère année" onClose={() => setModal(null)} onSave={(name) => saveLevel(modal.cycleId, name)} />}
+      {modal?.kind === 'academicLevel' && <NameModal title="Ajouter un niveau" label="Nom du niveau" placeholder="ex : 1ère année" onClose={() => setModal(null)} onSave={(name) => saveLevel(name, modal.cycleId)} />}
+      {modal?.kind === 'level' && <LevelModal cycles={cycles} onClose={() => setModal(null)} onSave={saveLevel} />}
       {modal?.kind === 'subject' && <NameModal title="Ajouter une matière" label="Nom de la matière" placeholder="ex : Philosophie" onClose={() => setModal(null)} onSave={saveSubject} />}
-      {modal?.kind === 'tariffs' && <TariffModal subject={modal.subject} levels={levels} cycleMap={cycleMap} subjectTariffs={subjectTariffs[modal.subject.id] || {}} onClose={() => setModal(null)} onSave={saveTariffs} />}
 
       <Toast notice={notice} />
     </div>
