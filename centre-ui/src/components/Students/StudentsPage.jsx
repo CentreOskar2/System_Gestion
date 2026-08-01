@@ -7,13 +7,15 @@ import AttendanceModal from './modals/AttendanceModal'
 import StudentSheetModal from './modals/StudentSheetModal'
 import EnrollmentPage from './enrollment/EnrollmentPage'
 
-import { students as initialStudents } from './data/mockStudents'
+import { students as initialStudents, levelsByCycle, subjects } from './data/mockStudents'
 import './Students.css'
 
 export default function StudentsPage() {
   const [items, setItems] = useState(initialStudents)
   const [query, setQuery] = useState('')
   const [activeCycle, setActiveCycle] = useState('Tous')
+  const [activeLevel, setActiveLevel] = useState('Tous')
+  const [activeSubject, setActiveSubject] = useState('Tous')
   const [attendanceStudent, setAttendanceStudent] = useState(null)
   const [sheetStudent, setSheetStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
@@ -24,11 +26,13 @@ export default function StudentsPage() {
       items.filter(
         (student) =>
           (activeCycle === 'Tous' || student.cycle === activeCycle) &&
+          (activeLevel === 'Tous' || student.level === activeLevel) &&
+          (activeSubject === 'Tous' || student.chosen?.includes(activeSubject)) &&
           `${student.name} ${student.code} ${student.phone}`
             .toLowerCase()
             .includes(query.toLowerCase())
       ),
-    [items, query, activeCycle]
+    [items, query, activeCycle, activeLevel, activeSubject]
   )
 
   const cycleTabs = useMemo(() => {
@@ -53,6 +57,12 @@ export default function StudentsPage() {
           : student
       )
     )
+  }
+
+  const handleCycleChange = (cycle) => {
+    setActiveCycle(cycle)
+    setActiveLevel('Tous')
+    setActiveSubject('Tous')
   }
 
   const handleFinishEnrollment = (newStudentForm) => {
@@ -136,7 +146,14 @@ export default function StudentsPage() {
         <StudentsFilters
             cycles={cycleTabs}
             activeCycle={activeCycle}
-            onCycleChange={setActiveCycle}
+            onCycleChange={handleCycleChange}
+            levels={activeCycle === 'Tous' ? [] : levelsByCycle[activeCycle] || []}
+            activeLevel={activeLevel}
+            onLevelChange={setActiveLevel}
+            showSubjectFilter={['Collège', 'Lycée', 'Formation'].includes(activeCycle)}
+            subjects={subjects}
+            activeSubject={activeSubject}
+            onSubjectChange={setActiveSubject}
             studentsCount={shownStudents.length}
             searchQuery={query}
             onSearchChange={setQuery}

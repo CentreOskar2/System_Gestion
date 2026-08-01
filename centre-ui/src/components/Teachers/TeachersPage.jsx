@@ -4,6 +4,7 @@ import TeacherForm from './TeacherForm'
 import TeachersToolbar from './TeachersToolbar'
 import TeachersFilters from './TeachersFilters'
 import TeachersTable from './TeachersTable'
+import TeacherProfile from './TeacherProfile'
 import { initialTeachers } from './data/mockTeachers'
 import './Teachers.css'
 
@@ -11,6 +12,7 @@ export default function TeachersPage() {
   const [teachers, setTeachers] = useState(initialTeachers)
   const [query, setQuery] = useState('')
   const [formTeacher, setFormTeacher] = useState(undefined) // undefined: list, null: new, object: edit
+  const [selectedTeacher, setSelectedTeacher] = useState(null)
 
   const filteredTeachers = useMemo(
     () =>
@@ -49,6 +51,10 @@ export default function TeachersPage() {
     )
   }
 
+  if (selectedTeacher) {
+    return <TeacherProfile teacher={selectedTeacher} onBack={() => setSelectedTeacher(null)} />
+  }
+
   return (
     <div className="teachers-page">
       <Header />
@@ -62,6 +68,7 @@ export default function TeachersPage() {
           teachers={filteredTeachers}
           onEdit={setFormTeacher}
           onToggleStatus={handleToggleStatus}
+          onView={setSelectedTeacher}
         />
       </main>
     </div>

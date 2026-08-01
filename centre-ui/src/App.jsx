@@ -8,7 +8,7 @@ import Users from './components/Users/Users'
 import { AuthProvider } from './context/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Settings from './components/Settings/Settings'
-import Teachers from './components/Teachers/Teachers'
+import Teachers from './components/Teachers/TeachersPage'
 import Groups from './components/Groups/GroupsPage'
 import Students from './components/Students/StudentsPage'
 

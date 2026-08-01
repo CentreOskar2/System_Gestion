@@ -25,16 +25,18 @@ export default function StudentsTable({
           {students.map((student) => (
             <tr
               key={student.id}
-              className={student.active ? '' : 'deactivated'}
+              className={`student-table-row ${student.active ? '' : 'deactivated'}`}
+              tabIndex={0}
+              onClick={() => onOpenSheet(student)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onOpenSheet(student)
+                }
+              }}
             >
               <td>
-                <button
-                  className="student-name-button"
-                  type="button"
-                  onClick={() => onOpenSheet(student)}
-                >
-                  {student.name}
-                </button>
+                <span className="student-name-button">{student.name}</span>
               </td>
               <td>{student.code}</td>
               <td>
@@ -53,7 +55,7 @@ export default function StudentsTable({
                     title="Modifier"
                     type="button"
                     aria-label={`Modifier ${student.name}`}
-                    onClick={() => onEditStudent(student)}
+                    onClick={(event) => { event.stopPropagation(); onEditStudent(student) }}
                   >
                     <Icon name="pencil" />
                   </button>
@@ -61,7 +63,7 @@ export default function StudentsTable({
                     title={student.active ? 'Désactiver' : 'Activer'}
                     type="button"
                     aria-label={`${student.active ? 'Désactiver' : 'Activer'} ${student.name}`}
-                    onClick={() => onToggleStatus(student.id)}
+                    onClick={(event) => { event.stopPropagation(); onToggleStatus(student.id) }}
                   >
                     <Icon name="power" />
                   </button>
@@ -70,7 +72,7 @@ export default function StudentsTable({
                     type="button"
                     title="Enregistrer un pointage"
                     aria-label={`Enregistrer un pointage pour ${student.name}`}
-                    onClick={() => onOpenAttendance(student)}
+                    onClick={(event) => { event.stopPropagation(); onOpenAttendance(student) }}
                   >
                     <Icon name="calendar" />
                   </button>
