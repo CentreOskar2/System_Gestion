@@ -20,6 +20,7 @@ const toForm = (teacher) =>
         remuneration_amount: teacher.remuneration_amount ?? teacher.salary ?? '',
         subject_ids: teacher.subject_ids || [],
         branch_ids: teacher.branch_ids || [],
+        level_ids: teacher.level_ids || [],
       }
     : {
         first_name: '',
@@ -34,6 +35,7 @@ const toForm = (teacher) =>
         remuneration_amount: '',
         subject_ids: [],
         branch_ids: [],
+        level_ids: [],
       }
 
 function Toast({ notice }) {
@@ -49,6 +51,7 @@ function Toast({ notice }) {
 export default function TeacherForm({ teacher, onClose, onSave }) {
   const [form, setForm] = useState(() => toForm(teacher))
   const [subjects, setSubjects] = useState([])
+  const [levels, setLevels] = useState([])
   const [branches, setBranches] = useState([])
   const [loadingOptions, setLoadingOptions] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -57,12 +60,14 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [subjectsRes, branchesRes] = await Promise.all([
+      const [subjectsRes, levelsRes, branchesRes] = await Promise.all([
         supabase.from('subjects').select('id, name').order('name'),
+        supabase.from('levels').select('id, name, cycles(name)').order('name'),
         supabase.from('branches').select('id, name').order('name'),
       ])
       if (cancelled) return
       if (subjectsRes.data) setSubjects(subjectsRes.data)
+      if (levelsRes.data) setLevels(levelsRes.data)
       if (branchesRes.data) setBranches(branchesRes.data)
       setLoadingOptions(false)
     }
@@ -80,6 +85,16 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
         : [...form[field], value]
     )
   }
+
+  const levelsByCycle = (() => {
+    const groups = {}
+    for (const level of levels) {
+      const cycleName = level.cycles?.name || 'Autres'
+      if (!groups[cycleName]) groups[cycleName] = []
+      groups[cycleName].push(level)
+    }
+    return groups
+  })()
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -143,6 +158,28 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
                     </label>
                   ))}
                 </div>
+              )}
+            </fieldset>
+            <fieldset>
+              <legend>Niveaux enseignés</legend>
+              {loadingOptions ? (
+                <p className="teacher-options-loading">Chargement des niveaux...</p>
+              ) : Object.keys(levelsByCycle).length === 0 ? (
+                <p className="teacher-options-loading">Aucun niveau disponible.</p>
+              ) : (
+                Object.entries(levelsByCycle).map(([cycleName, cycleLevels]) => (
+                  <div className="teacher-level-group" key={cycleName}>
+                    <strong className="teacher-level-cycle">{cycleName}</strong>
+                    <div className="choice-grid">
+                      {cycleLevels.map((level) => (
+                        <label className={form.level_ids.includes(level.id) ? 'is-checked' : ''} key={level.id}>
+                          <input type="checkbox" checked={form.level_ids.includes(level.id)} onChange={() => toggle('level_ids', level.id)} />
+                          {level.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))
               )}
             </fieldset>
             <fieldset>

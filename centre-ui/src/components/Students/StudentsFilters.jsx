@@ -8,17 +8,22 @@ export default function StudentsFilters({
   levels,
   activeLevel,
   onLevelChange,
-  showSubjectFilter,
   subjects,
   activeSubject,
   onSubjectChange,
   studentsCount,
   searchQuery,
   onSearchChange,
-  // groupFilter,
-  // onGroupFilterChange,
-  // groups
 }) {
+  const levelOptions = [
+    { value: 'Tous', label: 'Tous les niveaux' },
+    ...levels.map((level) => ({ value: level, label: level })),
+  ]
+  const subjectOptions = [
+    { value: 'Tous', label: 'Toutes les matières' },
+    ...subjects.map((subject) => ({ value: subject, label: subject })),
+  ]
+
   return (
     <>
       <div className="cycle-tabs">
@@ -33,25 +38,7 @@ export default function StudentsFilters({
           </button>
         ))}
       </div>
-      {levels.length > 0 && (
-        <div className="student-filter-row" aria-label="Filtrer par niveau">
-          <span>Niveau</span>
-          <div className="student-filter-chips">
-            <button className={activeLevel === 'Tous' ? 'active' : ''} onClick={() => onLevelChange('Tous')}>Tous</button>
-            {levels.map((level) => <button key={level} className={activeLevel === level ? 'active' : ''} onClick={() => onLevelChange(level)}>{level}</button>)}
-          </div>
-        </div>
-      )}
-      {showSubjectFilter && (
-        <div className="student-filter-row" aria-label="Filtrer par matière">
-          <span>Matière</span>
-          <div className="student-filter-chips">
-            <button className={activeSubject === 'Tous' ? 'active' : ''} onClick={() => onSubjectChange('Tous')}>Toutes les matières</button>
-            {subjects.map((subject) => <button key={subject} className={activeSubject === subject ? 'active' : ''} onClick={() => onSubjectChange(subject)}>{subject}</button>)}
-          </div>
-        </div>
-      )}
-      <div className="students-filters">
+      <div className="students-filters" aria-label="Filtrer les élèves">
         <label className="search-bar">
           <Icon name="search" />
           <input
@@ -62,7 +49,24 @@ export default function StudentsFilters({
             placeholder="Rechercher par nom, matricule, tél..."
           />
         </label>
-        {/* This group filter was in the original plan, so I'm adding it as a placeholder */}
+        <div className="filter-select">
+          <Icon name="layers" />
+          <FilterSelect
+            ariaLabel="Filtrer par niveau"
+            value={activeLevel}
+            options={levelOptions}
+            onChange={onLevelChange}
+          />
+        </div>
+        <div className="filter-select">
+          <Icon name="cap" />
+          <FilterSelect
+            ariaLabel="Filtrer par matière"
+            value={activeSubject}
+            options={subjectOptions}
+            onChange={onSubjectChange}
+          />
+        </div>
         <div className="filter-select">
           <Icon name="users" />
           <FilterSelect ariaLabel="Filtrer par groupe" value="" options={[{ value: '', label: 'Tous les groupes' }]} onChange={() => {}} />

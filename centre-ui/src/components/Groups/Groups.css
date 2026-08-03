@@ -390,3 +390,5 @@
     display: none;
   }
 }
+
+.group-teacher-hint{display:block;margin-top:7px;color:#8a94a8;font-size:.78rem;font-weight:600;line-height:1.4}

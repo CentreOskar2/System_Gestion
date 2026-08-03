@@ -2,11 +2,19 @@ import Icon from '../Icon'
 
 export default function StudentsTable({
   students,
+  catalog,
   onOpenSheet,
   onEditStudent,
   onToggleStatus,
   onOpenAttendance,
 }) {
+  const subjectLabel = (student) => {
+    const cycle = catalog?.cycleByName?.[student.cycle]
+    if (cycle?.has_fixed_price) {
+      return `${Number(cycle.fixed_price || 0).toLocaleString('fr-FR')} DH`
+    }
+    return student.subjects
+  }
   return (
     <div className="students-table-wrapper">
       <table className="students-table">
@@ -40,10 +48,10 @@ export default function StudentsTable({
               </td>
               <td>{student.code}</td>
               <td>
-                <b>{student.cycle}</b>, {student.level}
+                <b>{[student.cycle, student.level].filter(Boolean).join(' · ')}</b>
               </td>
               <td>{student.branch}</td>
-              <td>{student.subjects || 'N/A'}</td>
+              <td>{subjectLabel(student)}</td>
               <td>
                 <span className={`payment-status ${student.payment?.toLowerCase()}`}>
                   {student.payment || 'N/A'}

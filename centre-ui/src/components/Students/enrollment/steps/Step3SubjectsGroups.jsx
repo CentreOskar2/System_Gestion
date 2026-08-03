@@ -12,7 +12,12 @@ export default function Step3SubjectsGroups({ form, toggleSubject, setSubjectDet
 
   const teachersFor = (subject) => {
     const mappedIds = catalog.teachersBySubject?.[subject.id] || []
-    const available = catalog.teachers.filter((t) => mappedIds.length === 0 || mappedIds.includes(t.id))
+    const levelIds = level ? catalog.teachersByLevel?.[level.id] || [] : []
+    const available = catalog.teachers.filter(
+      (t) =>
+        (mappedIds.length === 0 || mappedIds.includes(t.id)) &&
+        (levelIds.length === 0 || levelIds.includes(t.id))
+    )
     return available.map((t) => t.name)
   }
 

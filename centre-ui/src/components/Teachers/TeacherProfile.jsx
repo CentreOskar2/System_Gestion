@@ -103,6 +103,36 @@ export default function TeacherProfile({ teacher, onBack }) {
             </article>
 
             <article className="teacher-profile-card">
+              <h2>Matières &amp; niveaux enseignés</h2>
+              <div className="teacher-qualifications">
+                <div>
+                  <strong>Matières</strong>
+                  {teacher.subjects?.length ? (
+                    <div className="teacher-tag-list">
+                      {teacher.subjects.map((subject) => (
+                        <i className="subject-tag" key={subject}>{subject}</i>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="teacher-profile-empty">Aucune matière assignée.</p>
+                  )}
+                </div>
+                <div>
+                  <strong>Niveaux</strong>
+                  {teacher.levels?.length ? (
+                    <div className="teacher-tag-list">
+                      {teacher.levels.map((level) => (
+                        <i className="subject-tag" key={level}>{level}</i>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="teacher-profile-empty">Aucun niveau assigné.</p>
+                  )}
+                </div>
+              </div>
+            </article>
+
+            <article className="teacher-profile-card">
               <h2>Groupes assignés</h2>
               {groups === null ? (
                 <p className="teacher-profile-empty">Chargement des groupes...</p>

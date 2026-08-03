@@ -125,17 +125,9 @@
   color: #2563eb;
 }
 
-.student-filter-row { display: flex; align-items: flex-start; gap: 18px; margin: -14px 0 28px; }
-.student-filter-row > span { min-width: 58px; padding-top: 9px; color: #647088; font-size: .88rem; font-weight: 700; }
-.student-filter-chips { display: flex; flex-wrap: wrap; gap: 10px; }
-.student-filter-chips button { min-height: 36px; padding: 0 16px; border: 1px solid #dce3ed; border-radius: 999px; background: #fff; color: #172033; font-weight: 650; cursor: pointer; }
-.student-filter-chips button:hover { border-color: #91aeff; }
-.student-filter-chips button.active { border-color: #315fec; background: #315fec; color: #fff; }
-
-/* Filters */
 .students-filters {
   display: grid;
-  grid-template-columns: 1fr 224px;
+  grid-template-columns: 1.7fr repeat(3, minmax(190px, 1fr));
   gap: 16px;
   margin-bottom: 32px;
 }
@@ -313,6 +305,5 @@
 .student-sheet > main { padding: 34px; }.paid-card { display: inline-grid; gap: 5px; padding: 14px 17px; border-radius: 11px; background: #eaf7ee; color: #278244; }.paid-card small { font-size: .7rem; font-weight: 800; }.paid-card strong { font-size: 1.25rem; }.student-sheet main section { margin-top: 26px; }.student-sheet main section > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }.student-sheet h3 { margin: 0; color: #172033; font-size: 1.08rem; }.student-sheet select, .student-sheet header button, .grades header button { min-height: 38px; padding: 0 12px; border: 1px solid #d9e1ee; border-radius: 8px; background: #fff; color: #34425b; font: inherit; }.grades header button { border-color: #315fec; background: #315fec; color: #fff; font-weight: 700; cursor: pointer; }.monthly header > div { display: flex; gap: 8px; }.monthly-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-top: 16px; }.monthly-stats > div { padding: 13px; border: 1px solid #e3e9f2; border-radius: 10px; }.monthly-stats small, .monthly-stats span { display: block; color: #718099; font-size: .72rem; }.monthly-stats b { display: block; margin: 6px 0; color: #172033; font-size: 1.25rem; }.grades { overflow-x: auto; }.grades table { width: 100%; min-width: 590px; margin-top: 15px; border-collapse: collapse; }.grades th, .grades td { padding: 12px; border-bottom: 1px solid #e6ebf2; text-align: left; font-size: .88rem; }.grades th { color: #718099; font-size: .72rem; text-transform: uppercase; }.grades td span { color: #278244; font-weight: 700; }
 @media (max-width: 800px) { .students-content { padding: 24px 16px; }.students-filters { grid-template-columns: 1fr; margin-bottom: 28px; }.cycle-tabs { grid-template-columns: repeat(2, 1fr); }.students-table th, .students-table td { padding: 14px; }.student-sheet { grid-template-columns: 1fr; }.student-sheet > main { padding: 24px 18px; }.monthly-stats { grid-template-columns: repeat(2, 1fr); }.attendance-item { align-items: flex-start; flex-direction: column; }.attendance-item > label { width: 100%; }.grade-modal form > div { grid-template-columns: 1fr; } }
 @media (max-width: 480px) { .students-heading .actions { width: 100%; }.students-heading .actions button { flex: 1; padding: 0 12px; }.cycle-tabs { grid-template-columns: 1fr; }.student-overlay { padding: 12px; }.attendance-modal, .grade-modal { padding: 26px 18px; } }
-@media (max-width: 600px) { .student-filter-row { display: block; margin-bottom: 22px; }.student-filter-row > span { display: block; padding: 0 0 9px; } }
 .sheet-alerts{margin-top:22px;padding:13px;border:1px solid #f2d49b;border-radius:10px;background:#fff8e9}.sheet-alerts h3{margin:0 0 7px;color:#8b5c08;font-size:.78rem;line-height:1.35}.sheet-alerts p{margin:0;color:#775a24;font-size:.82rem;line-height:1.45}.sheet-empty{margin:16px 0 0;padding:22px;border:1px dashed #dbe2ec;border-radius:11px;color:#718099;text-align:center}.enrolled-subjects>div{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:14px}.enrolled-subjects article{position:relative;min-height:76px;padding:14px;border:1px solid #e0e7f0;border-radius:11px}.enrolled-subjects article b,.enrolled-subjects article small{display:block}.enrolled-subjects article small{margin-top:8px;color:#718099;font-size:.78rem}.enrolled-subjects article span{position:absolute;top:12px;right:12px;padding:5px 9px;border-radius:999px;background:#edf2ff;color:#315fec;font-size:.78rem;font-weight:800}@media(max-width:800px){.enrolled-subjects>div{grid-template-columns:1fr}}
 .students-loading{padding:60px;text-align:center;color:#647088;font-weight:600}

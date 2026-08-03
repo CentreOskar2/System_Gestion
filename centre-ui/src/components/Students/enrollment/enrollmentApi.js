@@ -1,7 +1,7 @@
 import { supabase } from '../../../supabaseClient'
 
 export async function fetchCatalog() {
-  const [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, groups, groupStudents, tariffs, branches] =
+  const [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, groups, groupStudents, tariffs, branches] =
     await Promise.all([
       supabase.from('cycles').select('*').order('name'),
       supabase.from('levels').select('*').order('name'),
@@ -9,13 +9,14 @@ export async function fetchCatalog() {
       supabase.from('subjects').select('*').order('name'),
       supabase.from('teachers').select('*').order('first_name'),
       supabase.from('teacher_subjects').select('teacher_id, subject_id'),
+      supabase.from('teacher_levels').select('teacher_id, level_id'),
       supabase.from('groups').select('*').order('name'),
       supabase.from('group_students').select('group_id, student_id, students(first_name, last_name)'),
       supabase.from('tariffs').select('level_id, subject_id, price'),
       supabase.from('branches').select('id, name').order('name'),
     ])
 
-  const firstError = [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, groups, groupStudents, tariffs, branches].find((r) => r.error)
+  const firstError = [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, groups, groupStudents, tariffs, branches].find((r) => r.error)
   if (firstError) throw new Error(firstError.error.message)
 
   const cycleByName = Object.fromEntries((cycles.data || []).map((c) => [c.name, c]))
@@ -51,6 +52,12 @@ export async function fetchCatalog() {
   for (const row of teacherSubjects.data || []) {
     if (!teachersBySubject[row.subject_id]) teachersBySubject[row.subject_id] = []
     teachersBySubject[row.subject_id].push(row.teacher_id)
+  }
+
+  const teachersByLevel = {}
+  for (const row of teacherLevels.data || []) {
+    if (!teachersByLevel[row.level_id]) teachersByLevel[row.level_id] = []
+    teachersByLevel[row.level_id].push(row.teacher_id)
   }
 
   const studentsByGroup = {}
@@ -100,6 +107,7 @@ export async function fetchCatalog() {
     teachersById,
     teachersByName,
     teachersBySubject,
+    teachersByLevel,
     groups: groups.data || [],
     groupsBySubject,
     tariffsByLevelSubject,
@@ -279,7 +287,7 @@ export async function deactivateAllStudents() {
 export async function fetchStudents() {
   const { data, error } = await supabase
     .from('students')
-    .select('*, branches(name), levels(name), cycles(name), filieres(name)')
+    .select('*, branches(name), levels(name, cycle_id, cycles(name)), cycles(name), filieres(name)')
     .order('created_at', { ascending: false })
   if (error) throw new Error(error.message)
 
@@ -312,7 +320,7 @@ export async function fetchStudents() {
       id: s.id,
       name: `${s.first_name} ${s.last_name}`.trim(),
       code: s.registration_number,
-      cycle: s.cycles?.name || '',
+      cycle: s.cycles?.name || s.levels?.cycles?.name || '',
       level: s.levels?.name || '',
       track: s.filieres?.name || '',
       branch: s.branches?.name || '',

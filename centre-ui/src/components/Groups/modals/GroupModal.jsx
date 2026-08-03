@@ -38,7 +38,7 @@ export default function GroupModal({ group, close, save }) {
   const [subjects, setSubjects] = useState([])
   const [levels, setLevels] = useState([])
   const [branches, setBranches] = useState([])
-  const [teachersData, setTeachersData] = useState({ teachers: [], subjectsByTeacher: {}, branchesByTeacher: {} })
+  const [teachersData, setTeachersData] = useState({ teachers: [], subjectsByTeacher: {}, branchesByTeacher: {}, levelsByTeacher: {} })
   const [students, setStudents] = useState([])
   const [studentQuery, setStudentQuery] = useState('')
   const [loadingStudents, setLoadingStudents] = useState(false)
@@ -50,13 +50,14 @@ export default function GroupModal({ group, close, save }) {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [subjectsRes, levelsRes, branchesRes, teachersRes, tsRes, tbRes] = await Promise.all([
+      const [subjectsRes, levelsRes, branchesRes, teachersRes, tsRes, tbRes, tlRes] = await Promise.all([
         supabase.from('subjects').select('id, name').order('name'),
         supabase.from('levels').select('id, name').order('name'),
         supabase.from('branches').select('id, name').order('name'),
         supabase.from('teachers').select('id, first_name, last_name').order('first_name'),
         supabase.from('teacher_subjects').select('teacher_id, subject_id'),
         supabase.from('teacher_branches').select('teacher_id, branch_id'),
+        supabase.from('teacher_levels').select('teacher_id, level_id'),
       ])
       if (cancelled) return
       if (subjectsRes.data) setSubjects(subjectsRes.data)
@@ -71,10 +72,15 @@ export default function GroupModal({ group, close, save }) {
         for (const row of tbRes.data || []) {
           branchesByTeacher[row.teacher_id] = [...(branchesByTeacher[row.teacher_id] || []), row.branch_id]
         }
+        const levelsByTeacher = {}
+        for (const row of tlRes.data || []) {
+          levelsByTeacher[row.teacher_id] = [...(levelsByTeacher[row.teacher_id] || []), row.level_id]
+        }
         setTeachersData({
           teachers: teachersRes.data.map((t) => ({ id: t.id, name: `${t.first_name} ${t.last_name}` })),
           subjectsByTeacher,
           branchesByTeacher,
+          levelsByTeacher,
         })
       }
     }
@@ -106,18 +112,19 @@ export default function GroupModal({ group, close, save }) {
   }, [form.branch_id])
 
   const availableTeachers = useMemo(() => {
-    const { teachers, subjectsByTeacher, branchesByTeacher } = teachersData
+    const { teachers, subjectsByTeacher, branchesByTeacher, levelsByTeacher } = teachersData
     return teachers.filter((t) =>
       (!form.subject_id || (subjectsByTeacher[t.id] || []).includes(form.subject_id)) &&
-      (!form.branch_id || (branchesByTeacher[t.id] || []).includes(form.branch_id))
+      (!form.branch_id || (branchesByTeacher[t.id] || []).includes(form.branch_id)) &&
+      (!form.level_id || (levelsByTeacher[t.id] || []).includes(form.level_id))
     )
-  }, [teachersData, form.subject_id, form.branch_id])
+  }, [teachersData, form.subject_id, form.branch_id, form.level_id])
 
   const update = (key, value) => {
     setForm((item) => {
       const next = { ...item, [key]: value }
       if (key === 'branch_id') next.student_ids = []
-      if (key === 'subject_id' || key === 'branch_id') next.teacher_id = ''
+      if (key === 'subject_id' || key === 'level_id' || key === 'branch_id') next.teacher_id = ''
       return next
     })
   }
@@ -187,6 +194,11 @@ export default function GroupModal({ group, close, save }) {
                 <option value="">—</option>
                 {availableTeachers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
+              {availableTeachers.length === 0 && (
+                <small className="group-teacher-hint">
+                  Aucun professeur ne correspond à la matière, au niveau et à la succursale choisis.
+                </small>
+              )}
             </label>
             <label>
               Succursale *

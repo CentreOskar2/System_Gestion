@@ -30,15 +30,18 @@ export default function TeachersPage() {
 
   async function fetchTeachers() {
     setLoading(true)
-    const [teachersRes, subjectsRes, branchesRes, tsRes, tbRes] = await Promise.all([
+    const [teachersRes, subjectsRes, levelsRes, branchesRes, tsRes, tbRes, tlRes] = await Promise.all([
       supabase.from('teachers').select('*').order('created_at', { ascending: false }),
       supabase.from('subjects').select('id, name'),
+      supabase.from('levels').select('id, name'),
       supabase.from('branches').select('id, name'),
       supabase.from('teacher_subjects').select('teacher_id, subject_id'),
       supabase.from('teacher_branches').select('teacher_id, branch_id'),
+      supabase.from('teacher_levels').select('teacher_id, level_id'),
     ])
     if (teachersRes.data) {
       const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
+      const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
       const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
       const subjectsByTeacher = {}
       for (const row of tsRes.data || []) {
@@ -48,10 +51,15 @@ export default function TeachersPage() {
       for (const row of tbRes.data || []) {
         branchesByTeacher[row.teacher_id] = [...(branchesByTeacher[row.teacher_id] || []), row.branch_id]
       }
+      const levelsByTeacher = {}
+      for (const row of tlRes.data || []) {
+        levelsByTeacher[row.teacher_id] = [...(levelsByTeacher[row.teacher_id] || []), row.level_id]
+      }
       setTeachers(
         teachersRes.data.map((t) => {
           const subjectIds = subjectsByTeacher[t.id] || []
           const branchIds = branchesByTeacher[t.id] || []
+          const levelIds = levelsByTeacher[t.id] || []
           return {
             id: t.id,
             firstName: t.first_name,
@@ -69,9 +77,11 @@ export default function TeachersPage() {
             rates: {},
             subject_ids: subjectIds,
             branch_ids: branchIds,
+            level_ids: levelIds,
             branch_id: t.branch_id,
             subjects: subjectIds.map((id) => subjectMap[id]).filter(Boolean),
             branches: branchIds.map((id) => branchMap[id]).filter(Boolean),
+            levels: levelIds.map((id) => levelMap[id]).filter(Boolean),
           }
         })
       )
@@ -89,19 +99,23 @@ export default function TeachersPage() {
     [teachers, query]
   )
 
+  const junctionColumn = {
+    teacher_subjects: 'subject_id',
+    teacher_branches: 'branch_id',
+    teacher_levels: 'level_id',
+  }
+
   async function syncJunction(teacherId, table, currentIds, newIds) {
+    const column = junctionColumn[table]
     const toRemove = currentIds.filter((id) => !newIds.includes(id))
     const toAdd = newIds.filter((id) => !currentIds.includes(id))
     if (toRemove.length > 0) {
-      const { error } = await supabase.from(table).delete().eq('teacher_id', teacherId).in(
-        table === 'teacher_subjects' ? 'subject_id' : 'branch_id',
-        toRemove
-      )
+      const { error } = await supabase.from(table).delete().eq('teacher_id', teacherId).in(column, toRemove)
       if (error) throw new Error(error.message)
     }
     if (toAdd.length > 0) {
       const { error } = await supabase.from(table).insert(
-        toAdd.map((id) => ({ teacher_id: teacherId, [table === 'teacher_subjects' ? 'subject_id' : 'branch_id']: id }))
+        toAdd.map((id) => ({ teacher_id: teacherId, [column]: id }))
       )
       if (error) throw new Error(error.message)
     }
@@ -129,9 +143,10 @@ export default function TeachersPage() {
       const { error } = await supabase.from('teachers').update(payload).eq('id', teacherId)
       if (error) throw new Error(error.message)
 
-      const [subsRes, brsRes] = await Promise.all([
+      const [subsRes, brsRes, lvRes] = await Promise.all([
         supabase.from('teacher_subjects').select('subject_id').eq('teacher_id', teacherId),
         supabase.from('teacher_branches').select('branch_id').eq('teacher_id', teacherId),
+        supabase.from('teacher_levels').select('level_id').eq('teacher_id', teacherId),
       ])
       await syncJunction(
         teacherId,
@@ -145,6 +160,12 @@ export default function TeachersPage() {
         (brsRes.data || []).map((r) => r.branch_id),
         form.branch_ids
       )
+      await syncJunction(
+        teacherId,
+        'teacher_levels',
+        (lvRes.data || []).map((r) => r.level_id),
+        form.level_ids
+      )
     } else {
       const { data, error } = await supabase.from('teachers').insert(payload).select('id').single()
       if (error) throw new Error(error.message)
@@ -154,6 +175,9 @@ export default function TeachersPage() {
       }
       if (form.branch_ids.length > 0) {
         await syncJunction(teacherId, 'teacher_branches', [], form.branch_ids)
+      }
+      if (form.level_ids.length > 0) {
+        await syncJunction(teacherId, 'teacher_levels', [], form.level_ids)
       }
     }
 

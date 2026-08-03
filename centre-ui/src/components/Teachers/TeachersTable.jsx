@@ -8,6 +8,7 @@ export default function TeachersTable({ teachers, onEdit, onToggleStatus, onView
           <tr>
             <th>Professeur</th>
             <th>Matière(s)</th>
+            <th>Niveau(x)</th>
             <th>Salaire</th>
             <th>Succursale(s)</th>
             <th>Statut</th>
@@ -17,7 +18,7 @@ export default function TeachersTable({ teachers, onEdit, onToggleStatus, onView
         <tbody>
           {teachers.length === 0 && (
             <tr>
-              <td colSpan="6" className="teachers-empty">Aucun professeur enregistré.</td>
+              <td colSpan="7" className="teachers-empty">Aucun professeur enregistré.</td>
             </tr>
           )}
           {teachers.map((teacher) => (
@@ -40,6 +41,13 @@ export default function TeachersTable({ teachers, onEdit, onToggleStatus, onView
                 {teacher.subjects.map((subject) => (
                   <i className="subject-tag" key={subject}>
                     {subject}
+                  </i>
+                ))}
+              </td>
+              <td>
+                {teacher.levels.map((level) => (
+                  <i className="subject-tag" key={level}>
+                    {level}
                   </i>
                 ))}
               </td>

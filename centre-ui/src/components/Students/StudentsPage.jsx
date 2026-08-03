@@ -81,6 +81,13 @@ export default function StudentsPage() {
 
   const subjects = useMemo(() => (catalog?.subjects || []).map((subject) => subject.name), [catalog])
 
+  const levels = useMemo(() => {
+    if (activeCycle === 'Tous') {
+      return [...new Set((catalog?.levels || []).map((level) => level.name))].sort()
+    }
+    return catalog?.levelsByCycle?.[activeCycle] || []
+  }, [catalog, activeCycle])
+
   const handleDeactivateAll = async () => {
     try {
       await deactivateAllStudents()
@@ -162,10 +169,9 @@ export default function StudentsPage() {
           cycles={cycleTabs}
           activeCycle={activeCycle}
           onCycleChange={handleCycleChange}
-          levels={activeCycle === 'Tous' ? [] : (catalog?.levelsByCycle?.[activeCycle] || [])}
+          levels={levels}
           activeLevel={activeLevel}
           onLevelChange={setActiveLevel}
-          showSubjectFilter={['Collège', 'Lycée', 'Formation'].includes(activeCycle)}
           subjects={subjects}
           activeSubject={activeSubject}
           onSubjectChange={setActiveSubject}
@@ -177,6 +183,7 @@ export default function StudentsPage() {
           <div className="students-loading">Chargement des étudiants...</div>
         ) : (
           <StudentsTable
+            catalog={catalog}
             students={shownStudents}
             onOpenSheet={setSheetStudent}
             onEditStudent={handleOpenEdit}
