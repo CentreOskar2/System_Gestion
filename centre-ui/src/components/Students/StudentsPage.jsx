@@ -4,6 +4,7 @@ import StudentsToolbar from './StudentsToolbar'
 import StudentsFilters from './StudentsFilters'
 import StudentsTable from './StudentsTable'
 import AttendanceModal from './modals/AttendanceModal'
+import AbsenceSheetModal from './modals/AbsenceSheetModal'
 import StudentSheetModal from './modals/StudentSheetModal'
 import EnrollmentPage from './enrollment/EnrollmentPage'
 
@@ -17,6 +18,7 @@ export default function StudentsPage() {
   const [activeLevel, setActiveLevel] = useState('Tous')
   const [activeSubject, setActiveSubject] = useState('Tous')
   const [attendanceStudent, setAttendanceStudent] = useState(null)
+  const [absenceSheetOpen, setAbsenceSheetOpen] = useState(false)
   const [sheetStudent, setSheetStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
   const [isEnrolling, setIsEnrolling] = useState(false)
@@ -135,6 +137,10 @@ export default function StudentsPage() {
     )
   }
 
+  if (absenceSheetOpen) {
+    return <AbsenceSheetModal close={() => setAbsenceSheetOpen(false)} />
+  }
+
   return (
     <div className="students-page">
       <Header />
@@ -142,6 +148,7 @@ export default function StudentsPage() {
         <StudentsToolbar
           onAddStudent={() => setIsEnrolling(true)}
           onDeactivateAll={handleDeactivateAll}
+          onOpenAbsenceSheet={() => setAbsenceSheetOpen(true)}
         />
         <StudentsFilters
             cycles={cycleTabs}

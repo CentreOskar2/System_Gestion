@@ -9,6 +9,8 @@ import Settings from './components/Settings/Settings'
 import Teachers from './components/Teachers/TeachersPage'
 import Groups from './components/Groups/GroupsPage'
 import Students from './components/Students/StudentsPage'
+import FeesPage from './components/Accounting/FeesPage'
+import DelinquenciesPage from './components/Accounting/DelinquenciesPage'
 
 const sidebarSections = [
   {
@@ -93,6 +95,8 @@ function DashboardLayout() {
         <Route path="/teachers" element={<Teachers />} />
         <Route path="/groups" element={<Groups />} />
         <Route path="/students" element={<Students />} />
+        <Route path="/accounting/fees" element={<FeesPage />} />
+        <Route path="/accounting/delinquencies" element={<DelinquenciesPage />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
       </Routes>

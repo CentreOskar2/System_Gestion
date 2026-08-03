@@ -1,4 +1,4 @@
-export default function StudentsToolbar({ onAddStudent, onDeactivateAll }) {
+export default function StudentsToolbar({ onAddStudent, onDeactivateAll, onOpenAbsenceSheet }) {
   return (
     <div className="students-heading">
       <div>
@@ -6,7 +6,7 @@ export default function StudentsToolbar({ onAddStudent, onDeactivateAll }) {
         {/* The student count will be passed to another component or stay in the parent */}
       </div>
       <div className="actions">
-        <button className="print-button">
+        <button className="print-button" onClick={onOpenAbsenceSheet}>
           ▣ &nbsp; Imprimer fiche d'absence vierge
         </button>
         <button className="deactivate-all" onClick={onDeactivateAll}>
