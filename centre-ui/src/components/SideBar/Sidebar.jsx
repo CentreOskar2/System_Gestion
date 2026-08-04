@@ -6,7 +6,6 @@ import { useAuth } from '../../context/AuthContext'
 const accountingIcons = ['💲', '⚠️', '🗂️', '🔗', '📈']
 
 export default function Sidebar({ sections }) {
-<<<<<<< HEAD
   const { permissions, signOut } = useAuth()
 
   function hasPermission(item) {
@@ -32,11 +31,9 @@ export default function Sidebar({ sections }) {
         }),
     }))
     .filter((section) => section.items.length > 0)
-=======
   const location = useLocation()
   const isAccountingRoute = location.pathname.startsWith('/accounting') || location.pathname.startsWith('/comptabilite')
   const [accountingOpen, setAccountingOpen] = useState(isAccountingRoute)
->>>>>>> origin/feature/students-ui
 
   return (
     <aside className="sidebar">
@@ -83,16 +80,13 @@ export default function Sidebar({ sections }) {
         ))}
       </nav>
 
-<<<<<<< HEAD
       <button type="button" className="logout" onClick={signOut}>
         <span className="nav-link__icon">
           <Icon name="settings" />
         </span>
         Se déconnecter
       </button>
-=======
       <button type="button" className="logout"><span className="nav-link__icon"><Icon name="settings" /></span>Se déconnecter</button>
->>>>>>> origin/feature/students-ui
     </aside>
   )
 }

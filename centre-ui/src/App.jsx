@@ -91,22 +91,7 @@ function DashboardLayout() {
   return (
     <div className="dashboard-shell">
       <Sidebar sections={sidebarSections} />
-<<<<<<< HEAD
       <Outlet />
-=======
-      <Routes>
-        <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
-        <Route path="/branches" element={<Branches />} />
-        <Route path="/users" element={<Users />} />
-        <Route path="/teachers" element={<Teachers />} />
-        <Route path="/groups" element={<Groups />} />
-        <Route path="/students" element={<Students />} />
-        <Route path="/accounting/fees" element={<FeesPage />} />
-        <Route path="/accounting/delinquencies" element={<DelinquenciesPage />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
-      </Routes>
->>>>>>> origin/feature/students-ui
     </div>
   )
 }
@@ -124,6 +109,8 @@ function App() {
               <Route path="/students" element={<ProtectedRoute requiredPerm="students"><Students /></ProtectedRoute>} />
               <Route path="/groups" element={<ProtectedRoute requiredPerm="groups"><Groups /></ProtectedRoute>} />
               <Route path="/teachers" element={<ProtectedRoute requiredPerm="teachers"><Teachers /></ProtectedRoute>} />
+              <Route path="/accounting/fees" element={<ProtectedRoute requiredPerm="tuition"><FeesPage /></ProtectedRoute>} />
+              <Route path="/accounting/delinquencies" element={<ProtectedRoute requiredPerm="late_payments"><DelinquenciesPage /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute requiredPerm="settings"><Settings /></ProtectedRoute>} />
               <Route path="/branches" element={<ProtectedRoute requiredPerm="administration"><Branches /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute requiredPerm="administration"><Users /></ProtectedRoute>} />
