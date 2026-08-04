@@ -44,7 +44,14 @@ export default function StudentsTable({
               }}
             >
               <td>
-                <span className="student-name-button">{student.name}</span>
+                <div className="student-name-cell">
+                  {student.photoUrl ? (
+                    <img className="student-table-avatar" src={student.photoUrl} alt="" />
+                  ) : (
+                    <span className="student-table-avatar">{student.name.charAt(0).toUpperCase()}</span>
+                  )}
+                  <span className="student-name-button">{student.name}</span>
+                </div>
               </td>
               <td>{student.code}</td>
               <td>

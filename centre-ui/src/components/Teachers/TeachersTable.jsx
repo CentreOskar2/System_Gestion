@@ -25,10 +25,14 @@ export default function TeachersTable({ teachers, onEdit, onToggleStatus, onView
             <tr key={teacher.id} className="teacher-table-row" onClick={() => onView(teacher)}>
               <td>
                 <div className="teacher-name">
-                  <span>
-                    {teacher.firstName[0]}
-                    {teacher.lastName[0]}
-                  </span>
+                  {teacher.photoUrl ? (
+                    <img className="teacher-table-avatar" src={teacher.photoUrl} alt="" />
+                  ) : (
+                    <span>
+                      {teacher.firstName[0]}
+                      {teacher.lastName[0]}
+                    </span>
+                  )}
                   <div>
                     <strong>
                       {teacher.firstName} {teacher.lastName}

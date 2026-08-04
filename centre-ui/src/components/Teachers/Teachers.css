@@ -13,6 +13,8 @@
 
 .teacher-profile-empty { margin: 0; padding: 26px; border: 1px dashed #dce3ed; border-radius: 12px; color: #68758b; text-align: center; }
 
+.teacher-profile-avatar-img { width: 116px; height: 116px; margin: 0 auto 20px; border-radius: 50%; object-fit: cover; }
+
 .teachers-topbar {
   margin: 0;
   padding: 24px 36px 18px;
@@ -175,6 +177,13 @@
   font-size: 0.9rem;
 }
 
+.teacher-table-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .teacher-name strong {
   display: block;
   color: #111b2b;
@@ -321,6 +330,13 @@
   inset: 0;
   opacity: 0;
   cursor: pointer;
+}
+
+.photo-drop-preview {
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 /* =======================

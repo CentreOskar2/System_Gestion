@@ -80,7 +80,11 @@ export default function TeacherProfile({ teacher, onBack }) {
         <button className="teacher-profile-back" onClick={onBack}>← Retour aux professeurs</button>
         <div className="teacher-profile-layout">
           <aside className="teacher-profile-summary">
-            <div className="teacher-profile-avatar">{initials(fullName)}</div>
+            {teacher.photoUrl ? (
+              <img className="teacher-profile-avatar-img" src={teacher.photoUrl} alt={fullName} />
+            ) : (
+              <div className="teacher-profile-avatar">{initials(fullName)}</div>
+            )}
             <h1>{fullName}</h1>
             <span className={`teacher-status ${teacher.active ? 'active' : ''}`}>{teacher.active ? 'Actif' : 'Inactif'}</span>
             <div className="teacher-contact-list">

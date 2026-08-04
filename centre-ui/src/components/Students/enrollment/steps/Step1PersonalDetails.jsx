@@ -1,4 +1,6 @@
 export default function Step1PersonalDetails({ form, set }) {
+  const previewUrl = form.photoFile ? URL.createObjectURL(form.photoFile) : form.photoUrl
+
   return (
     <>
       <h2>Détails personnels</h2>
@@ -8,8 +10,18 @@ export default function Step1PersonalDetails({ form, set }) {
         <input value={form.code} readOnly />
       </label>
       <label className="enrollment-photo">
-        ⇧<span>Cliquer ou glisser une photo</span>
-        <input type="file" />
+        {previewUrl ? (
+          <img className="enrollment-photo-preview" src={previewUrl} alt="Photo de l'élève" />
+        ) : (
+          <>
+            ⇧<span>Cliquer ou glisser une photo</span>
+          </>
+        )}
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => set('photoFile', e.target.files?.[0] || null)}
+        />
       </label>
       <div className="enrollment-grid">
         <label>

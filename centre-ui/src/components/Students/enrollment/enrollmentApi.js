@@ -1,7 +1,8 @@
 import { supabase } from '../../../supabaseClient'
+import { uploadImage } from '../../../utils/storage'
 
 export async function fetchCatalog() {
-  const [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, groups, groupStudents, tariffs, branches] =
+  const [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, groups, groupStudents, tariffs, branches, userBranches] =
     await Promise.all([
       supabase.from('cycles').select('*').order('name'),
       supabase.from('levels').select('*').order('name'),
@@ -14,12 +15,14 @@ export async function fetchCatalog() {
       supabase.from('group_students').select('group_id, student_id, students(first_name, last_name)'),
       supabase.from('tariffs').select('level_id, subject_id, price'),
       supabase.from('branches').select('id, name').order('name'),
+      supabase.from('user_branches').select('branch_id'),
     ])
 
-  const firstError = [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, groups, groupStudents, tariffs, branches].find((r) => r.error)
+  const firstError = [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, groups, groupStudents, tariffs, branches, userBranches].find((r) => r.error)
   if (firstError) throw new Error(firstError.error.message)
 
   const cycleByName = Object.fromEntries((cycles.data || []).map((c) => [c.name, c]))
+  const cycleById = Object.fromEntries((cycles.data || []).map((c) => [c.id, c]))
   const levelByName = Object.fromEntries((levels.data || []).map((l) => [l.name, l]))
   const subjectsByName = Object.fromEntries((subjects.data || []).map((s) => [s.name, s]))
   const teachersById = Object.fromEntries((teachers.data || []).map((t) => [t.id, t]))
@@ -98,6 +101,7 @@ export async function fetchCatalog() {
     cycles: cycles.data || [],
     levels: levels.data || [],
     cycleByName,
+    cycleById,
     levelByName,
     levelsByCycle,
     branchesByLevel,
@@ -112,7 +116,7 @@ export async function fetchCatalog() {
     groupsBySubject,
     tariffsByLevelSubject,
     branches: branches.data || [],
-    defaultBranchId: branches.data?.[0]?.id || null,
+    defaultBranchId: userBranches.data?.[0]?.branch_id || branches.data?.[0]?.id || null,
   }
 }
 
@@ -223,14 +227,29 @@ async function syncSubscriptions(studentId, form, catalog) {
   }
 }
 
-function studentPayload(form, catalog, filiereId, status = 'active') {
+async function resolveCycleId(form, catalog) {
   const level = catalog.levelByName[form.level]
-  const cycle = level ? catalog.cycleByName[level.cycle_id] : null
+  if (!level) return null
+  if (level.cycle_id) {
+    const cycle = catalog.cycleById?.[level.cycle_id]
+    return cycle?.id || level.cycle_id
+  }
+  const { data, error } = await supabase
+    .from('levels')
+    .select('cycle_id')
+    .eq('id', level.id)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data?.cycle_id || null
+}
+
+function studentPayload(form, catalog, filiereId, cycleId, status = 'active') {
+  const level = catalog.levelByName[form.level]
   return {
     branch_id: form.branch_id || catalog.defaultBranchId,
     first_name: form.firstName,
     last_name: form.lastName,
-    cycle_id: cycle?.id || null,
+    cycle_id: cycleId,
     level_id: level?.id || null,
     filiere_id: filiereId,
     registration_number: form.code,
@@ -248,29 +267,56 @@ function studentPayload(form, catalog, filiereId, status = 'active') {
 export async function createEnrollment(form, catalog) {
   let filiereId = null
   if (form.track) filiereId = await ensureFiliere(form.track)
+  const cycleId = await resolveCycleId(form, catalog)
 
   const { data, error } = await supabase
     .from('students')
-    .insert(studentPayload(form, catalog, filiereId))
+    .insert(studentPayload(form, catalog, filiereId, cycleId))
     .select('id')
     .single()
   if (error) throw new Error(error.message)
 
   await syncSubscriptions(data.id, form, catalog)
-  return { id: data.id }
+
+  let photoUrl = null
+  if (form.photoFile) {
+    photoUrl = await uploadImage({ entity: 'students', id: data.id, file: form.photoFile })
+    if (photoUrl) {
+      const { error: photoError } = await supabase
+        .from('students')
+        .update({ photo_url: photoUrl })
+        .eq('id', data.id)
+      if (photoError) throw new Error(photoError.message)
+    }
+  }
+
+  return { id: data.id, photoUrl }
 }
 
 export async function updateEnrollment(studentId, form, catalog, status = 'active') {
   let filiereId = null
   if (form.track) filiereId = await ensureFiliere(form.track)
+  const cycleId = await resolveCycleId(form, catalog)
 
   const { error } = await supabase
     .from('students')
-    .update(studentPayload(form, catalog, filiereId, status))
+    .update(studentPayload(form, catalog, filiereId, cycleId, status))
     .eq('id', studentId)
   if (error) throw new Error(error.message)
 
   await syncSubscriptions(studentId, form, catalog)
+
+  if (form.photoFile) {
+    const photoUrl = await uploadImage({ entity: 'students', id: studentId, file: form.photoFile })
+    if (photoUrl) {
+      const { error: photoError } = await supabase
+        .from('students')
+        .update({ photo_url: photoUrl })
+        .eq('id', studentId)
+      if (photoError) throw new Error(photoError.message)
+    }
+  }
+
   return { id: studentId }
 }
 
@@ -320,6 +366,7 @@ export async function fetchStudents() {
       id: s.id,
       name: `${s.first_name} ${s.last_name}`.trim(),
       code: s.registration_number,
+      photoUrl: s.photo_url || '',
       cycle: s.cycles?.name || s.levels?.cycles?.name || '',
       level: s.levels?.name || '',
       track: s.filieres?.name || '',

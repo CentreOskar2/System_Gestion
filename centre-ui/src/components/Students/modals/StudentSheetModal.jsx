@@ -50,7 +50,11 @@ export default function StudentSheetModal({ student, close }) {
         </button>
         <aside>
           <div className="sheet-profile">
-            <span>{initials(student.name)}</span>
+            {student.photoUrl ? (
+              <img className="sheet-profile-avatar-img" src={student.photoUrl} alt={student.name} />
+            ) : (
+              <span>{initials(student.name)}</span>
+            )}
             <h2>{student.name}</h2>
             <small>{student.code}</small>
             <b>{student.level}</b>

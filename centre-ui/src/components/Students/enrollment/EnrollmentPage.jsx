@@ -30,6 +30,8 @@ const createInitialForm = (student) => {
       track: '',
       chosen: [],
       subjectDetails: {},
+      photoUrl: '',
+      photoFile: null,
     }
   }
 
@@ -51,6 +53,8 @@ const createInitialForm = (student) => {
     track: student.track || '',
     chosen: student.chosen || [],
     subjectDetails: student.subjectDetails || {},
+    photoUrl: student.photoUrl || '',
+    photoFile: null,
     branch_id: student.branch_id,
   }
 }
@@ -166,7 +170,8 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
         finish({ ...form, id: student.id })
         close()
       } else {
-        await createEnrollment(form, catalog)
+        const result = await createEnrollment(form, catalog)
+        if (result.photoUrl) setForm((f) => ({ ...f, photoUrl: result.photoUrl }))
         setReceiptOpen(true)
       }
     } catch (err) {

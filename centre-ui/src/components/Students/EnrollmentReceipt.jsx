@@ -26,7 +26,11 @@ export default function EnrollmentReceipt({ form, close, catalog }) {
           <div className="receipt-reference"><span>Reçu d'inscription</span><b>{form.code}</b><small>Date : {formatDate(new Date())}</small></div>
         </header>
         <section className="receipt-student">
-          <div className="receipt-avatar">{initials(`${form.firstName} ${form.lastName}`)}</div>
+          {form.photoUrl ? (
+            <img className="receipt-avatar-img" src={form.photoUrl} alt="" />
+          ) : (
+            <div className="receipt-avatar">{initials(`${form.firstName} ${form.lastName}`)}</div>
+          )}
           <div><h1>{form.firstName || 'Élève'} {form.lastName}</h1><p>Niveau : <b>{form.level || '—'}</b></p><p>Cycle : <b>{form.cycle || '—'}</b></p></div>
         </section>
         <section className="receipt-lines">

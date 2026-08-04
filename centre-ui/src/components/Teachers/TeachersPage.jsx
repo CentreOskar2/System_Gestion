@@ -6,6 +6,8 @@ import TeachersFilters from './TeachersFilters'
 import TeachersTable from './TeachersTable'
 import TeacherProfile from './TeacherProfile'
 import { supabase } from '../../supabaseClient'
+import { uploadImage } from '../../utils/storage'
+import { fetchCurrentUserBranchId } from '../../utils/currentUserBranch'
 import './Teachers.css'
 
 function Toast({ notice }) {
@@ -122,6 +124,7 @@ export default function TeachersPage() {
   }
 
   async function saveTeacher(form, editing) {
+    const branchId = form.branch_ids[0] || (await fetchCurrentUserBranchId())
     const payload = {
       first_name: form.first_name,
       last_name: form.last_name,
@@ -135,7 +138,7 @@ export default function TeachersPage() {
       remuneration_amount: form.remuneration_amount === '' || form.remuneration_amount == null
         ? null
         : Number(form.remuneration_amount),
-      branch_id: form.branch_ids[0] || null,
+      branch_id: branchId,
     }
 
     let teacherId = form.id
@@ -178,6 +181,14 @@ export default function TeachersPage() {
       }
       if (form.level_ids.length > 0) {
         await syncJunction(teacherId, 'teacher_levels', [], form.level_ids)
+      }
+    }
+
+    if (form.photoFile) {
+      const photoUrl = await uploadImage({ entity: 'teachers', id: teacherId, file: form.photoFile })
+      if (photoUrl) {
+        const { error: photoError } = await supabase.from('teachers').update({ photo_url: photoUrl }).eq('id', teacherId)
+        if (photoError) throw new Error(photoError.message)
       }
     }
 

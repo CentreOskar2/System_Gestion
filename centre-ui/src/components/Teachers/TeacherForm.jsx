@@ -21,6 +21,7 @@ const toForm = (teacher) =>
         subject_ids: teacher.subject_ids || [],
         branch_ids: teacher.branch_ids || [],
         level_ids: teacher.level_ids || [],
+        photoFile: null,
       }
     : {
         first_name: '',
@@ -36,6 +37,7 @@ const toForm = (teacher) =>
         subject_ids: [],
         branch_ids: [],
         level_ids: [],
+        photoFile: null,
       }
 
 function Toast({ notice }) {
@@ -124,9 +126,23 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
           <section className="teacher-card">
             <h2>Informations personnelles</h2>
             <label className="photo-drop">
-              <UploadIcon />
-              <span>Photo (drag & drop)</span>
-              <input type="file" accept="image/*" />
+              {form.photoFile || form.photo_url ? (
+                <img
+                  className="photo-drop-preview"
+                  src={form.photoFile ? URL.createObjectURL(form.photoFile) : form.photo_url}
+                  alt="Photo du professeur"
+                />
+              ) : (
+                <>
+                  <UploadIcon />
+                  <span>Photo (drag & drop)</span>
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => set('photoFile', e.target.files?.[0] || null)}
+              />
             </label>
             <div className="teacher-grid">
               <label>Prénom<input value={form.first_name} onChange={(e) => set('first_name', e.target.value)} required /></label>
