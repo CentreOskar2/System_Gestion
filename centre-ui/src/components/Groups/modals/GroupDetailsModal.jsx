@@ -8,8 +8,9 @@ const formatDate = (date) => {
   return new Intl.DateTimeFormat('fr-MA').format(new Date(date))
 }
 
-export default function GroupDetailsModal({ group, close, onManage }) {
+export default function GroupDetailsModal({ group, close }) {
   const [students, setStudents] = useState([])
+  const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
 
@@ -17,21 +18,23 @@ export default function GroupDetailsModal({ group, close, onManage }) {
     let cancelled = false
     async function load() {
       setLoading(true)
-      if (!group || (group.studentIds || []).length === 0) {
-        setStudents([])
-        setLoading(false)
-        return
-      }
-      const { data, error } = await supabase
-        .from('students')
-        .select('id, first_name, last_name, registration_number, phone1, registration_date')
-        .in('id', group.studentIds)
+      const [studentsRes, teachersRes] = await Promise.all([
+        group && (group.studentIds || []).length > 0
+          ? supabase
+              .from('students')
+              .select('id, first_name, last_name, registration_number, phone1, registration_date')
+              .in('id', group.studentIds)
+          : Promise.resolve({ data: [], error: null }),
+        group
+          ? supabase
+              .from('teacher_group_subjects')
+              .select('teacher_id, subject_id, teachers(first_name, last_name), subjects(name)')
+              .eq('group_id', group.id)
+          : Promise.resolve({ data: [], error: null }),
+      ])
       if (cancelled) return
-      if (error) {
-        setStudents([])
-      } else {
-        setStudents(data || [])
-      }
+      setStudents(studentsRes.data || [])
+      setTeachers(teachersRes.data || [])
       setLoading(false)
     }
     load()
@@ -45,11 +48,23 @@ export default function GroupDetailsModal({ group, close, onManage }) {
     `${student.first_name} ${student.last_name}`.toLowerCase().includes(query.toLowerCase())
   )
 
+  const teachersList = []
+  for (const row of teachers) {
+    let entry = teachersList.find((t) => t.id === row.teacher_id)
+    if (!entry) {
+      entry = {
+        id: row.teacher_id,
+        name: row.teachers ? `${row.teachers.first_name} ${row.teachers.last_name}`.trim() : 'Professeur',
+        subjects: [],
+      }
+      teachersList.push(entry)
+    }
+    if (row.subjects?.name && !entry.subjects.includes(row.subjects.name)) entry.subjects.push(row.subjects.name)
+  }
+
   const meta = [
-    { label: 'Matière', value: group.subject || '—' },
     { label: 'Niveau', value: group.level || '—' },
-    { label: 'Professeur', value: group.teacher || '—' },
-    { label: 'Succursale', value: group.branch || '—' },
+    { label: 'Filière / Option', value: group.filiere || '—' },
   ]
 
   return (
@@ -95,13 +110,38 @@ export default function GroupDetailsModal({ group, close, onManage }) {
           </div>
         )}
 
+        <div className="group-details-teachers">
+          <div className="group-details-students-head">
+            <strong>Professeurs ({teachersList.length})</strong>
+          </div>
+          {loading ? (
+            <p className="group-students-loading">Chargement des professeurs...</p>
+          ) : teachersList.length === 0 ? (
+            <p className="group-students-empty">Aucun professeur assigné à ce groupe.</p>
+          ) : (
+            <div className="group-details-teachers-list">
+              <div className="group-details-teacher-row group-details-teacher-row--head">
+                <span>Professeur</span>
+                <span>Matières enseignées</span>
+              </div>
+              {teachersList.map((teacher) => (
+                <div className="group-details-teacher-row" key={teacher.id}>
+                  <span className="group-details-teacher-name">
+                    <i>{initials(teacher.name)}</i>
+                    <b>{teacher.name}</b>
+                  </span>
+                  <span className="group-details-teacher-subjects">
+                    {teacher.subjects.length > 0 ? teacher.subjects.join(', ') : '—'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="group-details-students">
           <div className="group-details-students-head">
             <strong>Élèves ({filtered.length})</strong>
-            <button type="button" onClick={onManage}>
-              <Icon name="pencil" />
-              Gérer les élèves
-            </button>
           </div>
           {!loading && students.length > 0 && (
             <label className="group-details-search">

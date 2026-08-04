@@ -7,10 +7,8 @@ export default function GroupsTable({ groups, onView, onEdit, onToggleStatus }) 
         <thead>
           <tr>
             <th>Groupe</th>
-            <th>Matière</th>
             <th>Niveau</th>
-            <th>Professeur</th>
-            <th>Succursale</th>
+            <th>Filière</th>
             <th>Élèves</th>
             <th>Statut</th>
             <th>Actions</th>
@@ -19,7 +17,7 @@ export default function GroupsTable({ groups, onView, onEdit, onToggleStatus }) 
         <tbody>
           {groups.length === 0 && (
             <tr>
-              <td colSpan="8" className="groups-empty">Aucun groupe enregistré.</td>
+              <td colSpan="6" className="groups-empty">Aucun groupe enregistré.</td>
             </tr>
           )}
           {groups.map((group) => (
@@ -29,12 +27,8 @@ export default function GroupsTable({ groups, onView, onEdit, onToggleStatus }) 
                   <strong>{group.name}</strong>
                 </button>
               </td>
-              <td>
-                <span className="group-subject">{group.subject}</span>
-              </td>
               <td>{group.level}</td>
-              <td>{group.teacher}</td>
-              <td>{group.branch}</td>
+              <td>{group.filiere || '—'}</td>
               <td>
                 <span className="group-count">♧ {group.studentIds.length}</span>
               </td>

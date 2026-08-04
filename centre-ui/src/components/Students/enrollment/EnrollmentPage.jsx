@@ -5,7 +5,7 @@ import Step2Classification from './steps/Step2Classification'
 import Step3SubjectsGroups from './steps/Step3SubjectsGroups'
 import Step4Billing from './steps/Step4Billing'
 import EnrollmentReceipt from '../EnrollmentReceipt'
-import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment } from './enrollmentApi'
+import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment, teacherForGroupSubject } from './enrollmentApi'
 import '../Enrollment.css'
 
 const STEPS = ['Détails personnels', 'Classification', 'Matières & groupes', 'Facturation']
@@ -27,9 +27,11 @@ const createInitialForm = (student) => {
       alerts: '',
       cycle: '',
       level: '',
+      filiere: '',
       track: '',
       chosen: [],
       subjectDetails: {},
+      groupSelections: [],
       photoUrl: '',
       photoFile: null,
     }
@@ -50,9 +52,11 @@ const createInitialForm = (student) => {
     alerts: student.alerts || '',
     cycle: student.cycle || '',
     level: student.level || '',
+    filiere: student.groupFiliere || '',
     track: student.track || '',
     chosen: student.chosen || [],
     subjectDetails: student.subjectDetails || {},
+    groupSelections: student.groupSelections || [],
     photoUrl: student.photoUrl || '',
     photoFile: null,
     branch_id: student.branch_id,
@@ -103,20 +107,69 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
 
   const setFormField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
 
-  const toggleSubject = (subject) => {
-    setForm((prev) => ({
-      ...prev,
-      chosen: prev.chosen.includes(subject)
-        ? prev.chosen.filter((item) => item !== subject)
-        : [...prev.chosen, subject],
-    }))
-  }
-
   const setSubjectDetails = (subject, details) => {
     setForm((prev) => ({
       ...prev,
       subjectDetails: { ...prev.subjectDetails, [subject]: { ...prev.subjectDetails[subject], ...details } },
     }))
+  }
+
+  const deriveFromGroups = (prev, groupSelections) => {
+    const chosen = []
+    const subjectDetails = { ...(prev.subjectDetails || {}) }
+    for (const sel of groupSelections) {
+      for (const name of sel.subjectNames) {
+        if (!chosen.includes(name)) chosen.push(name)
+        if (!subjectDetails[name]?.group) {
+          subjectDetails[name] = {
+            ...(subjectDetails[name] || {}),
+            group: sel.groupName,
+            teacher: teacherForGroupSubject(catalog, sel.groupId, name),
+          }
+        }
+      }
+    }
+    for (const name of Object.keys(subjectDetails)) {
+      if (!chosen.includes(name)) delete subjectDetails[name]
+    }
+    return { chosen, subjectDetails }
+  }
+
+  const resetGroups = () => {
+    setForm((prev) => ({ ...prev, groupSelections: [], chosen: [], subjectDetails: {} }))
+  }
+
+  const toggleGroup = (group) => {
+    setForm((prev) => {
+      const groupSelections = [...(prev.groupSelections || [])]
+      const index = groupSelections.findIndex((sel) => sel.groupId === group.id)
+      if (index >= 0) {
+        groupSelections.splice(index, 1)
+      } else {
+        groupSelections.push({
+          groupId: group.id,
+          groupName: group.name,
+          subjectIds: [],
+          subjectNames: [],
+        })
+      }
+      return { ...prev, groupSelections, ...deriveFromGroups(prev, groupSelections) }
+    })
+  }
+
+  const toggleGroupSubject = (group, subject) => {
+    setForm((prev) => {
+      const groupSelections = (prev.groupSelections || []).map((sel) => {
+        if (sel.groupId !== group.id) return sel
+        const added = !sel.subjectNames.includes(subject.name)
+        return {
+          ...sel,
+          subjectIds: added ? [...sel.subjectIds, subject.id] : sel.subjectIds.filter((id) => id !== subject.id),
+          subjectNames: added ? [...sel.subjectNames, subject.name] : sel.subjectNames.filter((name) => name !== subject.name),
+        }
+      })
+      return { ...prev, groupSelections, ...deriveFromGroups(prev, groupSelections) }
+    })
   }
 
   const nextStep = () => {
@@ -150,11 +203,11 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
     }
     if (currentStep === 3) {
       if (form.chosen.length === 0) {
-        errors.push('Sélectionnez au moins une matière.')
+        errors.push('Sélectionnez au moins un groupe et une matière.')
       }
-      const unassigned = form.chosen.filter((name) => !form.subjectDetails[name]?.group && !form.subjectDetails[name]?.teacher)
+      const unassigned = form.chosen.filter((name) => !form.subjectDetails[name]?.group)
       if (unassigned.length > 0) {
-        errors.push(`Groupe ou professeur obligatoire pour : ${unassigned.join(', ')}.`)
+        errors.push(`Groupe obligatoire pour : ${unassigned.join(', ')}.`)
       }
     }
     return errors
@@ -188,7 +241,7 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       case 2:
         return <Step2Classification form={form} set={setFormField} catalog={catalog} />
       case 3:
-        return <Step3SubjectsGroups form={form} toggleSubject={toggleSubject} setSubjectDetails={setSubjectDetails} catalog={catalog} />
+        return <Step3SubjectsGroups form={form} set={setFormField} catalog={catalog} toggleGroup={toggleGroup} toggleGroupSubject={toggleGroupSubject} setSubjectDetails={setSubjectDetails} resetGroups={resetGroups} />
       case 4:
         return <Step4Billing form={form} catalog={catalog} />
       default:

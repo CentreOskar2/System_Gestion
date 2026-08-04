@@ -28,13 +28,13 @@ export default function TeacherProfile({ teacher, onBack }) {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const groupsRes = await supabase
-        .from('groups')
-        .select('id, name, subject_id, level_id, capacity, status')
+      const tgRes = await supabase
+        .from('teacher_group_subjects')
+        .select('group_id, subject_id, groups(id, name, subject_id, level_id, capacity, status), subjects(id, name)')
         .eq('teacher_id', teacher.id)
       if (cancelled) return
 
-      const groupIds = (groupsRes.data || []).map((g) => g.id)
+      const groupIds = [...new Set((tgRes.data || []).map((r) => r.group_id).filter(Boolean))]
       const [subjectsRes, levelsRes, gsRes, salariesRes] = await Promise.all([
         supabase.from('subjects').select('id, name'),
         supabase.from('levels').select('id, name'),
@@ -56,17 +56,26 @@ export default function TeacherProfile({ teacher, onBack }) {
         countByGroup[row.group_id] = (countByGroup[row.group_id] || 0) + 1
       }
 
-      setGroups(
-        (groupsRes.data || []).map((g) => ({
-          id: g.id,
-          name: g.name,
-          subject: subjectMap[g.subject_id] || '—',
-          level: levelMap[g.level_id] || '—',
-          capacity: g.capacity,
-          status: g.status,
-          studentCount: countByGroup[g.id] || 0,
-        }))
-      )
+      const grouped = {}
+      for (const row of tgRes.data || []) {
+        const group = row.groups
+        if (!group) continue
+        if (!grouped[group.id]) {
+          grouped[group.id] = {
+            id: group.id,
+            name: group.name,
+            subject: subjectMap[group.subject_id] || '—',
+            level: levelMap[group.level_id] || '—',
+            capacity: group.capacity,
+            status: group.status,
+            studentCount: countByGroup[group.id] || 0,
+            subjects: [],
+          }
+        }
+        if (row.subjects?.name) grouped[group.id].subjects.push(row.subjects.name)
+      }
+
+      setGroups(Object.values(grouped))
       setSalaries((salariesRes.data || []).map((s) => s))
     }
     load()
@@ -146,8 +155,15 @@ export default function TeacherProfile({ teacher, onBack }) {
                 <div className="teacher-groups-grid">
                   {groups.map((group) => (
                     <div className="teacher-group-card" key={group.id}>
-                      <strong>{group.subject}</strong>
-                      <span>{group.level} · {group.name}</span>
+                      <strong>{group.name}</strong>
+                      <span>{group.level} · {group.subject}</span>
+                      {group.subjects.length > 0 && (
+                        <div className="teacher-tag-list">
+                          {group.subjects.map((subject) => (
+                            <i className="subject-tag" key={subject}>{subject}</i>
+                          ))}
+                        </div>
+                      )}
                       <small>{group.studentCount} élève{group.studentCount > 1 ? 's' : ''}</small>
                     </div>
                   ))}

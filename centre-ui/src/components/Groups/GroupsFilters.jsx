@@ -29,10 +29,8 @@ export default function GroupsFilters({
           placeholder="Rechercher un groupe..."
         />
       </label>
-      {renderSelect('subject', options.subjects, 'Matière')}
       {renderSelect('level', options.levels, 'Niveau')}
-      {renderSelect('teacher', options.teachers, 'Professeur')}
-      {renderSelect('branch', options.branches, 'Succursale')}
+      {renderSelect('filiere', options.filieres, 'Filière')}
     </div>
   )
 }

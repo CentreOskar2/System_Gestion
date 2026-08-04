@@ -372,6 +372,74 @@
   text-overflow: ellipsis;
 }
 
+.group-details-teachers {
+  margin-top: 30px;
+}
+
+.group-details-teachers-list {
+  border: 1px solid #dce3ed;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.group-details-teacher-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1.6fr;
+  gap: 10px;
+  align-items: center;
+  padding: 13px 16px;
+  border-top: 1px solid #eef2f7;
+  font-size: 0.88rem;
+  color: #34425b;
+}
+
+.group-details-teacher-row:first-child {
+  border-top: 0;
+}
+
+.group-details-teacher-row--head {
+  padding: 11px 16px;
+  background: #f5f7fb;
+  color: #647088;
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.group-details-teacher-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.group-details-teacher-name i {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #e8edff;
+  color: #315fec;
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.group-details-teacher-name b {
+  color: #142033;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.group-details-teacher-subjects {
+  color: #34425b;
+}
+
 @media (max-width: 620px) {
   .group-details {
     padding: 22px 16px;

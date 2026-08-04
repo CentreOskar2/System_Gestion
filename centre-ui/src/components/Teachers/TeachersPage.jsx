@@ -32,7 +32,7 @@ export default function TeachersPage() {
 
   async function fetchTeachers() {
     setLoading(true)
-    const [teachersRes, subjectsRes, levelsRes, branchesRes, tsRes, tbRes, tlRes] = await Promise.all([
+    const [teachersRes, subjectsRes, levelsRes, branchesRes, tsRes, tbRes, tlRes, tgRes, groupsRes] = await Promise.all([
       supabase.from('teachers').select('*').order('created_at', { ascending: false }),
       supabase.from('subjects').select('id, name'),
       supabase.from('levels').select('id, name'),
@@ -40,11 +40,14 @@ export default function TeachersPage() {
       supabase.from('teacher_subjects').select('teacher_id, subject_id'),
       supabase.from('teacher_branches').select('teacher_id, branch_id'),
       supabase.from('teacher_levels').select('teacher_id, level_id'),
+      supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
+      supabase.from('groups').select('id, name').order('name'),
     ])
     if (teachersRes.data) {
       const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
       const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
       const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
+      const groupMap = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g.name]))
       const subjectsByTeacher = {}
       for (const row of tsRes.data || []) {
         subjectsByTeacher[row.teacher_id] = [...(subjectsByTeacher[row.teacher_id] || []), row.subject_id]
@@ -57,11 +60,20 @@ export default function TeachersPage() {
       for (const row of tlRes.data || []) {
         levelsByTeacher[row.teacher_id] = [...(levelsByTeacher[row.teacher_id] || []), row.level_id]
       }
+      const assignmentsByTeacher = {}
+      for (const row of tgRes.data || []) {
+        if (!assignmentsByTeacher[row.teacher_id]) assignmentsByTeacher[row.teacher_id] = {}
+        if (!assignmentsByTeacher[row.teacher_id][row.group_id]) {
+          assignmentsByTeacher[row.teacher_id][row.group_id] = { group_id: row.group_id, subject_ids: [] }
+        }
+        assignmentsByTeacher[row.teacher_id][row.group_id].subject_ids.push(row.subject_id)
+      }
       setTeachers(
         teachersRes.data.map((t) => {
           const subjectIds = subjectsByTeacher[t.id] || []
           const branchIds = branchesByTeacher[t.id] || []
           const levelIds = levelsByTeacher[t.id] || []
+          const groupAssignments = Object.values(assignmentsByTeacher[t.id] || {})
           return {
             id: t.id,
             firstName: t.first_name,
@@ -80,6 +92,8 @@ export default function TeachersPage() {
             subject_ids: subjectIds,
             branch_ids: branchIds,
             level_ids: levelIds,
+            group_assignments: groupAssignments,
+            group_names: groupAssignments.map((a) => groupMap[a.group_id]).filter(Boolean),
             branch_id: t.branch_id,
             subjects: subjectIds.map((id) => subjectMap[id]).filter(Boolean),
             branches: branchIds.map((id) => branchMap[id]).filter(Boolean),
@@ -119,6 +133,43 @@ export default function TeachersPage() {
       const { error } = await supabase.from(table).insert(
         toAdd.map((id) => ({ teacher_id: teacherId, [column]: id }))
       )
+      if (error) throw new Error(error.message)
+    }
+  }
+
+  async function syncTeacherGroupSubjects(teacherId, currentAssignments, newAssignments) {
+    const keys = (assignments) => {
+      const set = new Set()
+      for (const a of assignments) {
+        for (const subjectId of a.subject_ids || []) {
+          set.add(`${a.group_id}:${subjectId}`)
+        }
+      }
+      return set
+    }
+    const current = keys(currentAssignments)
+    const next = keys(newAssignments)
+
+    for (const key of current) {
+      if (next.has(key)) continue
+      const [group_id, subject_id] = key.split(':')
+      const { error } = await supabase
+        .from('teacher_group_subjects')
+        .delete()
+        .eq('teacher_id', teacherId)
+        .eq('group_id', group_id)
+        .eq('subject_id', subject_id)
+      if (error) throw new Error(error.message)
+    }
+
+    const toAdd = []
+    for (const key of next) {
+      if (current.has(key)) continue
+      const [group_id, subject_id] = key.split(':')
+      toAdd.push({ teacher_id: teacherId, group_id, subject_id })
+    }
+    if (toAdd.length > 0) {
+      const { error } = await supabase.from('teacher_group_subjects').insert(toAdd)
       if (error) throw new Error(error.message)
     }
   }
@@ -183,6 +234,25 @@ export default function TeachersPage() {
         await syncJunction(teacherId, 'teacher_levels', [], form.level_ids)
       }
     }
+
+    const tgRes = await supabase
+      .from('teacher_group_subjects')
+      .select('group_id, subject_id')
+      .eq('teacher_id', teacherId)
+    if (tgRes.error) throw new Error(tgRes.error.message)
+    await syncTeacherGroupSubjects(
+      teacherId,
+      (tgRes.data || []).reduce((acc, row) => {
+        let entry = acc.find((a) => a.group_id === row.group_id)
+        if (!entry) {
+          entry = { group_id: row.group_id, subject_ids: [] }
+          acc.push(entry)
+        }
+        entry.subject_ids.push(row.subject_id)
+        return acc
+      }, []),
+      form.group_assignments || []
+    )
 
     if (form.photoFile) {
       const photoUrl = await uploadImage({ entity: 'teachers', id: teacherId, file: form.photoFile })

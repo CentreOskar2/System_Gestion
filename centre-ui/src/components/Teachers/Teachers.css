@@ -775,3 +775,92 @@
     width: calc(50% - 5px);
   }
 }
+
+/* =======================
+   Group assignments (new independent Groups structure)
+======================= */
+
+.teacher-cascade {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.teacher-cascade label {
+  display: block;
+}
+
+.teacher-cascade select {
+  display: block;
+  width: 100%;
+  height: 48px;
+  margin-top: 8px;
+  padding: 0 15px;
+  border: 1px solid #dce3ed;
+  border-radius: 11px;
+  background: #fff;
+  font: inherit;
+  outline: 0;
+  box-shadow: 0 2px 4px rgba(21, 31, 47, 0.07);
+}
+
+.teacher-cascade select:focus {
+  border-color: #3164ef;
+}
+
+.teacher-cascade select:disabled {
+  background: #f5f7fb;
+  color: #9aa6ba;
+}
+
+.teacher-groups-assign {
+  display: grid;
+  gap: 12px;
+}
+
+.teacher-assign-group {
+  padding: 14px;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.teacher-assign-group.is-checked {
+  border-color: #7292ff;
+  background: #f8faff;
+}
+
+.teacher-assign-group-head {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  font-weight: 600 !important;
+  color: #172033 !important;
+}
+
+.teacher-assign-group-head input {
+  width: 22px;
+  height: 22px;
+  margin: 0 !important;
+  accent-color: #3164ef;
+}
+
+.teacher-assign-group-head span b,
+.teacher-assign-group-head span small {
+  display: block;
+}
+
+.teacher-assign-group-head span small {
+  margin-top: 3px;
+  color: #647088;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+@media (max-width: 850px) {
+  .teacher-cascade {
+    grid-template-columns: 1fr;
+  }
+}

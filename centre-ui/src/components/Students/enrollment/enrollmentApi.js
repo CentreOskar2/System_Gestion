@@ -2,7 +2,7 @@ import { supabase } from '../../../supabaseClient'
 import { uploadImage } from '../../../utils/storage'
 
 export async function fetchCatalog() {
-  const [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, groups, groupStudents, tariffs, branches, userBranches] =
+  const [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, teacherGroupSubjects, groups, groupStudents, tariffs, branches, userBranches] =
     await Promise.all([
       supabase.from('cycles').select('*').order('name'),
       supabase.from('levels').select('*').order('name'),
@@ -11,6 +11,7 @@ export async function fetchCatalog() {
       supabase.from('teachers').select('*').order('first_name'),
       supabase.from('teacher_subjects').select('teacher_id, subject_id'),
       supabase.from('teacher_levels').select('teacher_id, level_id'),
+      supabase.from('teacher_group_subjects').select('group_id, subject_id, teacher_id'),
       supabase.from('groups').select('*').order('name'),
       supabase.from('group_students').select('group_id, student_id, students(first_name, last_name)'),
       supabase.from('tariffs').select('level_id, subject_id, price'),
@@ -18,7 +19,7 @@ export async function fetchCatalog() {
       supabase.from('user_branches').select('branch_id'),
     ])
 
-  const firstError = [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, groups, groupStudents, tariffs, branches, userBranches].find((r) => r.error)
+  const firstError = [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, teacherGroupSubjects, groups, groupStudents, tariffs, branches, userBranches].find((r) => r.error)
   if (firstError) throw new Error(firstError.error.message)
 
   const cycleByName = Object.fromEntries((cycles.data || []).map((c) => [c.name, c]))
@@ -45,6 +46,10 @@ export async function fetchCatalog() {
     branchesByLevel[level.name].push(sb.name)
   }
   for (const key of Object.keys(branchesByLevel)) branchesByLevel[key].sort()
+
+  const filiereEntry = (sb) => ({ id: sb.id, name: sb.name, level_id: sb.level_id })
+  const filiereById = Object.fromEntries((studyBranches.data || []).map((sb) => [sb.id, filiereEntry(sb)]))
+  const filiereByName = Object.fromEntries((studyBranches.data || []).map((sb) => [sb.name, filiereEntry(sb)]))
 
   const teachersByName = {}
   for (const t of teachers.data || []) {
@@ -91,6 +96,36 @@ export async function fetchCatalog() {
   }
   for (const key of Object.keys(groupsBySubject)) groupsBySubject[key].sort((a, b) => a.name.localeCompare(b.name))
 
+  const groupEntry = (g) => ({
+    id: g.id,
+    name: g.name,
+    subject_id: g.subject_id,
+    level_id: g.level_id,
+    filiere_id: g.filiere_id,
+    teacher_id: g.teacher_id,
+    capacity: g.capacity,
+    student_count: (studentsByGroup[g.id] || []).length,
+    students: studentsByGroup[g.id] || [],
+    status: g.status,
+  })
+
+  const groupsById = Object.fromEntries((groups.data || []).map((g) => [g.id, g]))
+
+  const groupsByLevel = {}
+  for (const g of groups.data || []) {
+    const levelRow = levels.data?.find((l) => l.id === g.level_id)
+    if (!levelRow) continue
+    const levelName = levelRow.name
+    if (!groupsByLevel[levelName]) groupsByLevel[levelName] = []
+    groupsByLevel[levelName].push(groupEntry(g))
+  }
+  for (const key of Object.keys(groupsByLevel)) groupsByLevel[key].sort((a, b) => a.name.localeCompare(b.name))
+
+  const teacherByGroupSubject = {}
+  for (const row of teacherGroupSubjects.data || []) {
+    teacherByGroupSubject[`${row.group_id}:${row.subject_id}`] = row.teacher_id
+  }
+
   const tariffsByLevelSubject = {}
   for (const row of tariffs.data || []) {
     if (!tariffsByLevelSubject[row.level_id]) tariffsByLevelSubject[row.level_id] = {}
@@ -105,6 +140,8 @@ export async function fetchCatalog() {
     levelByName,
     levelsByCycle,
     branchesByLevel,
+    filiereById,
+    filiereByName,
     subjects: subjects.data || [],
     subjectsByName,
     teachers: (teachers.data || []).map((t) => ({ id: t.id, name: `${t.first_name} ${t.last_name}` })),
@@ -113,7 +150,10 @@ export async function fetchCatalog() {
     teachersBySubject,
     teachersByLevel,
     groups: groups.data || [],
+    groupsById,
     groupsBySubject,
+    groupsByLevel,
+    teacherByGroupSubject,
     tariffsByLevelSubject,
     branches: branches.data || [],
     defaultBranchId: userBranches.data?.[0]?.branch_id || branches.data?.[0]?.id || null,
@@ -171,7 +211,9 @@ async function ensureFiliere(name) {
 function subjectDetailsFor(form, catalog, subjectName) {
   const details = form.subjectDetails?.[subjectName] || {}
   const teacher = details.teacher ? catalog.teachersByName[details.teacher] : null
-  const group = details.group ? catalog.groupsBySubject[subjectName]?.find((g) => g.name === details.group) : null
+  const group = details.group
+    ? Object.values(catalog.groupsById || {}).find((g) => g.name === details.group)
+    : null
   const subject = catalog.subjectsByName[subjectName]
   const standardPrice = getPrice(catalog, form.level, subjectName)
   const monthlyPrice = details.priceType === 'manual' ? Number(details.manualPrice || 0) : standardPrice
@@ -184,16 +226,53 @@ function subjectDetailsFor(form, catalog, subjectName) {
   }
 }
 
-async function syncSubscriptions(studentId, form, catalog) {
+export function teacherForGroupSubject(catalog, groupId, subjectName) {
+  if (!groupId || !subjectName) return ''
+  const subject = catalog.subjectsByName?.[subjectName]
+  if (subject) {
+    const teacherId = catalog.teacherByGroupSubject?.[`${groupId}:${subject.id}`]
+    const teacher = teacherId && catalog.teachersById?.[teacherId]
+    if (teacher) return `${teacher.first_name} ${teacher.last_name}`.trim()
+  }
+  const group = catalog.groupsById?.[groupId]
+  const groupTeacher = group?.teacher_id && catalog.teachersById?.[group.teacher_id]
+  return groupTeacher ? `${groupTeacher.first_name} ${groupTeacher.last_name}`.trim() : ''
+}
+
+async function syncGroupSubjectRows(studentId, rows) {
+  const { data: existing } = await supabase
+    .from('student_group_subjects')
+    .select('group_id, subject_id')
+    .eq('student_id', studentId)
+  const oldKeys = new Set((existing || []).map((r) => `${r.group_id}:${r.subject_id}`))
+  const newKeys = new Set(rows.map((r) => `${r.group_id}:${r.subject_id}`))
+  for (const key of oldKeys) {
+    if (newKeys.has(key)) continue
+    const [group_id, subject_id] = key.split(':')
+    const { error } = await supabase
+      .from('student_group_subjects')
+      .delete()
+      .eq('student_id', studentId)
+      .eq('group_id', group_id)
+      .eq('subject_id', subject_id)
+    if (error) throw new Error(error.message)
+  }
+  const toAdd = rows.filter((r) => !oldKeys.has(`${r.group_id}:${r.subject_id}`))
+  if (toAdd.length > 0) {
+    const { error } = await supabase.from('student_group_subjects').insert(toAdd)
+    if (error) throw new Error(error.message)
+  }
+}
+
+export async function syncSubscriptions(studentId, form, catalog) {
   const { data: existing, error: fetchError } = await supabase
     .from('student_subscriptions')
     .select('id, group_id')
     .eq('student_id', studentId)
   if (fetchError) throw new Error(fetchError.message)
 
-  const newGroupIds = form.chosen
-    .map((name) => subjectDetailsFor(form, catalog, name).group_id)
-    .filter(Boolean)
+  const newSubs = form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) }))
+  const newGroupIds = newSubs.map((sub) => sub.group_id).filter(Boolean)
 
   const oldGroupIds = (existing || []).map((row) => row.group_id).filter(Boolean)
   const toRemove = oldGroupIds.filter((id) => !newGroupIds.includes(id))
@@ -219,10 +298,67 @@ async function syncSubscriptions(studentId, form, catalog) {
     if (error) throw new Error(error.message)
   }
 
-  if (form.chosen.length > 0) {
-    const { error } = await supabase.from('student_subscriptions').insert(
-      form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) }))
-    )
+  if (newSubs.length > 0) {
+    const { error } = await supabase.from('student_subscriptions').insert(newSubs)
+    if (error) throw new Error(error.message)
+  }
+
+  await syncGroupSubjectRows(
+    studentId,
+    newSubs
+      .filter((sub) => sub.group_id && sub.subject_id)
+      .map((sub) => ({ student_id: studentId, group_id: sub.group_id, subject_id: sub.subject_id }))
+  )
+}
+
+export async function syncGroupSelections(studentId, form, catalog) {
+  const selections = form.groupSelections || []
+
+  const groupSubjectRows = []
+  for (const sel of selections) {
+    for (const name of sel.subjectNames) {
+      const subject = catalog.subjectsByName?.[name]
+      if (!subject) continue
+      groupSubjectRows.push({ student_id: studentId, group_id: sel.groupId, subject_id: subject.id })
+    }
+  }
+
+  const newGroupIds = [...new Set(selections.map((sel) => sel.groupId))]
+  const { data: gsExisting } = await supabase
+    .from('group_students')
+    .select('group_id')
+    .eq('student_id', studentId)
+  const oldGroupIds = new Set((gsExisting || []).map((r) => r.group_id))
+  for (const groupId of oldGroupIds) {
+    if (!newGroupIds.includes(groupId)) {
+      const { error } = await supabase
+        .from('group_students')
+        .delete()
+        .eq('student_id', studentId)
+        .eq('group_id', groupId)
+      if (error) throw new Error(error.message)
+    }
+  }
+  for (const groupId of newGroupIds) {
+    if (!oldGroupIds.has(groupId)) {
+      const { error } = await supabase
+        .from('group_students')
+        .insert({ student_id: studentId, group_id: groupId })
+      if (error) throw new Error(error.message)
+    }
+  }
+
+  await syncGroupSubjectRows(studentId, groupSubjectRows)
+
+  const { error: delError } = await supabase
+    .from('student_subscriptions')
+    .delete()
+    .eq('student_id', studentId)
+  if (delError) throw new Error(delError.message)
+
+  const newSubs = form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) }))
+  if (newSubs.length > 0) {
+    const { error } = await supabase.from('student_subscriptions').insert(newSubs)
     if (error) throw new Error(error.message)
   }
 }
@@ -243,6 +379,13 @@ async function resolveCycleId(form, catalog) {
   return data?.cycle_id || null
 }
 
+function computeDuMois(form, catalog) {
+  return (form.chosen || []).reduce((sum, name) => {
+    const price = subjectDetailsFor(form, catalog, name).monthly_price
+    return sum + (Number.isFinite(price) ? price : 0)
+  }, 0)
+}
+
 function studentPayload(form, catalog, filiereId, cycleId, status = 'active') {
   const level = catalog.levelByName[form.level]
   return {
@@ -260,6 +403,7 @@ function studentPayload(form, catalog, filiereId, cycleId, status = 'active') {
     school_origin: form.school || null,
     class_in_school: form.schoolClass || null,
     medical_notes: form.alerts || null,
+    du_mois: computeDuMois(form, catalog),
     status,
   }
 }
@@ -276,7 +420,7 @@ export async function createEnrollment(form, catalog) {
     .single()
   if (error) throw new Error(error.message)
 
-  await syncSubscriptions(data.id, form, catalog)
+  await syncGroupSelections(data.id, form, catalog)
 
   let photoUrl = null
   if (form.photoFile) {
@@ -304,7 +448,7 @@ export async function updateEnrollment(studentId, form, catalog, status = 'activ
     .eq('id', studentId)
   if (error) throw new Error(error.message)
 
-  await syncSubscriptions(studentId, form, catalog)
+  await syncGroupSelections(studentId, form, catalog)
 
   if (form.photoFile) {
     const photoUrl = await uploadImage({ entity: 'students', id: studentId, file: form.photoFile })
@@ -339,8 +483,14 @@ export async function fetchStudents() {
 
   const { data: subs, error: subsError } = await supabase
     .from('student_subscriptions')
-    .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, subjects(name), teachers(first_name,last_name), groups(name)')
+    .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, subjects(name), teachers(first_name,last_name), groups(name, filiere_id)')
   if (subsError) throw new Error(subsError.message)
+
+  const { data: filieres, error: filieresError } = await supabase
+    .from('study_branches')
+    .select('id, name')
+  if (filieresError) throw new Error(filieresError.message)
+  const filiereNameById = Object.fromEntries((filieres || []).map((f) => [f.id, f.name]))
 
   const subsByStudent = {}
   for (const sub of subs || []) {
@@ -352,15 +502,27 @@ export async function fetchStudents() {
     const list = subsByStudent[s.id] || []
     const chosen = list.map((x) => x.subjects?.name).filter(Boolean)
     const subjectDetails = {}
+    const groupSelections = []
+    let groupFiliere = ''
     for (const x of list) {
       const subjectName = x.subjects?.name
-      if (!subjectName) continue
-      subjectDetails[subjectName] = {
-        teacher: x.teachers ? `${x.teachers.first_name} ${x.teachers.last_name}` : '',
-        group: x.groups?.name || '',
-        priceType: x.pricing_type,
-        manualPrice: x.pricing_type === 'manual' ? Number(x.monthly_price) : undefined,
+      if (subjectName) {
+        subjectDetails[subjectName] = {
+          teacher: x.teachers ? `${x.teachers.first_name} ${x.teachers.last_name}` : '',
+          group: x.groups?.name || '',
+          priceType: x.pricing_type,
+          manualPrice: x.pricing_type === 'manual' ? Number(x.monthly_price) : undefined,
+        }
       }
+      if (!x.group_id) continue
+      if (!groupFiliere) groupFiliere = filiereNameById[x.groups?.filiere_id] || ''
+      let entry = groupSelections.find((g) => g.groupId === x.group_id)
+      if (!entry) {
+        entry = { groupId: x.group_id, groupName: x.groups?.name || '', subjectIds: [], subjectNames: [] }
+        groupSelections.push(entry)
+      }
+      if (x.subject_id && !entry.subjectIds.includes(x.subject_id)) entry.subjectIds.push(x.subject_id)
+      if (subjectName && !entry.subjectNames.includes(subjectName)) entry.subjectNames.push(subjectName)
     }
     return {
       id: s.id,
@@ -383,6 +545,8 @@ export async function fetchStudents() {
       alerts: s.medical_notes || '',
       chosen,
       subjectDetails,
+      groupSelections,
+      groupFiliere,
       cycle_id: s.cycle_id,
       level_id: s.level_id,
       filiere_id: s.filiere_id,

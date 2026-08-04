@@ -21,6 +21,10 @@ const toForm = (teacher) =>
         subject_ids: teacher.subject_ids || [],
         branch_ids: teacher.branch_ids || [],
         level_ids: teacher.level_ids || [],
+        group_assignments: teacher.group_assignments || [],
+        group_cycle_id: teacher.group_cycle_id || '',
+        group_level_id: teacher.group_level_id || '',
+        group_filiere_id: teacher.group_filiere_id || '',
         photoFile: null,
       }
     : {
@@ -37,6 +41,10 @@ const toForm = (teacher) =>
         subject_ids: [],
         branch_ids: [],
         level_ids: [],
+        group_assignments: [],
+        group_cycle_id: '',
+        group_level_id: '',
+        group_filiere_id: '',
         photoFile: null,
       }
 
@@ -55,6 +63,9 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
   const [subjects, setSubjects] = useState([])
   const [levels, setLevels] = useState([])
   const [branches, setBranches] = useState([])
+  const [cycles, setCycles] = useState([])
+  const [groups, setGroups] = useState([])
+  const [filieres, setFilieres] = useState([])
   const [loadingOptions, setLoadingOptions] = useState(true)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState(null)
@@ -62,30 +73,86 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [subjectsRes, levelsRes, branchesRes] = await Promise.all([
+      const [subjectsRes, levelsRes, branchesRes, cyclesRes, groupsRes, filieresRes] = await Promise.all([
         supabase.from('subjects').select('id, name').order('name'),
-        supabase.from('levels').select('id, name, cycles(name)').order('name'),
+        supabase.from('levels').select('id, name, cycle_id, cycles(name)').order('name'),
         supabase.from('branches').select('id, name').order('name'),
+        supabase.from('cycles').select('id, name').order('name'),
+        supabase.from('groups').select('id, name, subject_id, level_id, filiere_id, capacity, status').order('name'),
+        supabase.from('study_branches').select('id, name, level_id').order('name'),
       ])
       if (cancelled) return
       if (subjectsRes.data) setSubjects(subjectsRes.data)
       if (levelsRes.data) setLevels(levelsRes.data)
       if (branchesRes.data) setBranches(branchesRes.data)
+      if (cyclesRes.data) setCycles(cyclesRes.data)
+      if (groupsRes.data) setGroups(groupsRes.data.filter((g) => g.status === 'active'))
+      if (filieresRes.data) setFilieres(filieresRes.data)
+
+      const existingAssignments = teacher?.group_assignments || []
+      if (existingAssignments.length > 0) {
+        const firstGroup = groupsRes.data?.find((g) => g.id === existingAssignments[0].group_id)
+        const firstLevel = levelsRes.data?.find((l) => l.id === firstGroup?.level_id)
+        if (firstLevel) {
+          setForm((current) => ({
+            ...current,
+            group_cycle_id: firstLevel.cycle_id || '',
+            group_level_id: firstLevel.id,
+            group_filiere_id: firstGroup?.filiere_id || '',
+          }))
+        }
+      }
       setLoadingOptions(false)
     }
     load()
     return () => { cancelled = true }
-  }, [])
+  }, [teacher])
 
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }))
 
   const toggle = (field, value) => {
-    set(
-      field,
-      form[field].includes(value)
-        ? form[field].filter((item) => item !== value)
-        : [...form[field], value]
-    )
+    setForm((current) => {
+      const list = current[field] || []
+      const nextValue = list.includes(value)
+        ? list.filter((item) => item !== value)
+        : [...list, value]
+      const next = { ...current, [field]: nextValue }
+      if (field === 'subject_ids') {
+        next.group_assignments = (current.group_assignments || []).map((assignment) => ({
+          ...assignment,
+          subject_ids: [...nextValue],
+        }))
+      }
+      return next
+    })
+  }
+
+  const cascadeLevels = form.group_cycle_id
+    ? levels.filter((level) => level.cycle_id === form.group_cycle_id)
+    : []
+
+  const cascadeFilieres = form.group_level_id
+    ? filieres.filter((filiere) => filiere.level_id === form.group_level_id)
+    : []
+
+  const availableGroups = form.group_level_id
+    ? groups.filter(
+        (group) =>
+          group.level_id === form.group_level_id &&
+          (!form.group_filiere_id || group.filiere_id === form.group_filiere_id)
+      )
+    : []
+
+  const toggleGroupAssignment = (groupId) => {
+    setForm((current) => {
+      const assigned = (current.group_assignments || []).some((a) => a.group_id === groupId)
+      return {
+        ...current,
+        group_assignments: assigned
+          ? current.group_assignments.filter((a) => a.group_id !== groupId)
+          : [...current.group_assignments, { group_id: groupId, subject_ids: [...(current.subject_ids || [])] }],
+      }
+    })
   }
 
   const levelsByCycle = (() => {
@@ -211,6 +278,86 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
                     </label>
                   ))}
                 </div>
+              )}
+            </fieldset>
+            <fieldset>
+              <legend>Groupes &amp; matières enseignées</legend>
+              {loadingOptions ? (
+                <p className="teacher-options-loading">Chargement des groupes...</p>
+              ) : (
+                <>
+                  <div className="teacher-cascade">
+                    <label>Cycle
+                      <select
+                        value={form.group_cycle_id}
+                        onChange={(e) => {
+                          set('group_cycle_id', e.target.value)
+                          set('group_level_id', '')
+                          set('group_filiere_id', '')
+                        }}
+                      >
+                        <option value="">— Sélectionner cycle —</option>
+                        {cycles.map((cycle) => (
+                          <option key={cycle.id} value={cycle.id}>{cycle.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>Niveau
+                      <select
+                        value={form.group_level_id}
+                        onChange={(e) => {
+                          set('group_level_id', e.target.value)
+                          set('group_filiere_id', '')
+                        }}
+                        disabled={!form.group_cycle_id}
+                      >
+                        <option value="">— Sélectionner niveau —</option>
+                        {cascadeLevels.map((level) => (
+                          <option key={level.id} value={level.id}>{level.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>Filière / Option
+                      <select
+                        value={form.group_filiere_id}
+                        onChange={(e) => set('group_filiere_id', e.target.value)}
+                        disabled={!form.group_level_id}
+                      >
+                        <option value="">— Aucune —</option>
+                        {cascadeFilieres.map((filiere) => (
+                          <option key={filiere.id} value={filiere.id}>{filiere.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                  {!form.group_level_id ? (
+                    <p className="teacher-options-loading">Sélectionnez un cycle puis un niveau pour afficher les groupes.</p>
+                  ) : availableGroups.length === 0 ? (
+                    <p className="teacher-options-loading">Aucun groupe disponible pour cette filière.</p>
+                  ) : (
+                    <div className="teacher-groups-assign">
+                      {availableGroups.map((group) => {
+                        const assignment = form.group_assignments.find((a) => a.group_id === group.id)
+                        const selected = Boolean(assignment)
+                        return (
+                          <div className={`teacher-assign-group ${selected ? 'is-checked' : ''}`} key={group.id}>
+                            <label className="teacher-assign-group-head">
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleGroupAssignment(group.id)}
+                              />
+                              <span>
+                                <b>{group.name}</b>
+                                <small>{group.capacity ? `Capacité : ${group.capacity}` : 'Groupe'}</small>
+                              </span>
+                            </label>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </fieldset>
             <fieldset className="payment-type">
