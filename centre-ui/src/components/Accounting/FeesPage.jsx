@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Header from '../shared/Header'
 import Icon from '../Icon'
 import { subjects } from '../Students/data/mockStudents'
 import { initials, price } from '../Students/utils/studentHelpers'
+import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import './FeesPage.css'
 import './FeesEditModal.css'
 
@@ -17,11 +18,17 @@ const seed = [
 ]
 
 function Receipt({ student, month, close }) {
+  const receiptRef = useRef(null)
+  const [isExporting, setIsExporting] = useState(false)
   const lines = student.chosen.length ? student.chosen : ['Forfait tout inclus']
   const amountFor = subject => student.chosen.length ? price(subject) : student.monthly
+  const downloadPdf = async () => {
+    setIsExporting(true)
+    try { await exportToPdf(receiptRef.current, `recu-paiement-${safeFilename(student.name)}-${safeFilename(month)}.pdf`) } finally { setIsExporting(false) }
+  }
   return <main className="fee-receipt">
-    <div className="fee-receipt-actions"><button onClick={close}>← Retour</button><button className="fee-print" onClick={() => window.print()}>▣ &nbsp; Imprimer</button></div>
-    <article className="fee-document">
+    <div className="fee-receipt-actions"><button onClick={close}>← Retour</button><button className="fee-print" disabled={isExporting} onClick={downloadPdf}>{isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}</button></div>
+    <article ref={receiptRef} className="fee-document">
       <header><div className="fee-brand"><img src="/oskar-logo.png" alt="Logo Centre Atlas" /><div><strong>Centre Atlas</strong><span>Cours particuliers — Casablanca</span></div></div><div className="fee-ref"><span>REÇU DE PAIEMENT MENSUEL</span><b>{student.code}</b><small>Date : {new Intl.DateTimeFormat('fr-MA').format(new Date())}</small></div></header>
       <section className="fee-receipt-student"><div>{initials(student.name)}</div><p><strong>{student.name}</strong><span>Niveau : {student.level}</span><span>Mois réglé : {month}</span></p></section>
       <section className="fee-lines"><h2>Détail des matières</h2><div className="fee-line fee-line-head"><span>Matière</span><span>Prix</span></div>{lines.map((line, i) => <div className="fee-line" key={line}><span>{line}</span><span>{student.chosen.length ? (i === lines.length - 1 ? student.monthly - lines.slice(0,-1).reduce((s, x) => s + price(x), 0) : amountFor(line)) : student.monthly} DH</span></div>)}<div className="fee-total"><b>Montant total payé</b><strong>{student.monthly} DH</strong></div></section>

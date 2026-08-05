@@ -1,14 +1,14 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Header from '../shared/Header'
-import { subjects, branches, emptyTeacher } from './data/mockTeachers'
+import { cycles, levelsByCycle, subjects, getMatchingGroups, emptyTeacher } from './data/mockTeachers'
 import UploadIcon from './ui/UploadIcon'
 import Toggle from './ui/Toggle'
 
 export default function TeacherForm({ teacher, onClose, onSave }) {
-  const [form, setForm] = useState(teacher ? { ...teacher } : emptyTeacher)
+  const [form, setForm] = useState(teacher ? { ...teacher } : { ...emptyTeacher })
 
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }))
-  
+
   const toggle = (field, value) => {
     set(
       field,
@@ -18,9 +18,26 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
     )
   }
 
-  const setRate = (subject, value) => {
-    set('rates', { ...form.rates, [subject]: value })
+  const setRate = (cycle, value) => {
+    set('rates', { ...form.rates, [cycle]: value })
   }
+
+  // Get available levels based on selected cycles
+  const availableLevels = useMemo(() => {
+    const levelSet = new Set()
+    form.cycles.forEach(cycle => {
+      levelsByCycle[cycle]?.forEach(level => levelSet.add(level))
+    })
+    return Array.from(levelSet)
+  }, [form.cycles])
+
+  // Get matching groups based on selections
+  const matchingGroups = useMemo(() => {
+    // Since we removed branches, we pass an empty array for branches
+    return getMatchingGroups(form.cycles, form.levels, [], form.subjects)
+  }, [form.cycles, form.levels, form.subjects])
+
+  const isGroupsVisible = form.cycles.length > 0 && form.levels.length > 0 && form.subjects.length > 0
 
   const handleSubmit = (event) => {
     event.preventDefault()
@@ -63,35 +80,118 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
           </section>
           <section className="teacher-card">
             <h2>Informations professionnelles</h2>
+            
+            {/* 1. Cycle(s) enseigné(s) */}
+            <fieldset>
+              <legend>Cycle(s) enseigné(s)</legend>
+              <div className="choice-grid">
+                {cycles.map((cycle) => (
+                  <label 
+                    className={form.cycles.includes(cycle) ? 'is-checked' : ''} 
+                    key={cycle}
+                  >
+                    <input 
+                      type="checkbox" 
+                      checked={form.cycles.includes(cycle)} 
+                      onChange={() => toggle('cycles', cycle)} 
+                    />
+                    {cycle}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {/* 2. Niveau(x) scolaire(s) - depends on cycles */}
+            <fieldset>
+              <legend>Niveau(x) scolaire(s)</legend>
+              <div className="choice-grid">
+                {availableLevels.map((level) => (
+                  <label 
+                    className={form.levels.includes(level) ? 'is-checked' : ''} 
+                    key={level}
+                  >
+                    <input 
+                      type="checkbox" 
+                      checked={form.levels.includes(level)} 
+                      onChange={() => toggle('levels', level)} 
+                    />
+                    {level}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+
+            {/* 4. Matières enseignées */}
             <fieldset>
               <legend>Matières enseignées</legend>
               <div className="choice-grid">
                 {subjects.map((subject) => (
-                  <label className={form.subjects.includes(subject) ? 'is-checked' : ''} key={subject}>
-                    <input type="checkbox" checked={form.subjects.includes(subject)} onChange={() => toggle('subjects', subject)} />
+                  <label 
+                    className={form.subjects.includes(subject) ? 'is-checked' : ''} 
+                    key={subject}
+                  >
+                    <input 
+                      type="checkbox" 
+                      checked={form.subjects.includes(subject)} 
+                      onChange={() => toggle('subjects', subject)} 
+                    />
                     {subject}
                   </label>
                 ))}
               </div>
             </fieldset>
+
+            {/* 4. Groupes */}
             <fieldset>
-              <legend>Succursale(s) d'affectation</legend>
-              <div className="choice-grid choice-grid--branches">
-                {branches.map((branch) => (
-                  <label className={form.branches.includes(branch) ? 'is-checked' : ''} key={branch}>
-                    <input type="checkbox" checked={form.branches.includes(branch)} onChange={() => toggle('branches', branch)} />
-                    {branch}
-                  </label>
-                ))}
-              </div>
+              <legend>Groupes</legend>
+              {isGroupsVisible ? (
+                matchingGroups.length > 0 ? (
+                  <div className="groups-grid">
+                    {matchingGroups.map((group) => (
+                      <label 
+                        className={form.groups?.includes(group.id) ? 'is-checked' : ''} 
+                        key={group.id}
+                      >
+                        <div className="group-info">
+                          <input 
+                            type="checkbox" 
+                            checked={form.groups?.includes(group.id) || false} 
+                            onChange={() => toggle('groups', group.id)} 
+                          />
+                          <div>
+                            <strong>{group.name}</strong>
+                            <span>{group.subject} · {group.level} · {group.studentsCount} élèves</span>
+                          </div>
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="no-groups">Aucun groupe existant pour cette sélection — vous pourrez en créer un depuis le module Groupes</p>
+                )
+              ) : (
+                <p className="groups-placeholder">Complétez les champs ci-dessus pour voir les groupes disponibles</p>
+              )}
             </fieldset>
+
+            {/* 6. Type de rémunération */}
             <fieldset className="payment-type">
               <legend>Type de rémunération</legend>
               <div>
-                <button type="button" onClick={() => set('paymentType', 'fixe')} className={form.paymentType === 'fixe' ? 'is-selected' : ''}>Fixe</button>
-                <button type="button" onClick={() => set('paymentType', 'pourcentage')} className={form.paymentType === 'pourcentage' ? 'is-selected' : ''}>Pourcentage</button>
+                <button 
+                  type="button" 
+                  onClick={() => set('paymentType', 'fixe')} 
+                  className={form.paymentType === 'fixe' ? 'is-selected' : ''}
+                >Fixe</button>
+                <button 
+                  type="button" 
+                  onClick={() => set('paymentType', 'pourcentage')} 
+                  className={form.paymentType === 'pourcentage' ? 'is-selected' : ''}
+                >Pourcentage</button>
               </div>
             </fieldset>
+
             {form.paymentType === 'fixe' ? (
               <label className="salary-field">
                 Montant mensuel (DH)
@@ -100,20 +200,18 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
               </label>
             ) : (
               <fieldset className="rates">
-                <legend>Taux par matière (%)</legend>
-                {form.subjects.length ? (
-                  form.subjects.map((subject) => (
-                    <label key={subject}>
-                      <strong>{subject}</strong>
+                <legend>Taux par cycle (%)</legend>
+                <div className="rates-grid">
+                  {form.cycles.map((cycle) => (
+                    <label key={cycle}>
+                      <span>{cycle}</span>
                       <span>
-                        <input type="number" min="0" max="100" value={form.rates[subject] || ''} onChange={(e) => setRate(subject, e.target.value)} required />
+                        <input type="number" min="0" max="100" value={form.rates?.[cycle] || ''} onChange={(e) => setRate(cycle, e.target.value)} required />
                         %
                       </span>
                     </label>
-                  ))
-                ) : (
-                  <p>Sélectionnez au moins une matière.</p>
-                )}
+                  ))}
+                </div>
               </fieldset>
             )}
           </section>
