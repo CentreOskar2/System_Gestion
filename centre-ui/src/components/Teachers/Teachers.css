@@ -545,6 +545,24 @@
   text-align: left;
 }
 
+.teacher-cycle-rates {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.teacher-cycle-rates > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.teacher-cycle-rates strong {
+  font-size: 1.1rem;
+  white-space: nowrap;
+}
+
 /* =======================
    Payment
 ======================= */

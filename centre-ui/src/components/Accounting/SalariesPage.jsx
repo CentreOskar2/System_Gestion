@@ -1,85 +1,37 @@
-import { useRef, useState, useMemo } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
 import { initials } from '../Students/utils/studentHelpers'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
-import { initialTeachers, mockGroups } from '../Teachers/data/mockTeachers'
+import { supabase } from '../../supabaseClient'
 import './SalariesPage.css'
 
-// Helper to get groups matching a teacher's selection
-function getMatchingGroups(cycles, levels, branches, subjects) {
-  if (!cycles?.length || !levels?.length || !branches?.length || !subjects?.length) {
-    return []
-  }
-  return mockGroups.filter(group => 
-    cycles.includes(group.cycle) &&
-    levels.includes(group.level) &&
-    branches.includes(group.branch) &&
-    subjects.includes(group.subject)
-  )
-}
+const SUBJECT_PRICE = 500
 
-// Calculate salary based on cycle-based rates
-function calculateSalary(teacher) {
+function calculateSalary(teacher, groups) {
   if (teacher.paymentType === 'fixe') {
-    return Number(teacher.salary) || 0
+    return Number(teacher.fixed_salary) || Number(teacher.remuneration_amount) || 0
   }
-  
-  // For percentage-based, calculate based on groups
-  const groups = getMatchingGroups(teacher.cycles, teacher.levels, teacher.branches, teacher.subjects)
-  const rates = teacher.rates || {}
-  
   let total = 0
-  groups.forEach(group => {
-    const cycleRate = rates[group.cycle] || 0
-    total += (group.studentsCount * 500) * (cycleRate / 100)
-  })
-  
-  return total
+  for (const group of groups) {
+    const rate = teacher.cycle_rates?.[group.cycleId] || 0
+    total += group.studentsCount * SUBJECT_PRICE * (rate / 100)
+  }
+  return Math.round(total)
 }
-
-const teachers = initialTeachers.map(t => ({
-  ...t,
-  type: t.paymentType === 'fixe' ? 'Fixe' : 'Pourcentage',
-  amount: calculateSalary(t),
-  subjects: t.subjects.join(', '),
-  name: `${t.firstName} ${t.lastName}`
-}))
-
-const students = ['Yasmine Alaoui', 'Adam Drissi', 'Lina Ghazi', 'Zakaria Jaidi', 'Ines Mansouri', 'Mehdi Peretti', 'Sara Saidi', 'Rayan Bennani', 'Aya El Ouafi', 'Ilyas Hakim', 'Nour Kabbaj', 'Amine Naciri', 'Salma Qadiri', 'Anas Tazi', 'Malak Chraibi', 'Youssef Fassi', 'Kenza Idrissi', 'Hamza Lahlou', 'Rim Ouazzani', 'Bilal Riad', 'Yasmine Alaoui', 'Adam Drissi', 'Lina Ghazi', 'Zakaria Jaidi', 'Ines Mansouri', 'Mehdi Peretti']
 
 function Journal({ teacher, close }) {
   const journalRef = useRef(null)
   const [isExporting, setIsExporting] = useState(false)
   const percentage = teacher.type === 'Pourcentage'
-  
-  // Get groups for the teacher
-  const groups = useMemo(() => {
-    return getMatchingGroups(teacher.cycles, teacher.levels, teacher.branches, teacher.subjects)
-  }, [teacher.cycles, teacher.levels, teacher.branches, teacher.subjects])
-  
-  // Calculate rates for each group based on cycle
-  const groupsWithRates = groups.map(group => {
-    const cycleRate = teacher.rates?.[group.cycle] || 0
-    return {
-      ...group,
-      rate: cycleRate
-    }
-  })
-  
-  // Calculate total per group
-  const groupTotals = groupsWithRates.map(group => {
-    return group.studentsCount * 500
-  })
-  
-  // Calculate total salary
-  const totalSalary = groupsWithRates.reduce((sum, group, index) => {
-    const rate = groupsWithRates[index].rate
-    return sum + (groupTotals[index] * rate / 100)
-  }, 0)
-  
+
+  const groupTotals = teacher.groups.map((group) => group.studentsCount * SUBJECT_PRICE)
+  const totalSalary = percentage
+    ? teacher.amount
+    : teacher.groups.reduce((sum, group) => sum + group.studentsCount * SUBJECT_PRICE, 0)
+
   const downloadPdf = async () => { setIsExporting(true); try { await exportToPdf(journalRef.current, `journal-salaire-${safeFilename(teacher.name)}.pdf`) } finally { setIsExporting(false) } }
-  
+
   return (
     <div className="salary-overlay" onMouseDown={close}>
       <section ref={journalRef} className="salary-journal" onMouseDown={(event) => event.stopPropagation()}>
@@ -93,16 +45,16 @@ function Journal({ teacher, close }) {
           </span>
           <em className={percentage ? 'percentage' : 'fixed'}>{teacher.type}</em>
         </div>
-        
-        {groups.length > 0 ? (
-          groupsWithRates.map((group, index) => (
+
+        {teacher.groups.length > 0 ? (
+          teacher.groups.map((group, index) => (
             <article className="journal-group" key={group.id}>
               <header>
                 <div>
                   <b>{group.name}</b>
                   <small>{group.subject} · {group.level} · {group.branch} · {group.studentsCount} élèves</small>
                 </div>
-                {group.rate && <span>Taux : {group.rate}%</span>}
+                {percentage && group.rate > 0 && <span>Taux : {group.rate}%</span>}
               </header>
               <table>
                 <thead>
@@ -112,10 +64,10 @@ function Journal({ teacher, close }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {students.slice(0, group.studentsCount).map((student, i) => (
+                  {(group.students.length > 0 ? group.students : Array.from({ length: group.studentsCount }, (_, i) => `Élève ${i + 1}`)).map((student, i) => (
                     <tr key={`${student}-${i}`}>
                       <td>{student}</td>
-                      <td>500 DH</td>
+                      <td>{SUBJECT_PRICE} DH</td>
                     </tr>
                   ))}
                 </tbody>
@@ -131,7 +83,7 @@ function Journal({ teacher, close }) {
         ) : (
           <p>Aucun groupe assigné à ce professeur</p>
         )}
-        
+
         <section className="journal-summary">
           <h3>Récapitulatif</h3>
           <div className="summary-head">
@@ -140,12 +92,12 @@ function Journal({ teacher, close }) {
             <span>Taux</span>
             <span>Montant dû</span>
           </div>
-          {groupsWithRates.map((group, index) => (
+          {teacher.groups.map((group, index) => (
             <div className="summary-row" key={group.id}>
               <span>{group.name}</span>
               <span>{groupTotals[index].toLocaleString('fr-FR')} DH</span>
-              <span>{group.rate ? `${group.rate}%` : 'Fixe'}</span>
-              <span>{percentage ? `${Math.round(groupTotals[index] * group.rate / 100).toLocaleString('fr-FR')} DH` : `${teacher.amount.toLocaleString('fr-FR')} DH`}</span>
+              <span>{percentage ? `${group.rate}%` : 'Fixe'}</span>
+              <span>{percentage ? `${Math.round(groupTotals[index] * group.rate / 100).toLocaleString('fr-FR')} DH` : `${groupTotals[index].toLocaleString('fr-FR')} DH`}</span>
             </div>
           ))}
           <div className="summary-total">
@@ -167,11 +119,106 @@ function Journal({ teacher, close }) {
 export default function SalariesPage() {
   const [selected, setSelected] = useState(null)
   const [validated, setValidated] = useState([])
+  const [teachers, setTeachers] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes] = await Promise.all([
+        supabase.from('teachers').select('*').eq('status', 'active').order('last_name'),
+        supabase.from('cycles').select('id, name'),
+        supabase.from('levels').select('id, name, cycle_id'),
+        supabase.from('branches').select('id, name'),
+        supabase.from('subjects').select('id, name'),
+        supabase.from('groups').select('id, name, subject_id, level_id, branch_id'),
+        supabase.from('teacher_group_subjects').select('teacher_id, group_id'),
+        supabase.from('group_students').select('group_id, student_id'),
+        supabase.from('students').select('id, first_name, last_name'),
+      ])
+      if (cancelled) return
+      setLoading(false)
+      if (teachersRes.error) return
+
+      const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
+      const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
+      const levelById = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l]))
+      const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
+      const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
+      const groupById = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g]))
+      const studentMap = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, `${s.first_name} ${s.last_name}`.trim()]))
+
+      const groupIdsByTeacher = {}
+      for (const row of tgRes.data || []) {
+        if (!groupIdsByTeacher[row.teacher_id]) groupIdsByTeacher[row.teacher_id] = []
+        if (!groupIdsByTeacher[row.teacher_id].includes(row.group_id)) groupIdsByTeacher[row.teacher_id].push(row.group_id)
+      }
+      const studentsByGroup = {}
+      for (const row of gsRes.data || []) {
+        if (!studentsByGroup[row.group_id]) studentsByGroup[row.group_id] = []
+        if (studentMap[row.student_id]) studentsByGroup[row.group_id].push(studentMap[row.student_id])
+      }
+
+      setTeachers(
+        (teachersRes.data || []).map((t) => {
+          const cycleIds = t.cycle_ids || []
+          const groups = (groupIdsByTeacher[t.id] || [])
+            .map((groupId) => {
+              const group = groupById[groupId]
+              if (!group) return null
+              const cycleId = levelById[group.level_id]?.cycle_id
+              const rate = t.remuneration_type === 'pourcentage' ? Number(t.cycle_rates?.[cycleId] ?? 0) : 0
+              const students = studentsByGroup[groupId] || []
+              return {
+                id: group.id,
+                name: group.name,
+                subject: subjectMap[group.subject_id] || '—',
+                level: levelMap[group.level_id] || '—',
+                branch: branchMap[group.branch_id] || '—',
+                cycleId,
+                rate,
+                students,
+                studentsCount: students.length,
+              }
+            })
+            .filter(Boolean)
+          const levels = [...new Set(groups.map((g) => g.level).filter((level) => level !== '—'))]
+          return {
+            id: t.id,
+            name: `${t.first_name} ${t.last_name}`.trim(),
+            paymentType: t.remuneration_type,
+            type: t.remuneration_type === 'fixe' ? 'Fixe' : 'Pourcentage',
+            fixed_salary: t.fixed_salary,
+            remuneration_amount: t.remuneration_amount,
+            cycle_rates: t.cycle_rates || {},
+            cycles: cycleIds.map((id) => cycleMap[id]).filter(Boolean),
+            levels,
+            groups,
+            amount: calculateSalary(
+              {
+                paymentType: t.remuneration_type,
+                fixed_salary: t.fixed_salary,
+                remuneration_amount: t.remuneration_amount,
+                cycle_rates: t.cycle_rates || {},
+              },
+              groups
+            ),
+          }
+        })
+      )
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
   const openJournal = (teacher, validate) => {
     if (validate) setValidated((items) => items.includes(teacher.id) ? items : [...items, teacher.id])
     setSelected(teacher)
   }
-  
+
+  const massSalariale = teachers.reduce((sum, t) => sum + t.amount, 0)
+
   return (
     <div className="salaries-page">
       <Header />
@@ -190,17 +237,17 @@ export default function SalariesPage() {
         <section className="salary-stats">
           <article>
             <span>Masse salariale du mois</span>
-            <strong>{teachers.reduce((sum, t) => sum + t.amount, 0).toLocaleString('fr-FR')} DH</strong>
+            <strong>{massSalariale.toLocaleString('fr-FR')} DH</strong>
             <i>▣</i>
           </article>
           <article>
             <span>Profs — salaire fixe</span>
-            <strong>{teachers.filter(t => t.paymentType === 'fixe').length}</strong>
+            <strong>{teachers.filter((t) => t.paymentType === 'fixe').length}</strong>
             <i>↗</i>
           </article>
           <article>
             <span>Profs — pourcentage</span>
-            <strong>{teachers.filter(t => t.paymentType === 'pourcentage').length}</strong>
+            <strong>{teachers.filter((t) => t.paymentType === 'pourcentage').length}</strong>
             <i>%</i>
           </article>
         </section>
@@ -224,52 +271,62 @@ export default function SalariesPage() {
               </tr>
             </thead>
             <tbody>
-              {teachers.map(teacher => {
-                const isValidated = validated.includes(teacher.id)
-                return (
-                  <tr key={teacher.id}>
-                    <td>
-                      <div className="salary-person">
-                        <i>{initials(teacher.name)}</i>
-                        <b>{teacher.name}</b>
-                      </div>
-                    </td>
-                    <td>
-                      <span className={teacher.paymentType === 'fixe' ? 'type-fixed' : 'type-percent'}>
-                        {teacher.type}
-                      </span>
-                    </td>
-                    <td>
-                      <small>{teacher.cycles.join(', ')}</small>
-                      <br />
-                      <small style={{ color: '#647088' }}>{teacher.levels.join(', ')}</small>
-                    </td>
-                    <td>
-                      <b>{teacher.amount.toLocaleString('fr-FR')} DH</b>
-                    </td>
-                    <td>
-                      <span className={isValidated ? 'salary-status paid' : 'salary-status'}>
-                        {isValidated ? 'Validé' : 'En attente'}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="salary-actions">
-                        {teacher.paymentType === 'pourcentage' && (
-                          <button className="journal-button" onClick={() => openJournal(teacher, false)}>
-                            ▣  Imprimer journal
+              {loading ? (
+                <tr>
+                  <td colSpan={6} className="salary-empty">Chargement des professeurs...</td>
+                </tr>
+              ) : teachers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="salary-empty">Aucun professeur actif.</td>
+                </tr>
+              ) : (
+                teachers.map((teacher) => {
+                  const isValidated = validated.includes(teacher.id)
+                  return (
+                    <tr key={teacher.id}>
+                      <td>
+                        <div className="salary-person">
+                          <i>{initials(teacher.name)}</i>
+                          <b>{teacher.name}</b>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={teacher.paymentType === 'fixe' ? 'type-fixed' : 'type-percent'}>
+                          {teacher.type}
+                        </span>
+                      </td>
+                      <td>
+                        <small>{teacher.cycles.join(', ') || '—'}</small>
+                        <br />
+                        <small style={{ color: '#647088' }}>{teacher.levels.join(', ') || '—'}</small>
+                      </td>
+                      <td>
+                        <b>{teacher.amount.toLocaleString('fr-FR')} DH</b>
+                      </td>
+                      <td>
+                        <span className={isValidated ? 'salary-status paid' : 'salary-status'}>
+                          {isValidated ? 'Validé' : 'En attente'}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="salary-actions">
+                          {teacher.paymentType === 'pourcentage' && (
+                            <button className="journal-button" onClick={() => openJournal(teacher, false)}>
+                              ▣  Imprimer journal
+                            </button>
+                          )}
+                          <button
+                            className={isValidated ? 'validate-salary done' : 'validate-salary'}
+                            onClick={() => openJournal(teacher, true)}
+                          >
+                            {isValidated ? '✓ Validé' : '✓  Valider'}
                           </button>
-                        )}
-                        <button
-                          className={isValidated ? 'validate-salary done' : 'validate-salary'}
-                          onClick={() => openJournal(teacher, true)}
-                        >
-                          {isValidated ? '✓ Validé' : '✓  Valider'}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })
+              )}
             </tbody>
           </table>
         </section>

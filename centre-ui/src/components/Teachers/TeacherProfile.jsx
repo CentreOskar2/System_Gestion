@@ -23,19 +23,33 @@ export default function TeacherProfile({ teacher, onBack }) {
 
   const fullName = `${teacher.firstName} ${teacher.lastName}`
   const fixedSalary = teacher.paymentType === 'fixe'
-  const percentage = teacher.paymentType === 'pourcentage' ? Number(teacher.remuneration_amount || 0) : null
+  const cycleRates = (teacher.cycles || [])
+    .map((cycle) => ({ id: cycle.id, name: cycle.name, rate: Number(teacher.cycle_rates?.[cycle.id] ?? '') }))
+    .filter((entry) => entry.rate > 0)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
+      const teacherId = teacher.id
       const tgRes = await supabase
         .from('teacher_group_subjects')
-        .select('group_id, subject_id, groups(id, name, subject_id, level_id, capacity, status), subjects(id, name)')
-        .eq('teacher_id', teacher.id)
+        .select('group_id, subject_id')
+        .eq('teacher_id', teacherId)
       if (cancelled) return
 
-      const groupIds = [...new Set((tgRes.data || []).map((r) => r.group_id).filter(Boolean))]
-      const [subjectsRes, levelsRes, gsRes, salariesRes] = await Promise.all([
+      const dirRes = await supabase
+        .from('groups')
+        .select('id')
+        .eq('teacher_id', teacherId)
+      if (cancelled) return
+
+      const groupIds = [...new Set([
+        ...(tgRes.data || []).map((r) => r.group_id),
+        ...(dirRes.data || []).map((g) => g.id),
+        ...(teacher.groups || teacher.assigned_groups || []),
+      ].filter(Boolean))]
+
+      const [subjectsRes, levelsRes, gsRes, salariesRes, groupsRes] = await Promise.all([
         supabase.from('subjects').select('id, name'),
         supabase.from('levels').select('id, name'),
         groupIds.length > 0
@@ -44,8 +58,11 @@ export default function TeacherProfile({ teacher, onBack }) {
         supabase
           .from('teacher_salaries')
           .select('id, month, amount, status')
-          .eq('teacher_id', teacher.id)
+          .eq('teacher_id', teacherId)
           .order('month', { ascending: false }),
+        groupIds.length > 0
+          ? supabase.from('groups').select('id, name, subject_id, level_id, capacity, status')
+          : Promise.resolve({ data: [] }),
       ])
       if (cancelled) return
 
@@ -56,23 +73,27 @@ export default function TeacherProfile({ teacher, onBack }) {
         countByGroup[row.group_id] = (countByGroup[row.group_id] || 0) + 1
       }
 
-      const grouped = {}
+      const groupById = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g]))
+      const subjectByGroup = {}
       for (const row of tgRes.data || []) {
-        const group = row.groups
-        if (!group) continue
-        if (!grouped[group.id]) {
-          grouped[group.id] = {
-            id: group.id,
-            name: group.name,
-            subject: subjectMap[group.subject_id] || '—',
-            level: levelMap[group.level_id] || '—',
-            capacity: group.capacity,
-            status: group.status,
-            studentCount: countByGroup[group.id] || 0,
-            subjects: [],
-          }
+        subjectByGroup[row.group_id] = row.subject_id
+      }
+
+      const grouped = {}
+      for (const groupId of groupIds) {
+        const group = groupById[groupId]
+        if (!group || grouped[group.id]) continue
+        const junctionSubject = subjectByGroup[group.id]
+        grouped[group.id] = {
+          id: group.id,
+          name: group.name,
+          subject: subjectMap[group.subject_id] || subjectMap[junctionSubject] || '—',
+          level: levelMap[group.level_id] || '—',
+          capacity: group.capacity,
+          status: group.status,
+          studentCount: countByGroup[group.id] || 0,
+          subjects: [subjectMap[junctionSubject]].filter(Boolean),
         }
-        if (row.subjects?.name) grouped[group.id].subjects.push(row.subjects.name)
       }
 
       setGroups(Object.values(grouped))
@@ -80,7 +101,7 @@ export default function TeacherProfile({ teacher, onBack }) {
     }
     load()
     return () => { cancelled = true }
-  }, [teacher.id])
+  }, [teacher.id, teacher.groups, teacher.assigned_groups])
 
   return (
     <div className="teacher-profile-page">
@@ -107,8 +128,29 @@ export default function TeacherProfile({ teacher, onBack }) {
             <article className="teacher-profile-card teacher-remuneration">
               <div>
                 <h2>Rémunération</h2>
-                <p>{fixedSalary ? 'Salaire mensuel' : 'Taux (pourcentage)'}</p>
-                <strong>{fixedSalary ? formatAmount(teacher.remuneration_amount) : `${percentage} %`}</strong>
+                {fixedSalary ? (
+                  <>
+                    <p>Salaire mensuel</p>
+                    <strong>{formatAmount(teacher.fixed_salary)}</strong>
+                  </>
+                ) : cycleRates.length > 0 ? (
+                  <>
+                    <p>Taux par cycle</p>
+                    <div className="teacher-cycle-rates">
+                      {cycleRates.map((entry) => (
+                        <span key={entry.id}>
+                          <i className="subject-tag">{entry.name}</i>
+                          <strong>{entry.rate} %</strong>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p>Taux (pourcentage)</p>
+                    <strong>—</strong>
+                  </>
+                )}
               </div>
               <span className={`pay-tag ${fixedSalary ? 'fixe' : 'pourcentage'}`}>
                 {fixedSalary ? 'Fixe' : 'Pourcentage'}
@@ -116,18 +158,18 @@ export default function TeacherProfile({ teacher, onBack }) {
             </article>
 
             <article className="teacher-profile-card">
-              <h2>Matières &amp; niveaux enseignés</h2>
+              <h2>Cycles, niveaux &amp; matières</h2>
               <div className="teacher-qualifications">
                 <div>
-                  <strong>Matières</strong>
-                  {teacher.subjects?.length ? (
+                  <strong>Cycles</strong>
+                  {teacher.cycles?.length ? (
                     <div className="teacher-tag-list">
-                      {teacher.subjects.map((subject) => (
-                        <i className="subject-tag" key={subject}>{subject}</i>
+                      {teacher.cycles.map((cycle) => (
+                        <i className="subject-tag" key={cycle.id}>{cycle.name}</i>
                       ))}
                     </div>
                   ) : (
-                    <p className="teacher-profile-empty">Aucune matière assignée.</p>
+                    <p className="teacher-profile-empty">Aucun cycle assigné.</p>
                   )}
                 </div>
                 <div>
@@ -140,6 +182,18 @@ export default function TeacherProfile({ teacher, onBack }) {
                     </div>
                   ) : (
                     <p className="teacher-profile-empty">Aucun niveau assigné.</p>
+                  )}
+                </div>
+                <div>
+                  <strong>Matières</strong>
+                  {teacher.subjects?.length ? (
+                    <div className="teacher-tag-list">
+                      {teacher.subjects.map((subject) => (
+                        <i className="subject-tag" key={subject}>{subject}</i>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="teacher-profile-empty">Aucune matière assignée.</p>
                   )}
                 </div>
               </div>

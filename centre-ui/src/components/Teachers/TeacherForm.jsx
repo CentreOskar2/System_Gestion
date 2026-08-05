@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Header from '../shared/Header'
 import { supabase } from '../../supabaseClient'
 import UploadIcon from './ui/UploadIcon'
@@ -16,15 +16,13 @@ const toForm = (teacher) =>
         hire_date: teacher.hiredAt || '',
         photo_url: teacher.photoUrl || '',
         active: teacher.active,
+        cycles: teacher.cycle_ids || [],
+        levels: teacher.level_ids || [],
+        subjects: teacher.subject_ids || [],
+        groups: teacher.groups || (teacher.group_assignments || []).map((a) => a.group_id),
         remuneration_type: teacher.paymentType || 'fixe',
-        remuneration_amount: teacher.remuneration_amount ?? teacher.salary ?? '',
-        subject_ids: teacher.subject_ids || [],
-        branch_ids: teacher.branch_ids || [],
-        level_ids: teacher.level_ids || [],
-        group_assignments: teacher.group_assignments || [],
-        group_cycle_id: teacher.group_cycle_id || '',
-        group_level_id: teacher.group_level_id || '',
-        group_filiere_id: teacher.group_filiere_id || '',
+        fixed_salary: teacher.fixed_salary ?? teacher.remuneration_amount ?? teacher.salary ?? '',
+        cycle_rates: teacher.cycle_rates || teacher.rates || {},
         photoFile: null,
       }
     : {
@@ -36,15 +34,13 @@ const toForm = (teacher) =>
         hire_date: '',
         photo_url: '',
         active: true,
+        cycles: [],
+        levels: [],
+        subjects: [],
+        groups: [],
         remuneration_type: 'fixe',
-        remuneration_amount: '',
-        subject_ids: [],
-        branch_ids: [],
-        level_ids: [],
-        group_assignments: [],
-        group_cycle_id: '',
-        group_level_id: '',
-        group_filiere_id: '',
+        fixed_salary: '',
+        cycle_rates: {},
         photoFile: null,
       }
 
@@ -60,110 +56,108 @@ function Toast({ notice }) {
 
 export default function TeacherForm({ teacher, onClose, onSave }) {
   const [form, setForm] = useState(() => toForm(teacher))
-  const [subjects, setSubjects] = useState([])
-  const [levels, setLevels] = useState([])
-  const [branches, setBranches] = useState([])
   const [cycles, setCycles] = useState([])
-  const [groups, setGroups] = useState([])
-  const [filieres, setFilieres] = useState([])
+  const [levels, setLevels] = useState([])
+  const [subjects, setSubjects] = useState([])
+  const [availableGroups, setAvailableGroups] = useState([])
+  const [groupsLoading, setGroupsLoading] = useState(false)
   const [loadingOptions, setLoadingOptions] = useState(true)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState(null)
 
+  const cycleName = useMemo(() => {
+    const map = {}
+    for (const cycle of cycles) map[cycle.id] = cycle.name
+    return map
+  }, [cycles])
+
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [subjectsRes, levelsRes, branchesRes, cyclesRes, groupsRes, filieresRes] = await Promise.all([
-        supabase.from('subjects').select('id, name').order('name'),
-        supabase.from('levels').select('id, name, cycle_id, cycles(name)').order('name'),
-        supabase.from('branches').select('id, name').order('name'),
+      const [cyclesRes, levelsRes, subjectsRes] = await Promise.all([
         supabase.from('cycles').select('id, name').order('name'),
-        supabase.from('groups').select('id, name, subject_id, level_id, filiere_id, capacity, status').order('name'),
-        supabase.from('study_branches').select('id, name, level_id').order('name'),
+        supabase.from('levels').select('id, name, cycle_id').order('name'),
+        supabase.from('subjects').select('id, name').order('name'),
       ])
       if (cancelled) return
-      if (subjectsRes.data) setSubjects(subjectsRes.data)
-      if (levelsRes.data) setLevels(levelsRes.data)
-      if (branchesRes.data) setBranches(branchesRes.data)
       if (cyclesRes.data) setCycles(cyclesRes.data)
-      if (groupsRes.data) setGroups(groupsRes.data.filter((g) => g.status === 'active'))
-      if (filieresRes.data) setFilieres(filieresRes.data)
-
-      const existingAssignments = teacher?.group_assignments || []
-      if (existingAssignments.length > 0) {
-        const firstGroup = groupsRes.data?.find((g) => g.id === existingAssignments[0].group_id)
-        const firstLevel = levelsRes.data?.find((l) => l.id === firstGroup?.level_id)
-        if (firstLevel) {
-          setForm((current) => ({
-            ...current,
-            group_cycle_id: firstLevel.cycle_id || '',
-            group_level_id: firstLevel.id,
-            group_filiere_id: firstGroup?.filiere_id || '',
-          }))
-        }
-      }
+      if (levelsRes.data) setLevels(levelsRes.data)
+      if (subjectsRes.data) setSubjects(subjectsRes.data)
       setLoadingOptions(false)
     }
     load()
     return () => { cancelled = true }
-  }, [teacher])
+  }, [])
 
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }))
 
-  const toggle = (field, value) => {
+  const toggle = (field, value) =>
     setForm((current) => {
       const list = current[field] || []
-      const nextValue = list.includes(value)
-        ? list.filter((item) => item !== value)
-        : [...list, value]
-      const next = { ...current, [field]: nextValue }
-      if (field === 'subject_ids') {
-        next.group_assignments = (current.group_assignments || []).map((assignment) => ({
-          ...assignment,
-          subject_ids: [...nextValue],
-        }))
-      }
-      return next
-    })
-  }
-
-  const cascadeLevels = form.group_cycle_id
-    ? levels.filter((level) => level.cycle_id === form.group_cycle_id)
-    : []
-
-  const cascadeFilieres = form.group_level_id
-    ? filieres.filter((filiere) => filiere.level_id === form.group_level_id)
-    : []
-
-  const availableGroups = form.group_level_id
-    ? groups.filter(
-        (group) =>
-          group.level_id === form.group_level_id &&
-          (!form.group_filiere_id || group.filiere_id === form.group_filiere_id)
-      )
-    : []
-
-  const toggleGroupAssignment = (groupId) => {
-    setForm((current) => {
-      const assigned = (current.group_assignments || []).some((a) => a.group_id === groupId)
       return {
         ...current,
-        group_assignments: assigned
-          ? current.group_assignments.filter((a) => a.group_id !== groupId)
-          : [...current.group_assignments, { group_id: groupId, subject_ids: [...(current.subject_ids || [])] }],
+        [field]: list.includes(value) ? list.filter((item) => item !== value) : [...list, value],
       }
     })
-  }
 
-  const levelsByCycle = (() => {
-    const groups = {}
+  const setRate = (cycleId, value) =>
+    set('cycle_rates', { ...form.cycle_rates, [cycleId]: value })
+
+  const levelsByCycle = useMemo(() => {
+    const grouped = {}
     for (const level of levels) {
-      const cycleName = level.cycles?.name || 'Autres'
-      if (!groups[cycleName]) groups[cycleName] = []
-      groups[cycleName].push(level)
+      if (!form.cycles.includes(level.cycle_id)) continue
+      const cycle = cycleName[level.cycle_id] || 'Autres'
+      if (!grouped[cycle]) grouped[cycle] = []
+      grouped[cycle].push(level)
     }
-    return groups
-  })()
+    return grouped
+  }, [levels, cycleName, form.cycles])
+
+  const canFetchGroups =
+    form.cycles.length > 0 &&
+    form.levels.length > 0 &&
+    form.subjects.length > 0
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!canFetchGroups) return
+      setGroupsLoading(true)
+      let query = supabase
+        .from('groups')
+        .select('id, name, subject_id, level_id, capacity, status, levels(name, cycles(name))')
+        .eq('status', 'active')
+      query = query.or(`subject_id.in.(${form.subjects.join(',')}),subject_id.is.null`)
+      query = query.or(`level_id.in.(${form.levels.join(',')}),level_id.is.null`)
+      const { data, error } = await query
+      if (cancelled) return
+      if (error) {
+        console.error(error)
+        setAvailableGroups([])
+        setGroupsLoading(false)
+        return
+      }
+      const groupIds = (data || []).map((group) => group.id)
+      const countsByGroup = {}
+      if (groupIds.length > 0) {
+        const { data: rows } = await supabase.from('group_students').select('group_id').in('group_id', groupIds)
+        for (const row of rows || []) {
+          countsByGroup[row.group_id] = (countsByGroup[row.group_id] || 0) + 1
+        }
+      }
+      if (cancelled) return
+      setAvailableGroups(
+        (data || []).map((group) => ({
+          ...group,
+          studentsCount: countsByGroup[group.id] || 0,
+        }))
+      )
+      setGroupsLoading(false)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [canFetchGroups, form.levels, form.subjects])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -178,7 +172,6 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
   }
 
   const editing = Boolean(teacher)
-  const amountLabel = form.remuneration_type === 'fixe' ? 'Montant mensuel (DH)' : 'Pourcentage (%)'
 
   return (
     <div className="teacher-form-page">
@@ -226,37 +219,42 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
               </div>
             </div>
           </section>
+
           <section className="teacher-card">
             <h2>Informations professionnelles</h2>
+
+            {/* 1. Cycle(s) enseigné(s) */}
             <fieldset>
-              <legend>Matières enseignées</legend>
+              <legend>Cycle(s) enseigné(s)</legend>
               {loadingOptions ? (
-                <p className="teacher-options-loading">Chargement des matières...</p>
+                <p className="teacher-options-loading">Chargement des cycles...</p>
               ) : (
                 <div className="choice-grid">
-                  {subjects.map((subject) => (
-                    <label className={form.subject_ids.includes(subject.id) ? 'is-checked' : ''} key={subject.id}>
-                      <input type="checkbox" checked={form.subject_ids.includes(subject.id)} onChange={() => toggle('subject_ids', subject.id)} />
-                      {subject.name}
+                  {cycles.map((cycle) => (
+                    <label className={form.cycles.includes(cycle.id) ? 'is-checked' : ''} key={cycle.id}>
+                      <input type="checkbox" checked={form.cycles.includes(cycle.id)} onChange={() => toggle('cycles', cycle.id)} />
+                      {cycle.name}
                     </label>
                   ))}
                 </div>
               )}
             </fieldset>
+
+            {/* 2. Niveau(x) scolaire(s) */}
             <fieldset>
-              <legend>Niveaux enseignés</legend>
+              <legend>Niveau(x) scolaire(s)</legend>
               {loadingOptions ? (
                 <p className="teacher-options-loading">Chargement des niveaux...</p>
-              ) : Object.keys(levelsByCycle).length === 0 ? (
-                <p className="teacher-options-loading">Aucun niveau disponible.</p>
+              ) : form.cycles.length === 0 ? (
+                <p className="groups-placeholder">Sélectionnez d'abord un ou plusieurs cycles.</p>
               ) : (
-                Object.entries(levelsByCycle).map(([cycleName, cycleLevels]) => (
-                  <div className="teacher-level-group" key={cycleName}>
-                    <strong className="teacher-level-cycle">{cycleName}</strong>
+                Object.entries(levelsByCycle).map(([cycle, cycleLevels]) => (
+                  <div className="teacher-level-group" key={cycle}>
+                    <strong className="teacher-level-cycle">{cycle}</strong>
                     <div className="choice-grid">
                       {cycleLevels.map((level) => (
-                        <label className={form.level_ids.includes(level.id) ? 'is-checked' : ''} key={level.id}>
-                          <input type="checkbox" checked={form.level_ids.includes(level.id)} onChange={() => toggle('level_ids', level.id)} />
+                        <label className={form.levels.includes(level.id) ? 'is-checked' : ''} key={level.id}>
+                          <input type="checkbox" checked={form.levels.includes(level.id)} onChange={() => toggle('levels', level.id)} />
                           {level.name}
                         </label>
                       ))}
@@ -265,101 +263,54 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
                 ))
               )}
             </fieldset>
+
+            {/* 3. Matières enseignées */}
             <fieldset>
-              <legend>Succursale(s) d'affectation</legend>
+              <legend>Matières enseignées</legend>
               {loadingOptions ? (
-                <p className="teacher-options-loading">Chargement des succursales...</p>
+                <p className="teacher-options-loading">Chargement des matières...</p>
               ) : (
-                <div className="choice-grid choice-grid--branches">
-                  {branches.map((branch) => (
-                    <label className={form.branch_ids.includes(branch.id) ? 'is-checked' : ''} key={branch.id}>
-                      <input type="checkbox" checked={form.branch_ids.includes(branch.id)} onChange={() => toggle('branch_ids', branch.id)} />
-                      {branch.name}
+                <div className="choice-grid">
+                  {subjects.map((subject) => (
+                    <label className={form.subjects.includes(subject.id) ? 'is-checked' : ''} key={subject.id}>
+                      <input type="checkbox" checked={form.subjects.includes(subject.id)} onChange={() => toggle('subjects', subject.id)} />
+                      {subject.name}
                     </label>
                   ))}
                 </div>
               )}
             </fieldset>
+
+            {/* 4. Groupes */}
             <fieldset>
-              <legend>Groupes &amp; matières enseignées</legend>
-              {loadingOptions ? (
+              <legend>Groupes</legend>
+              {!canFetchGroups ? (
+                <p className="groups-placeholder">Complétez les champs ci-dessus (Cycles, Niveaux, Matières) pour voir les groupes disponibles</p>
+              ) : groupsLoading ? (
                 <p className="teacher-options-loading">Chargement des groupes...</p>
+              ) : availableGroups.length === 0 ? (
+                <p className="no-groups">Aucun groupe existant pour cette sélection — vous pourrez en créer un depuis le module Groupes</p>
               ) : (
-                <>
-                  <div className="teacher-cascade">
-                    <label>Cycle
-                      <select
-                        value={form.group_cycle_id}
-                        onChange={(e) => {
-                          set('group_cycle_id', e.target.value)
-                          set('group_level_id', '')
-                          set('group_filiere_id', '')
-                        }}
-                      >
-                        <option value="">— Sélectionner cycle —</option>
-                        {cycles.map((cycle) => (
-                          <option key={cycle.id} value={cycle.id}>{cycle.name}</option>
-                        ))}
-                      </select>
+                <div className="groups-grid">
+                  {availableGroups.map((group) => (
+                    <label className={form.groups.includes(group.id) ? 'is-checked' : ''} key={group.id}>
+                      <div className="group-info">
+                        <input type="checkbox" checked={form.groups.includes(group.id)} onChange={() => toggle('groups', group.id)} />
+                        <div>
+                          <strong>{group.name}</strong>
+                          <span>
+                            {[group.levels?.cycles?.name, group.levels?.name].filter(Boolean).join(' · ') || 'Groupe'}
+                            {group.studentsCount > 0 ? ` · ${group.studentsCount} élève${group.studentsCount > 1 ? 's' : ''}` : ''}
+                          </span>
+                        </div>
+                      </div>
                     </label>
-                    <label>Niveau
-                      <select
-                        value={form.group_level_id}
-                        onChange={(e) => {
-                          set('group_level_id', e.target.value)
-                          set('group_filiere_id', '')
-                        }}
-                        disabled={!form.group_cycle_id}
-                      >
-                        <option value="">— Sélectionner niveau —</option>
-                        {cascadeLevels.map((level) => (
-                          <option key={level.id} value={level.id}>{level.name}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>Filière / Option
-                      <select
-                        value={form.group_filiere_id}
-                        onChange={(e) => set('group_filiere_id', e.target.value)}
-                        disabled={!form.group_level_id}
-                      >
-                        <option value="">— Aucune —</option>
-                        {cascadeFilieres.map((filiere) => (
-                          <option key={filiere.id} value={filiere.id}>{filiere.name}</option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  {!form.group_level_id ? (
-                    <p className="teacher-options-loading">Sélectionnez un cycle puis un niveau pour afficher les groupes.</p>
-                  ) : availableGroups.length === 0 ? (
-                    <p className="teacher-options-loading">Aucun groupe disponible pour cette filière.</p>
-                  ) : (
-                    <div className="teacher-groups-assign">
-                      {availableGroups.map((group) => {
-                        const assignment = form.group_assignments.find((a) => a.group_id === group.id)
-                        const selected = Boolean(assignment)
-                        return (
-                          <div className={`teacher-assign-group ${selected ? 'is-checked' : ''}`} key={group.id}>
-                            <label className="teacher-assign-group-head">
-                              <input
-                                type="checkbox"
-                                checked={selected}
-                                onChange={() => toggleGroupAssignment(group.id)}
-                              />
-                              <span>
-                                <b>{group.name}</b>
-                                <small>{group.capacity ? `Capacité : ${group.capacity}` : 'Groupe'}</small>
-                              </span>
-                            </label>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </>
+                  ))}
+                </div>
               )}
             </fieldset>
+
+            {/* 5. Type de rémunération */}
             <fieldset className="payment-type">
               <legend>Type de rémunération</legend>
               <div>
@@ -367,24 +318,63 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
                 <button type="button" onClick={() => set('remuneration_type', 'pourcentage')} className={form.remuneration_type === 'pourcentage' ? 'is-selected' : ''}>Pourcentage</button>
               </div>
             </fieldset>
-            <label className="salary-field">
-              {amountLabel}
-              <input
-                type="number"
-                min="0"
-                step="any"
-                {...(form.remuneration_type === 'pourcentage' ? { max: 100 } : {})}
-                value={form.remuneration_amount}
-                onChange={(e) => set('remuneration_amount', e.target.value)}
-                required
-              />
-              <small>
-                {form.remuneration_type === 'fixe' && form.remuneration_amount
-                  ? `${Number(form.remuneration_amount).toLocaleString('fr-FR')} DH`
-                  : ''}
-              </small>
-            </label>
+
+            {form.remuneration_type === 'pourcentage' ? (
+              form.cycles.length > 1 ? (
+                <fieldset className="rates">
+                  <legend>Taux par cycle (%)</legend>
+                  <div className="rates-grid">
+                    {form.cycles.map((cycleId) => (
+                      <label key={cycleId}>
+                        <span>{cycleName[cycleId] || 'Cycle'}</span>
+                        <span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            value={form.cycle_rates?.[cycleId] || ''}
+                            onChange={(e) => setRate(cycleId, e.target.value)}
+                            required
+                          />
+                          %
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : form.cycles.length === 1 ? (
+                <label className="salary-field">
+                  Taux (%) — {cycleName[form.cycles[0]] || 'Cycle'}
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={form.cycle_rates?.[form.cycles[0]] || ''}
+                    onChange={(e) => setRate(form.cycles[0], e.target.value)}
+                    required
+                  />
+                </label>
+              ) : (
+                <p className="groups-placeholder">Sélectionnez au moins un cycle pour définir les taux.</p>
+              )
+            ) : (
+              <label className="salary-field">
+                Montant mensuel (DH)
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  value={form.fixed_salary}
+                  onChange={(e) => set('fixed_salary', e.target.value)}
+                  required
+                />
+                <small>
+                  {form.fixed_salary ? `${Number(form.fixed_salary).toLocaleString('fr-FR')} DH` : ''}
+                </small>
+              </label>
+            )}
           </section>
+
           <footer className="teacher-form-footer">
             <Toast notice={notice} />
             <button type="button" onClick={onClose}>Annuler</button>
