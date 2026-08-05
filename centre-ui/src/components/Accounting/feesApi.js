@@ -3,6 +3,25 @@ import { fetchCatalog } from '../Students/enrollment/enrollmentApi'
 
 export const MONTHS = ['Sept', 'Oct', 'Nov', 'Déc', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
 
+const FEES_CACHE_KEY = 'fees_cache_version'
+const cacheSubscribers = new Set()
+let cacheVersion = 0
+
+export function invalidateFeesCache() {
+  cacheVersion += 1
+  try {
+    localStorage.setItem(FEES_CACHE_KEY, String(cacheVersion))
+  } catch {
+    /* storage unavailable (private mode etc.) — in-app subscribers still notified */
+  }
+  for (const callback of cacheSubscribers) callback(cacheVersion)
+}
+
+export function subscribeFeesCache(callback) {
+  cacheSubscribers.add(callback)
+  return () => cacheSubscribers.delete(callback)
+}
+
 export function academicYearStart(now = new Date()) {
   return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1
 }
@@ -50,7 +69,7 @@ export async function fetchFeesData() {
   const [studentsRes, subsRes, paymentsRes] = await Promise.all([
     supabase
       .from('students')
-      .select('id, first_name, last_name, registration_number, status, level_id, cycle_id, du_mois, levels(name, cycle_id, cycles(name))')
+      .select('id, first_name, last_name, registration_number, registration_date, phone1, phone2, status, level_id, cycle_id, du_mois, levels(name, cycle_id, cycles(name)), filieres(name)')
       .order('created_at', { ascending: false }),
     supabase
       .from('student_subscriptions')
@@ -98,6 +117,10 @@ export async function fetchFeesData() {
       level_id: s.level_id,
       cycle_id: s.cycle_id,
       active: s.status === 'active',
+      registrationDate: s.registration_date || '',
+      phone: s.phone1 || '',
+      phone2: s.phone2 || '',
+      filiere: s.filieres?.name || '',
       chosen,
       subjectDetails,
       du_mois: Number.isFinite(stored) && stored > 0 ? stored : derived,

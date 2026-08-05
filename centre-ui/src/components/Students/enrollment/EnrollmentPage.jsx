@@ -68,7 +68,7 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
   const [step, setStep] = useState(1)
   const [form, setForm] = useState(() => createInitialForm(student))
   const [receiptOpen, setReceiptOpen] = useState(false)
-  const [codeReady, setCodeReady] = useState(Boolean(student?.code))
+  const [codeReady, setCodeReady] = useState(!student || Boolean(student?.code))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
@@ -89,7 +89,7 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
   }, [providedCatalog])
 
   useEffect(() => {
-    if (student) return
+    if (student?.code) return
     let active = true
     nextRegistrationNumber()
       .then((code) => {

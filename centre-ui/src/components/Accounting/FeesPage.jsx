@@ -15,6 +15,7 @@ import {
   priceFor,
   studentLineItems,
   fetchFeesData,
+  invalidateFeesCache,
 } from './feesApi'
 import './FeesPage.css'
 import './FeesEditModal.css'
@@ -194,6 +195,7 @@ export default function FeesPage() {
           { month, amount, status: 'paid', paid_at: new Date().toISOString(), paid_by: user?.id || null },
         ],
       }))
+      invalidateFeesCache()
       setReceipt({ student: { ...student, du_mois: amount }, month: MONTHS[index], catalog })
       setSelected(null)
     } catch (err) {
@@ -257,6 +259,7 @@ export default function FeesPage() {
       )
       await supabase.from('students').update({ du_mois: editTotal }).eq('id', editing.id)
       await load()
+      invalidateFeesCache()
       setEditing(null)
     } catch (err) {
       console.error(err)

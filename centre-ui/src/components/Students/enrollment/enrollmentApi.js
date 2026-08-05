@@ -536,6 +536,7 @@ export async function fetchStudents() {
       subjects: list.length,
       payment: 'N/A',
       active: s.status === 'active',
+      status: s.status,
       phone: s.phone1 || '',
       phone2: s.phone2 || '',
       registrationDate: s.registration_date || '',

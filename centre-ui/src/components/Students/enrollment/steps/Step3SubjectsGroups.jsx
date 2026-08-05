@@ -4,26 +4,32 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
   const cycles = catalog.cycles || []
   const levels = (catalog.levelsByCycle && catalog.levelsByCycle[form.cycle]) || []
   const filieres = form.level ? catalog.branchesByLevel?.[form.level] || [] : []
+  const filiere = form.filiere || form.track
   const groups = form.level
     ? (catalog.groupsByLevel?.[form.level] || [])
         .filter((g) => g.status === 'active')
-        .filter((g) => !form.filiere || g.filiere_id === catalog.filiereByName?.[form.filiere]?.id)
+        .filter((g) => !filiere || g.filiere_id === catalog.filiereByName?.[filiere]?.id)
     : []
 
   const handleCycleChange = (e) => {
     set('cycle', e.target.value)
     set('level', '')
+    set('filiere', '')
+    set('track', '')
     resetGroups()
   }
 
   const handleLevelChange = (e) => {
     set('level', e.target.value)
     set('filiere', '')
+    set('track', '')
     resetGroups()
   }
 
   const handleFiliereChange = (e) => {
-    set('filiere', e.target.value)
+    const value = e.target.value
+    set('filiere', value)
+    set('track', value)
     resetGroups()
   }
 
@@ -54,7 +60,7 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
         </label>
         <label>
           Filière / Option
-          <select value={form.filiere} onChange={handleFiliereChange} disabled={!form.level}>
+          <select value={filiere} onChange={handleFiliereChange} disabled={!form.level}>
             <option value="">— Sélectionner filière —</option>
             {filieres.map((filiere) => (
               <option key={filiere} value={filiere}>{filiere}</option>
@@ -63,11 +69,11 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
         </label>
       </div>
 
-      {form.level && filieres.length > 0 && !form.filiere && (
+      {form.level && filieres.length > 0 && !filiere && (
         <p className="subject-teacher-hint">Sélectionnez une filière pour afficher ses groupes.</p>
       )}
 
-      {form.filiere && groups.length === 0 && (
+      {filiere && groups.length === 0 && (
         <p className="subject-teacher-hint">Aucun groupe disponible pour cette filière.</p>
       )}
 
