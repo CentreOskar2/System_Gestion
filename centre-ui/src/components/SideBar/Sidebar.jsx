@@ -86,7 +86,6 @@ export default function Sidebar({ sections }) {
         </span>
         Se déconnecter
       </button>
-      <button type="button" className="logout"><span className="nav-link__icon"><Icon name="settings" /></span>Se déconnecter</button>
     </aside>
   )
 }
