@@ -22,14 +22,18 @@ import './FeesEditModal.css'
 
 function Receipt({ student, month, catalog, close }) {
   const docRef = useRef(null)
+  const [isExporting, setIsExporting] = useState(false)
   const lines = studentLineItems(student, catalog)
   const today = new Intl.DateTimeFormat('fr-MA').format(new Date())
 
   const downloadPdf = async () => {
+    setIsExporting(true)
     try {
       await exportToPdf(docRef.current, `recu-${student.code}-${month}.pdf`)
     } catch (err) {
       console.error(err)
+    } finally {
+      setIsExporting(false)
     }
   }
 
@@ -37,7 +41,9 @@ function Receipt({ student, month, catalog, close }) {
     <main className="fee-receipt">
       <div className="fee-receipt-actions">
         <button onClick={close}>← Retour</button>
-        <button className="fee-print" onClick={downloadPdf}>▣ &nbsp; Télécharger le PDF</button>
+        <button className="fee-print" disabled={isExporting} onClick={downloadPdf}>
+          {isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}
+        </button>
       </div>
       <article className="fee-document" ref={docRef}>
         <header>
