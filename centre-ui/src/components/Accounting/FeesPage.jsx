@@ -4,7 +4,7 @@ import Header from '../shared/Header'
 import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
-import { exportToPdf } from '../../utils/exportToPdf'
+import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { syncSubscriptions } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
 import {
@@ -19,17 +19,132 @@ import {
 } from './feesApi'
 import './FeesPage.css'
 import './FeesEditModal.css'
+import './Receipt.css'
 
-function Receipt({ student, month, catalog, close }) {
-  const docRef = useRef(null)
+function AdvanceModal({ student, close, onValidate }) {
+  const [selectedMonths, setSelectedMonths] = useState([])
+
+  const unpaidMonths = student.payments
+    .map((status, index) => ({ month: MONTHS[index], index, status }))
+    .filter((item) => item.status === 'unpaid')
+
+  const paidMonths = student.payments
+    .map((status, index) => ({ month: MONTHS[index], index, status }))
+    .filter((item) => item.status === 'paid')
+
+  const toggleMonth = (index) => {
+    setSelectedMonths((prev) =>
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
+    )
+  }
+
+  const totalAmount = selectedMonths.length * student.monthly
+
+  const handleValidate = () => {
+    onValidate(selectedMonths)
+    close()
+  }
+
+  return (
+    <div className="fee-overlay">
+      <section className="payment-modal">
+        <button className="modal-close" onClick={close}>×</button>
+        <h2>Avance de paiement</h2>
+        <div className="payment-person">
+          <i>{initials(student.name)}</i>
+          <span>
+            <b>{student.name}</b>
+            <small>{student.code}</small>
+          </span>
+        </div>
+        <div className="payment-amount">
+          <span>Montant dû/mois</span>
+          <strong>{student.monthly} DH</strong>
+        </div>
+
+        <div className="advance-months-selection">
+          <h3>Mois à payer</h3>
+          <div className="advance-months-grid">
+            {unpaidMonths.map(({ month, index }) => (
+              <label key={index} className="advance-month-checkbox">
+                <input
+                  type="checkbox"
+                  checked={selectedMonths.includes(index)}
+                  onChange={() => toggleMonth(index)}
+                />
+                <span>{month}</span>
+              </label>
+            ))}
+          </div>
+
+          <h3>Mois déjà payés</h3>
+          <div className="advance-months-grid">
+            {paidMonths.map(({ month, index }) => (
+              <label key={index} className="advance-month-checkbox disabled">
+                <input type="checkbox" disabled />
+                <span>{month}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="advance-total">
+          <span>Total à payer</span>
+          <strong>{totalAmount} DH</strong>
+        </div>
+
+        <div className="advance-actions">
+          <button className="advance-cancel" onClick={close}>Annuler</button>
+          <button
+            className="validate-button"
+            onClick={handleValidate}
+            disabled={selectedMonths.length === 0}
+          >
+            Valider l'avance
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function Receipt({ receipts, close, catalog }) {
+  const receiptRefs = useRef([])
   const [isExporting, setIsExporting] = useState(false)
-  const lines = studentLineItems(student, catalog)
-  const today = new Intl.DateTimeFormat('fr-MA').format(new Date())
 
-  const downloadPdf = async () => {
+  const allReceipts = useMemo(() => {
+    const list = Array.isArray(receipts) ? receipts : [receipts]
+    return list.map((r) => ({
+      month: r.month,
+      student: r.student,
+      lines: studentLineItems(r.student, catalog),
+      total: r.student.du_mois || 0,
+    }))
+  }, [receipts, catalog])
+
+  const downloadPdf = async (receipt = allReceipts[0], receiptIndex = 0) => {
     setIsExporting(true)
     try {
-      await exportToPdf(docRef.current, `recu-${student.code}-${month}.pdf`)
+      await exportToPdf(
+        receiptRefs.current[receiptIndex],
+        `recu-paiement-${safeFilename(receipt.student.name)}-${safeFilename(receipt.month)}.pdf`
+      )
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  const handleDownloadAll = async () => {
+    setIsExporting(true)
+    try {
+      for (const [index, receipt] of allReceipts.entries()) {
+        await exportToPdf(
+          receiptRefs.current[index],
+          `recu-paiement-${safeFilename(receipt.student.name)}-${safeFilename(receipt.month)}.pdf`
+        )
+      }
     } catch (err) {
       console.error(err)
     } finally {
@@ -41,48 +156,113 @@ function Receipt({ student, month, catalog, close }) {
     <main className="fee-receipt">
       <div className="fee-receipt-actions">
         <button onClick={close}>← Retour</button>
-        <button className="fee-print" disabled={isExporting} onClick={downloadPdf}>
-          {isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}
-        </button>
+        {allReceipts.length > 1 ? (
+          <button className="fee-print" disabled={isExporting} onClick={handleDownloadAll}>
+            {isExporting ? 'Génération des PDF…' : '▣  Télécharger tous les reçus'}
+          </button>
+        ) : (
+          <button className="fee-print" disabled={isExporting} onClick={() => downloadPdf()}>
+            {isExporting ? 'Génération du PDF…' : '▣  Télécharger le reçu'}
+          </button>
+        )}
       </div>
-      <article className="fee-document" ref={docRef}>
-        <header>
-          <div className="fee-brand">
-            <img src="/oskar-logo.png" alt="Logo Centre Atlas" />
-            <div><strong>Centre Atlas</strong><span>Cours particuliers — Casablanca</span></div>
-          </div>
-          <div className="fee-ref">
-            <span>REÇU DE PAIEMENT MENSUEL</span>
-            <b>{student.code}</b>
-            <small>Date : {today}</small>
-          </div>
-        </header>
-        <section className="fee-receipt-student">
-          <div>{initials(student.name)}</div>
-          <p>
-            <strong>{student.name}</strong>
-            <span>Niveau : {student.level}</span>
-            <span>Mois réglé : {month}</span>
-          </p>
-        </section>
-        <section className="fee-lines">
-          <h2>Détail des matières</h2>
-          <div className="fee-line fee-line-head"><span>Matière</span><span>Prix</span></div>
-          {lines.map((line) => (
-            <div className="fee-line" key={line.name}>
-              <span>{line.name}</span>
-              <span>{line.amount.toLocaleString('fr-FR')} DH</span>
+
+      <div className="fee-receipts">
+        {allReceipts.map((receipt, index) => (
+          <article
+            key={index}
+            ref={(element) => {
+              receiptRefs.current[index] = element
+            }}
+            className="fee-document"
+          >
+            <header>
+              <div className="fee-brand">
+                <img src="/oskar-logo.png" alt="Logo Centre Atlas" />
+                <div>
+                  <strong>Centre Atlas</strong>
+                  <span>Cours particuliers — Casablanca</span>
+                </div>
+              </div>
+              <div className="fee-ref">
+                <span>REÇU DE PAIEMENT MENSUEL</span>
+                <b>{receipt.student.code}</b>
+                <small>Date : {new Intl.DateTimeFormat('fr-MA').format(new Date())}</small>
+              </div>
+            </header>
+
+            <section className="fee-receipt-student">
+              <div>{initials(receipt.student.name)}</div>
+              <p>
+                <strong>{receipt.student.name}</strong>
+                <small>Niveau : {receipt.student.level}</small>
+                <small>Mois réglé : {receipt.month}</small>
+              </p>
+            </section>
+
+            <section className="fee-lines">
+              <h2>Détail des matières</h2>
+              <div className="fee-line fee-line-head">
+                <span>Matière</span>
+                <span>Prix</span>
+              </div>
+              {receipt.lines.map((line) => (
+                <div className="fee-line" key={line.name}>
+                  <span>{line.name}</span>
+                  <span>{line.amount.toLocaleString('fr-FR')} DH</span>
+                </div>
+              ))}
+              <div className="fee-total">
+                <b>Montant total payé</b>
+                <strong>{receipt.total.toLocaleString('fr-FR')} DH</strong>
+              </div>
+            </section>
+
+            <div className="fee-confirmation">
+              ✓ Paiement reçu en espèces — Le {new Intl.DateTimeFormat('fr-MA').format(new Date())}
+            </div>
+
+            <footer>
+              <span>Signature parent/tuteur</span>
+              <span>Signature administration</span>
+            </footer>
+          </article>
+        ))}
+      </div>
+    </main>
+  )
+}
+
+function AdvanceReceiptsModal({ receipts, close, onPrint }) {
+  const student = receipts[0]?.student
+
+  if (!student) return null
+
+  return (
+    <div className="fee-overlay">
+      <section className="advance-receipts-modal" role="dialog" aria-modal="true" aria-labelledby="advance-receipts-title">
+        <button className="modal-close" onClick={close} aria-label="Fermer">×</button>
+        <h2 id="advance-receipts-title">Paiement d'avance</h2>
+        <div className="payment-person">
+          <i>{initials(student.name)}</i>
+          <span><b>{student.name}</b><small>{student.code}</small></span>
+          <strong className="advance-monthly-amount"><small>Dû / mois</small>{student.du_mois} DH</strong>
+        </div>
+        <div className="validated">✓ Avance validée — {receipts.length} reçu{receipts.length > 1 ? 's générés' : ' généré'}</div>
+        <div className="advance-receipt-list">
+          {receipts.map((item) => (
+            <div className="advance-receipt-item" key={item.month}>
+              <span>Reçu — {item.month} · {item.student.du_mois} DH</span>
+              <button onClick={() => onPrint(item)}>▣ <b>Imprimer</b></button>
             </div>
           ))}
-          <div className="fee-total"><b>Montant total payé</b><strong>{student.du_mois.toLocaleString('fr-FR')} DH</strong></div>
-        </section>
-        <div className="fee-confirmation">✓ Paiement reçu en espèces — Le {today}</div>
-        <footer>
-          <span>Signature parent/tuteur</span>
-          <span>Signature administration</span>
+        </div>
+        <footer className="advance-receipts-actions">
+          <button className="advance-cancel" onClick={close}>Fermer</button>
+          <button className="fee-print" onClick={() => onPrint(receipts)}>▣ &nbsp; Imprimer tous les reçus</button>
         </footer>
-      </article>
-    </main>
+      </section>
+    </div>
   )
 }
 
@@ -97,6 +277,8 @@ export default function FeesPage() {
   const [selected, setSelected] = useState(null)
   const [editing, setEditing] = useState(null)
   const [receipt, setReceipt] = useState(null)
+  const [advance, setAdvance] = useState(null)
+  const [advanceReceipts, setAdvanceReceipts] = useState(null)
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
@@ -168,6 +350,8 @@ export default function FeesPage() {
     return 'unpaid'
   }
 
+  const paymentsOf = (student) => MONTHS.map((_, index) => stateOf(student, index))
+
   const openPayment = (student, index) => {
     if (stateOf(student, index) !== 'inactive') setSelected({ student, index })
   }
@@ -204,6 +388,49 @@ export default function FeesPage() {
       invalidateFeesCache()
       setReceipt({ student: { ...student, du_mois: amount }, month: MONTHS[index], catalog })
       setSelected(null)
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const validateAdvance = async (selectedMonths) => {
+    if (!advance || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      const student = advance
+      const rows = selectedMonths.map((index) => ({
+        student_id: student.id,
+        month: monthDate(index),
+        amount: student.du_mois || 0,
+        status: 'paid',
+        paid_at: new Date().toISOString(),
+        paid_by: user?.id || null,
+      }))
+      const { error: err } = await supabase
+        .from('student_payments')
+        .upsert(rows, { onConflict: 'student_id,month' })
+      if (err) throw err
+      setPaymentsByStudent((prev) => {
+        const next = { ...prev }
+        for (const row of rows) {
+          next[student.id] = [
+            ...(next[student.id] || []).filter((p) => p.month !== row.month),
+            { month: row.month, amount: row.amount, status: 'paid', paid_at: row.paid_at, paid_by: row.paid_by },
+          ]
+        }
+        return next
+      })
+      invalidateFeesCache()
+      const generatedReceipts = selectedMonths.map((index) => ({
+        student: { ...student, du_mois: student.du_mois || 0 },
+        month: MONTHS[index],
+      }))
+      setAdvance(null)
+      setAdvanceReceipts(generatedReceipts)
     } catch (err) {
       console.error(err)
       setError(err.message)
@@ -275,7 +502,7 @@ export default function FeesPage() {
     }
   }
 
-  if (receipt) return <Receipt {...receipt} close={() => setReceipt(null)} />
+  if (receipt) return <Receipt receipts={receipt} close={() => setReceipt(null)} catalog={catalog} />
 
   return (
     <div className="fees-page">
@@ -314,7 +541,7 @@ export default function FeesPage() {
                   <th>Matières</th>
                   <th>Dû/mois</th>
                   {MONTHS.map((m) => <th key={m}>{m}</th>)}
-                  <th aria-label="Modifier" />
+                  <th aria-label="Actions" />
                 </tr>
               </thead>
               <tbody>
@@ -340,7 +567,10 @@ export default function FeesPage() {
                       </td>
                     ))}
                     <td>
-                      <button className="fee-edit" onClick={() => openEdit(student)}><Icon name="pencil" /></button>
+                      <div className="fee-actions">
+                        <button className="fee-edit" onClick={() => openEdit(student)}><Icon name="pencil" /></button>
+                        <button className="fee-advance" onClick={() => setAdvance(student)} title="Paiement d'avance"><Icon name="advance" /></button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -473,6 +703,24 @@ export default function FeesPage() {
             </footer>
           </section>
         </div>
+      )}
+
+      {advance && (
+        <AdvanceModal
+          student={{ ...advance, payments: paymentsOf(advance), monthly: advance.du_mois }}
+          close={() => setAdvance(null)}
+          onValidate={validateAdvance}
+        />
+      )}
+      {advanceReceipts && (
+        <AdvanceReceiptsModal
+          receipts={advanceReceipts}
+          close={() => setAdvanceReceipts(null)}
+          onPrint={(items) => {
+            setAdvanceReceipts(null)
+            setReceipt(items)
+          }}
+        />
       )}
     </div>
   )
