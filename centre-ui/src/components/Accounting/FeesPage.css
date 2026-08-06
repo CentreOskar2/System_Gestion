@@ -765,6 +765,8 @@
   cursor: not-allowed;
 }
 
+.accounting-tabs a{padding:0 25px 16px;border-bottom:3px solid transparent;color:#536078;text-decoration:none;font-weight:700;font-size:1rem;white-space:nowrap}.accounting-tabs a.active{border-color:#315fec;color:#315fec}
+
 .advance-receipts-modal {
   position: relative;
   width: min(768px, 100%);
