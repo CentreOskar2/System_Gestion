@@ -98,23 +98,45 @@ export default function Icon({ name }) {
           <circle cx="12" cy="12" r="2.8" {...common} />
         </svg>
       )
-    case 'pencil':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" {...common} />
-          <path d="m13.8 7 3.2 3.2" {...common} />
-        </svg>
-      )
-    case 'power':
-      return (
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M12 3v8" {...common} />
-          <path d="M6.3 5.8a8 8 0 1 0 11.4 0" {...common} />
-        </svg>
-      )
-    case 'close':
-      return <span aria-hidden="true">×</span>
-    default:
-      return null
-  }
+     case 'pencil':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" {...common} />
+           <path d="m13.8 7 3.2 3.2" {...common} />
+         </svg>
+       )
+     case 'edit':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" {...common} />
+         </svg>
+       )
+     case 'delete':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" {...common} />
+         </svg>
+       )
+     case 'power':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <path d="M12 3v8" {...common} />
+           <path d="M6.3 5.8a8 8 0 1 0 11.4 0" {...common} />
+         </svg>
+       )
+     case 'advance':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <rect x="3" y="4" width="18" height="18" rx="2" {...common} />
+           <path d="M8 2v4M16 2v4" {...common} />
+           <path d="M3 10h18" {...common} />
+           <path d="M8 14h8" {...common} />
+           <path d="M8 18h4" {...common} />
+         </svg>
+       )
+     case 'close':
+       return <span aria-hidden="true">×</span>
+     default:
+       return null
+   }
 }
