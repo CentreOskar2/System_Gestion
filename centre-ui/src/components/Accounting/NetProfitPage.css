@@ -1,0 +1,395 @@
+.profit-page {
+  min-height: 100vh;
+  background: #f7f9fc;
+  color: #172033;
+}
+
+.profit-content {
+  max-width: 1600px;
+  padding: 46px 54px;
+}
+
+.fees-heading h1 {
+  font-size: 2rem;
+  letter-spacing: -.04em;
+}
+
+.fees-heading p {
+  margin-top: 4px;
+  color: #647088;
+  font-size: 1.05rem;
+}
+
+.accounting-tabs {
+  display: flex;
+  gap: 18px;
+  margin: 48px 0 36px;
+  border-bottom: 1px solid #dbe2eb;
+}
+
+.accounting-tabs a {
+  padding: 0 25px 16px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: #536078;
+  font-weight: 700;
+  font-size: 1rem;
+  text-decoration: none;
+}
+
+.accounting-tabs a.active {
+  border-color: #315fec;
+  color: #315fec;
+}
+
+.fees-loading {
+  padding: 60px;
+  text-align: center;
+  color: #647088;
+  font-weight: 600;
+}
+
+.profit-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+}
+
+.profit-stats article {
+  position: relative;
+  padding: 29px 30px;
+  border: 1px solid #dce3ed;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 3px 7px #1a29400b;
+}
+
+.profit-stats span {
+  display: block;
+  text-transform: uppercase;
+  color: #56647a;
+  font-size: .82rem;
+  font-weight: 750;
+}
+
+.profit-stats strong {
+  display: block;
+  margin-top: 18px;
+  font-size: 2rem;
+  color: #172033;
+}
+
+.profit-stats i {
+  position: absolute;
+  top: 30px;
+  right: 30px;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: #f0f3f7;
+  color: #647088;
+  font-size: 1.7rem;
+  font-style: normal;
+}
+
+.profit-stats article:first-child i {
+  background: #e9eeff;
+  color: #315fec;
+}
+
+.profit-stats article.profit-net i {
+  background: #effcf1;
+  color: #1b6d2e;
+}
+
+.profit-stats article.profit-net.negative {
+  border-color: #f2b8bf;
+}
+
+.profit-stats article.profit-net.negative strong {
+  color: #b4232f;
+}
+
+.profit-stats article.profit-net.negative i {
+  background: #fdecee;
+  color: #b4232f;
+}
+
+.profit-breakdown {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin: 24px 0;
+}
+
+.profit-breakdown section {
+  padding: 22px 24px;
+  border: 1px solid #dce3ed;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.profit-breakdown h2 {
+  margin: 0 0 16px;
+  font-size: 1.05rem;
+}
+
+.profit-bar-track {
+  display: flex;
+  gap: 3px;
+  height: 18px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #f0f3f7;
+  overflow: hidden;
+}
+
+.profit-bar-track > div {
+  height: 100%;
+  border-radius: 7px;
+  min-width: 2px;
+  transition: width .3s ease;
+}
+
+.profit-bar-collected {
+  background: #315fec;
+}
+
+.profit-bar-salaries {
+  background: #ffb547;
+}
+
+.profit-bar-charges {
+  background: #fa2437;
+}
+
+.profit-legend {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  color: #56647a;
+  font-size: .9rem;
+}
+
+.profit-legend span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profit-legend .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+}
+
+.dot.collected {
+  background: #315fec;
+}
+
+.dot.salaries {
+  background: #ffb547;
+}
+
+.dot.charges {
+  background: #fa2437;
+}
+
+.profit-add {
+  min-height: 46px;
+  padding: 0 20px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  background: #fff;
+  color: #315fec;
+  font-weight: 750;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.profit-add:hover {
+  border-color: #9cb5ff;
+  background: #f4f7ff;
+}
+
+.profit-table-wrap {
+  overflow: auto;
+  border: 1px solid #dce3ed;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.profit-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+.profit-table th,
+.profit-table td {
+  padding: 13px 12px;
+  border-bottom: 1px solid #e0e6ee;
+  text-align: left;
+}
+
+.profit-table th {
+  color: #5c6880;
+  font-weight: 750;
+}
+
+.profit-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.profit-table tfoot th {
+  padding-top: 16px;
+  color: #172033;
+  font-size: 1rem;
+}
+
+.profit-row-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.profit-row-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #172033;
+  cursor: pointer;
+}
+
+.profit-row-actions button:hover {
+  background: #f0f3f7;
+}
+
+.profit-row-actions .profit-delete {
+  color: #b4232f;
+}
+
+.profit-row-actions svg {
+  width: 20px;
+}
+
+.profit-overlay {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #111827bf;
+}
+
+.profit-modal {
+  position: relative;
+  width: min(460px, 100%);
+  padding: 34px 37px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 22px 70px #0005;
+}
+
+.profit-modal h2 {
+  margin: 0 0 22px;
+  font-size: 1.5rem;
+}
+
+.profit-modal .modal-close {
+  position: absolute;
+  top: 19px;
+  right: 22px;
+  border: 0;
+  background: transparent;
+  color: #5c6574;
+  font-size: 2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.profit-modal label {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 16px;
+  color: #56647a;
+  font-weight: 700;
+}
+
+.profit-modal input {
+  height: 50px;
+  padding: 0 16px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  font: inherit;
+  color: #172033;
+}
+
+.profit-modal footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.profit-modal footer button {
+  min-height: 46px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 750;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.profit-modal .profit-cancel {
+  border: 1px solid #dce3ed;
+  background: #fff;
+  color: #273041;
+}
+
+.profit-modal .profit-save {
+  background: #315fec;
+  color: #fff;
+  box-shadow: 0 4px 8px #315fec44;
+}
+
+@media (max-width: 1100px) {
+  .profit-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .profit-breakdown {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .profit-content {
+    padding: 30px 20px;
+  }
+
+  .accounting-tabs {
+    overflow: auto;
+  }
+
+  .accounting-tabs a {
+    padding: 0 15px 13px;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 600px) {
+  .profit-stats {
+    grid-template-columns: 1fr;
+  }
+}

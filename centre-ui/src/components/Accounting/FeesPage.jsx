@@ -515,9 +515,9 @@ export default function FeesPage() {
         <nav className="accounting-tabs">
           <Link className="active" to="/accounting/fees">Frais de scolarité</Link>
           <Link to="/accounting/delinquencies">Retards & Impayés</Link>
-          <button>Salaires Profs</button>
-          <button>Charges</button>
-          <button>Bénéfice net</button>
+          <Link to="/accounting/salaries">Salaires Profs</Link>
+          <Link to="/accounting/expenses">Charges</Link>
+          <Link to="/accounting/profit">Bénéfice net</Link>
         </nav>
         <section className="fee-stats">
           <article><span>Total encaissé</span><strong>{stats.totalCollected.toLocaleString('fr-FR')} DH</strong></article>

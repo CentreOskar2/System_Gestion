@@ -40,7 +40,7 @@ export function AuthProvider({ children }) {
     setProfile(userData)
     setRole(userData.role)
 
-    if (userData.role === 'super_admin') {
+    if (['super_admin', 'admin', 'director'].includes(userData.role)) {
       setPermissions(['dashboard', 'students', 'groups', 'teachers', 'tuition', 'late_payments', 'teacher_salaries', 'expenses', 'net_profit', 'settings', 'administration'])
     } else {
       const { data: permData } = await supabase

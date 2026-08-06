@@ -1,9 +1,10 @@
-import { useRef, useState, useEffect } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
 import { initials } from '../Students/utils/studentHelpers'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { supabase } from '../../supabaseClient'
+import { academicMonths, currentMonthKey, monthLabelOf } from './monthUtils'
 import './SalariesPage.css'
 
 const SUBJECT_PRICE = 500
@@ -20,7 +21,7 @@ function calculateSalary(teacher, groups) {
   return Math.round(total)
 }
 
-function Journal({ teacher, close }) {
+function Journal({ teacher, monthLabel, close }) {
   const journalRef = useRef(null)
   const [isExporting, setIsExporting] = useState(false)
   const percentage = teacher.type === 'Pourcentage'
@@ -41,7 +42,7 @@ function Journal({ teacher, close }) {
           <i>{initials(teacher.name)}</i>
           <span>
             <b>{teacher.name}</b>
-            <small>Février 2026</small>
+            <small>{monthLabel}</small>
           </span>
           <em className={percentage ? 'percentage' : 'fixed'}>{teacher.type}</em>
         </div>
@@ -119,14 +120,17 @@ function Journal({ teacher, close }) {
 export default function SalariesPage() {
   const [selected, setSelected] = useState(null)
   const [validated, setValidated] = useState([])
+  const [pendingSalaries, setPendingSalaries] = useState([])
   const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [month, setMonth] = useState(currentMonthKey())
+  const months = useMemo(() => academicMonths(), [])
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes] = await Promise.all([
+      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes] = await Promise.all([
         supabase.from('teachers').select('*').eq('status', 'active').order('last_name'),
         supabase.from('cycles').select('id, name'),
         supabase.from('levels').select('id, name, cycle_id'),
@@ -136,6 +140,7 @@ export default function SalariesPage() {
         supabase.from('teacher_group_subjects').select('teacher_id, group_id'),
         supabase.from('group_students').select('group_id, student_id'),
         supabase.from('students').select('id, first_name, last_name'),
+        supabase.from('teacher_salaries').select('teacher_id').eq('month', month).eq('status', 'paid'),
       ])
       if (cancelled) return
       setLoading(false)
@@ -187,6 +192,7 @@ export default function SalariesPage() {
           return {
             id: t.id,
             name: `${t.first_name} ${t.last_name}`.trim(),
+            branch_id: t.branch_id,
             paymentType: t.remuneration_type,
             type: t.remuneration_type === 'fixe' ? 'Fixe' : 'Pourcentage',
             fixed_salary: t.fixed_salary,
@@ -207,14 +213,40 @@ export default function SalariesPage() {
           }
         })
       )
+      const paidIds = new Set((salaryRes.data || []).map((r) => r.teacher_id))
+      setValidated((teachersRes.data || []).filter((t) => paidIds.has(t.id)).map((t) => `${t.id}:${month}`))
     }
     load()
     return () => { cancelled = true }
-  }, [])
+  }, [month])
+
+  const validateSalary = async (teacher) => {
+    const key = `${teacher.id}:${month}`
+    if (validated.includes(key) || pendingSalaries.includes(teacher.id)) return
+    setPendingSalaries((items) => [...items, teacher.id])
+    const monthLabel = monthLabelOf(month)
+    await Promise.all([
+      supabase.from('expenses').insert({
+        title: `Salaire - ${teacher.name} (${monthLabel})`,
+        amount: teacher.amount,
+        month,
+        branch_id: teacher.branch_id || null,
+        type: 'Auto',
+        teacher_id: teacher.id,
+      }),
+      supabase.from('teacher_salaries').upsert(
+        { teacher_id: teacher.id, month, amount: teacher.amount, status: 'paid' },
+        { onConflict: 'teacher_id,month' }
+      ),
+    ])
+    setPendingSalaries((items) => items.filter((id) => id !== teacher.id))
+    setValidated((items) => (items.includes(key) ? items : [...items, key]))
+    setSelected(teacher)
+  }
 
   const openJournal = (teacher, validate) => {
-    if (validate) setValidated((items) => items.includes(teacher.id) ? items : [...items, teacher.id])
-    setSelected(teacher)
+    if (validate) validateSalary(teacher)
+    else setSelected(teacher)
   }
 
   const massSalariale = teachers.reduce((sum, t) => sum + t.amount, 0)
@@ -231,8 +263,8 @@ export default function SalariesPage() {
           <Link to="/accounting/fees">Frais de scolarité</Link>
           <Link to="/accounting/delinquencies">Retards & Impayés</Link>
           <Link className="active" to="/accounting/salaries">Salaires Profs</Link>
-          <button>Charges</button>
-          <button>Bénéfice net</button>
+          <Link to="/accounting/expenses">Charges</Link>
+          <Link to="/accounting/profit">Bénéfice net</Link>
         </nav>
         <section className="salary-stats">
           <article>
@@ -252,10 +284,10 @@ export default function SalariesPage() {
           </article>
         </section>
         <label className="salary-month">
-          Mois : <select defaultValue="Février 2026">
-            <option>Février 2026</option>
-            <option>Janvier 2026</option>
-            <option>Mars 2026</option>
+          Mois : <select value={month} onChange={(event) => setMonth(event.target.value)}>
+            {months.map((m) => (
+              <option key={m.key} value={m.key}>{m.label}</option>
+            ))}
           </select>
         </label>
         <section className="salary-table-wrap">
@@ -281,7 +313,8 @@ export default function SalariesPage() {
                 </tr>
               ) : (
                 teachers.map((teacher) => {
-                  const isValidated = validated.includes(teacher.id)
+                  const isValidated = validated.includes(`${teacher.id}:${month}`)
+                  const isPending = pendingSalaries.includes(teacher.id)
                   return (
                     <tr key={teacher.id}>
                       <td>
@@ -317,9 +350,10 @@ export default function SalariesPage() {
                           )}
                           <button
                             className={isValidated ? 'validate-salary done' : 'validate-salary'}
+                            disabled={isPending}
                             onClick={() => openJournal(teacher, true)}
                           >
-                            {isValidated ? '✓ Validé' : '✓  Valider'}
+                            {isPending ? 'Enregistrement…' : (isValidated ? '✓ Validé' : '✓  Valider')}
                           </button>
                         </div>
                       </td>
@@ -330,7 +364,7 @@ export default function SalariesPage() {
             </tbody>
           </table>
         </section>
-        {selected && <Journal teacher={selected} close={() => setSelected(null)} />}
+        {selected && <Journal teacher={selected} monthLabel={monthLabelOf(month)} close={() => setSelected(null)} />}
       </main>
     </div>
   )

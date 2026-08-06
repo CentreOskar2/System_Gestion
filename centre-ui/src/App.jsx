@@ -1,5 +1,5 @@
 import './App.css'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import Sidebar from './components/SideBar/Sidebar'
 import Dashboard from './components/Dashboard/Dashboard'
 import Login from './components/Login/Login'
@@ -15,6 +15,7 @@ import FeesPage from './components/Accounting/FeesPage'
 import DelinquenciesPage from './components/Accounting/DelinquenciesPage'
 import SalariesPage from './components/Accounting/SalariesPage'
 import ExpensesPage from './components/Accounting/ExpensesPage'
+import NetProfitPage from './components/Accounting/NetProfitPage'
 
 const sidebarSections = [
   {
@@ -93,18 +94,7 @@ function DashboardLayout() {
   return (
     <div className="dashboard-shell">
       <Sidebar sections={sidebarSections} />
-      <Routes>
-        <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
-        <Route path="/branches" element={<Branches />} />
-        <Route path="/users" element={<Users />} />
-        <Route path="/teachers" element={<Teachers />} />
-        <Route path="/groups" element={<Groups />} />
-        <Route path="/students" element={<Students />} />
-        <Route path="/accounting/fees" element={<FeesPage />} />
-        <Route path="/accounting/delinquencies" element={<DelinquenciesPage />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
-      </Routes>
+      <Outlet />
     </div>
   )
 }
@@ -126,6 +116,7 @@ function App() {
               <Route path="/accounting/delinquencies" element={<ProtectedRoute requiredPerm="late_payments"><DelinquenciesPage /></ProtectedRoute>} />
               <Route path="/accounting/salaries" element={<ProtectedRoute requiredPerm="teacher_salaries"><SalariesPage /></ProtectedRoute>} />
               <Route path="/accounting/expenses" element={<ProtectedRoute requiredPerm="expenses"><ExpensesPage /></ProtectedRoute>} />
+              <Route path="/accounting/profit" element={<ProtectedRoute requiredPerm="net_profit"><NetProfitPage /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute requiredPerm="settings"><Settings /></ProtectedRoute>} />
               <Route path="/branches" element={<ProtectedRoute requiredPerm="administration"><Branches /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute requiredPerm="administration"><Users /></ProtectedRoute>} />
