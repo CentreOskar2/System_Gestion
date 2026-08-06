@@ -23,7 +23,7 @@ export default function DelinquenciesPage() {
   return <div className="delinquencies-page"><Header /><main className="delinquencies-content">
     <div className="fees-heading"><h1>Comptabilité</h1><p>Gestion financière du centre.</p></div>
     <nav className="accounting-tabs">
-      <Link to="/accounting/fees">Frais de scolarité</Link><Link className="active" to="/accounting/delinquencies">Retards & Impayés</Link><button>Salaires Profs</button><button>Charges</button><button>Bénéfice net</button>
+      <Link to="/accounting/fees">Frais de scolarité</Link><Link className="active" to="/accounting/delinquencies">Retards & Impayés</Link><Link to="/accounting/salaries">Salaires Profs</Link><Link to="/accounting/expenses">Charges</Link><Link to="/accounting/profit">Bénéfice net</Link>
     </nav>
     <section className="delinquency-stats">
       <article><div><span>Élèves en retard</span><strong>40</strong></div><i className="danger">!</i></article>

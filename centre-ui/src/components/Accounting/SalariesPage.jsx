@@ -184,8 +184,8 @@ export default function SalariesPage() {
           <Link to="/accounting/fees">Frais de scolarité</Link>
           <Link to="/accounting/delinquencies">Retards & Impayés</Link>
           <Link className="active" to="/accounting/salaries">Salaires Profs</Link>
-          <button>Charges</button>
-          <button>Bénéfice net</button>
+          <Link to="/accounting/expenses">Charges</Link>
+          <Link to="/accounting/profit">Bénéfice net</Link>
         </nav>
         <section className="salary-stats">
           <article>

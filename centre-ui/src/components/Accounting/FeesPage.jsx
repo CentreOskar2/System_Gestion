@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
 import Icon from '../Icon'
 import { subjects } from '../Students/data/mockStudents'
@@ -311,7 +312,7 @@ export default function FeesPage() {
   };
 
   if (receipt) return <Receipt receipts={receipt} close={() => setReceipt(null)} />
-  return <div className="fees-page"><Header /><main className="fees-content"><div className="fees-heading"><h1>Comptabilité</h1><p>Gestion financière du centre.</p></div><nav className="accounting-tabs"><button className="active">Frais de scolarité</button><button>Retards & Impayés</button><button>Salaires Profs</button><button>Charges</button><button>Bénéfice net</button></nav>
+  return <div className="fees-page"><Header /><main className="fees-content"><div className="fees-heading"><h1>Comptabilité</h1><p>Gestion financière du centre.</p></div><nav className="accounting-tabs"><Link className="active" to="/accounting/fees">Frais de scolarité</Link><Link to="/accounting/delinquencies">Retards & Impayés</Link><Link to="/accounting/salaries">Salaires Profs</Link><Link to="/accounting/expenses">Charges</Link><Link to="/accounting/profit">Bénéfice net</Link></nav>
     <section className="fee-stats"><article><span>Total encaissé</span><strong>160 800 DH</strong></article><article><span>Élèves facturés</span><strong>{students.length}</strong></article><article><span>Dû mensuel total</span><strong>{students.reduce((sum,s) => sum + s.monthly, 0).toLocaleString('fr-FR')} DH</strong></article></section>
     <label className="fees-search"><Icon name="search" /><input value={query} onChange={e => setQuery(e.target.value)} placeholder="Rechercher un élève..." /></label>
     <div className="fees-table-wrap"><table className="fees-table"><thead><tr><th>Élève</th><th>Niveau</th><th>Matières</th><th>Dû/mois</th>{months.map(m => <th key={m}>{m}</th>)}<th aria-label="Actions" /></tr></thead><tbody>{shown.map(student => <tr key={student.id}><td><div className="fee-student"><i>{initials(student.name)}</i><span><b>{student.name}</b><small>{student.code}</small></span></div></td><td>{student.level}</td><td>{student.chosen.length}</td><td><b>{student.monthly} DH</b></td>{student.payments.map((state, index) => <td key={index}><button aria-label={`${months[index]} : ${state}`} className={`payment-dot ${state}`} disabled={state === 'inactive'} onClick={() => openPayment(student,index)} /></td>)}<td><div className="fee-actions"><button className="fee-edit" onClick={() => setEditing({ ...student, chosen: [...student.chosen], subjectDetails: { ...(student.subjectDetails || {}) } })}><Icon name="pencil" /></button><button className="fee-advance" onClick={() => setAdvance(student)} title="Paiement d'avance"><Icon name="advance" /></button></div></td></tr>)}</tbody></table></div>
