@@ -21,7 +21,7 @@ export default function Header() {
       <div className="profile">
         <div className="profile__avatar">DA</div>
         <div>
-          <strong>Directeur Atlas</strong>
+          <strong>Directeur Oskar</strong>
           <span>Administrateur</span>
         </div>
       </div>

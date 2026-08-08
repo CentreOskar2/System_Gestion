@@ -223,6 +223,11 @@
   justify-content: center;
 }
 
+.fee-advance:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .fee-edit svg,
 .fee-advance svg {
   width: 23px;
@@ -714,6 +719,26 @@
 .advance-month-checkbox span {
   font-size: 0.9rem;
   color: #273041;
+}
+
+.advance-month-checkbox.selected {
+  background: #e9eeff;
+  border-color: #315fec;
+}
+
+.advance-month-checkbox.selected span {
+  color: #315fec;
+  font-weight: 700;
+}
+
+.advance-empty {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f4f6f9;
+  color: #647088;
+  font-size: 0.9rem;
+  text-align: center;
 }
 
 .advance-total {

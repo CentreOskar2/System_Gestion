@@ -46,7 +46,7 @@ export default function Login() {
 
   return (
     <main className="login-page">
-      <section className="login-showcase" aria-label="Présentation Centre Atlas">
+      <section className="login-showcase" aria-label="Présentation Centre Oskar">
         <div className="login-brand">
           <GraduationCap />
           <span>Centre Oscar</span>

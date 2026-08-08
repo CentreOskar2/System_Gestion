@@ -4,8 +4,8 @@ import { supabase } from '../../supabaseClient'
 import Icon from '../Icon'
 import './Settings.css'
 
-const textDefault = 'Bonjour, ceci est un rappel du Centre Atlas concernant les frais de scolarité de {nom_eleve} pour le mois de {mois}.\n\nMontant dû : {montant_du}.\n\nMerci de régulariser dès que possible.\n— Centre Atlas'
-const salaryDefault = 'Bonjour {nom_prof},\n\nVoici votre bulletin de salaire pour {mois} : {montant} DH.\n\nMerci de votre engagement.\n— Centre Atlas'
+const textDefault = 'مرحباً، هذا تذكير من مركز أوسكار بخصوص مصاريف الدراسة للتلميذ(ة) {nom_eleve} لشهر {mois}.\n\nالمبلغ المستحق: {montant_du}.\n\nنرجو منكم تسوية الوضع في أقرب وقت ممكن.\n— مركز أوسكار'
+const salaryDefault = 'مرحباً {nom_prof},\n\nإليك كشف راتبك لشهر {mois}: {montant} درهم.\n\nشكراً على التزامك.\n— مركز أوسكار'
 
 const Trash = () => <svg viewBox="0 0 24 24"><path d="M3 6h18" /><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" /><path d="M19 6l-.9 13a2 2 0 0 1-2 1.9H7.9a2 2 0 0 1-2-1.9L5 6" /><path d="M10 11v6M14 11v6" /></svg>
 const Pencil = () => <svg viewBox="0 0 24 24"><path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" /><path d="m13.8 7 3.2 3.2" /></svg>
@@ -213,11 +213,11 @@ export default function Settings() {
     let centerSettings = cs.data && cs.data.length > 0 ? cs.data[0] : null
     if (!centerSettings) {
       const { data: inserted, error: insErr } = await supabase.from('center_settings').insert({
-        center_name: 'Centre Atlas',
+        center_name: 'Centre Oskar',
         logo_url: '',
         address: '12 Bd Zerktouni, Casablanca',
         phone: '0522334455',
-        contact_info: 'contact@centre-atlas.ma',
+        contact_info: 'contact@centre-oskar.ma',
       }).select().single()
       if (insErr) throw new Error(insErr.message)
       centerSettings = inserted
@@ -321,7 +321,7 @@ export default function Settings() {
     .replace('{mois}', 'Février 2026')
     .replace('{montant_du}', '1 200 DH')
     .replace('{montant}', '3 500 DH')
-    .replace('{succursale}', 'Centre Atlas')
+    .replace('{succursale}', 'Centre Oskar')
 
   const setPricingValue = (levelId, subjectId, value) =>
     setTariffDrafts((d) => ({ ...d, [`${levelId}::${subjectId}`]: value }))
@@ -490,7 +490,7 @@ export default function Settings() {
         <label className="searchbar"><span className="searchbar__icon"><Icon name="search" /></span><input placeholder="Rechercher un élève, professeur..." /></label>
         <button className="branch-select">Toutes les succursales　⌄</button>
         <button className="notifications"><Icon name="bell" /><span className="notifications__badge">40</span></button>
-        <div className="profile"><div className="profile__avatar">DA</div><div><strong>Directeur Atlas</strong><span>Administrateur</span></div></div>
+        <div className="profile"><div className="profile__avatar">DA</div><div><strong>Directeur Oskar</strong><span>Administrateur</span></div></div>
       </header>
 
       <main className="settings-content">

@@ -1,5 +1,8 @@
 import { supabase } from '../../supabaseClient'
 import { fetchCatalog } from '../Students/enrollment/enrollmentApi'
+import { academicYearStart, normalizeMonthKey } from './monthUtils'
+
+export { academicYearStart }
 
 export const MONTHS = ['Sept', 'Oct', 'Nov', 'Déc', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
 
@@ -22,10 +25,6 @@ export function subscribeFeesCache(callback) {
   return () => cacheSubscribers.delete(callback)
 }
 
-export function academicYearStart(now = new Date()) {
-  return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1
-}
-
 function monthNumber(index) {
   const month = index + 9
   return month > 12 ? month - 12 : month
@@ -38,7 +37,7 @@ export function monthDate(index, yearStart = academicYearStart()) {
 
 export function isFutureMonth(index) {
   const now = new Date()
-  const start = academicYearStart(now)
+  const start = academicYearStart()
   const year = index >= 4 ? start + 1 : start
   const first = new Date(year, monthNumber(index) - 1, 1)
   const current = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -131,7 +130,7 @@ export async function fetchFeesData() {
   for (const p of paymentsRes.data || []) {
     if (!paymentsByStudent[p.student_id]) paymentsByStudent[p.student_id] = []
     paymentsByStudent[p.student_id].push({
-      month: p.month,
+      month: normalizeMonthKey(p.month),
       amount: Number(p.amount),
       status: p.status || 'paid',
       paid_at: p.paid_at,

@@ -128,7 +128,7 @@ export default function Branches() {
         <label className="searchbar"><span className="searchbar__icon"><Icon name="search" /></span><input type="search" placeholder="Rechercher un élève, professeur..." /></label>
         <button type="button" className="branch-select"><span>Toutes les succursales</span><span aria-hidden="true">⌄</span></button>
         <button type="button" className="notifications" aria-label="Notifications"><Icon name="bell" /><span className="notifications__badge">40</span></button>
-        <div className="profile"><div className="profile__avatar">DA</div><div><strong>Directeur Atlas</strong><span>Administrateur</span></div></div>
+        <div className="profile"><div className="profile__avatar">DA</div><div><strong>Directeur Oskar</strong><span>Administrateur</span></div></div>
       </header>
 
       <main className="branches-content">

@@ -14,7 +14,7 @@ import './DelinquenciesPage.css'
 
 export default function DelinquenciesPage() {
   const { user } = useAuth()
-  const [data, setData] = useState({ debtors: [], stats: { count: 0, totalDebt: 0, avgDelay: 0 }, template: null, centerName: 'Centre Atlas' })
+  const [data, setData] = useState({ debtors: [], stats: { count: 0, totalDebt: 0, avgDelay: 0 }, template: null, centerName: 'Centre Oskar' })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [reminded, setReminded] = useState([])

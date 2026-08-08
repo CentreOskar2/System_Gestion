@@ -4,6 +4,7 @@ import Header from '../shared/Header'
 import { initials } from '../Students/utils/studentHelpers'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { supabase } from '../../supabaseClient'
+import { waPhoneNumber } from './delinquenciesApi'
 import { academicMonths, currentMonthKey, monthLabelOf } from './monthUtils'
 import './SalariesPage.css'
 
@@ -19,6 +20,48 @@ function calculateSalary(teacher, groups) {
     total += group.studentsCount * SUBJECT_PRICE * (rate / 100)
   }
   return Math.round(total)
+}
+
+function buildSalaryMessage(teacher, monthLabel) {
+  const percentage = teacher.type === 'Pourcentage'
+  const lines = []
+  lines.push(`مرحباً أ. ${teacher.name}،`)
+  lines.push('')
+  lines.push(`كشف أجر شهر *${monthLabel}* — *مركز أوسكار*`)
+  lines.push('')
+  if (teacher.groups.length > 0) {
+    lines.push('*تفاصيل المجموعات:*')
+    teacher.groups.forEach((group) => {
+      const groupTotal = group.studentsCount * SUBJECT_PRICE
+      const net = percentage ? Math.round((groupTotal * group.rate) / 100) : groupTotal
+      lines.push('')
+      lines.push(`▪️ *${group.name}* (${group.subject} · ${group.level})`)
+      lines.push(`   عدد الطلبة المسجلين: ${group.studentsCount}`)
+      if (group.students.length > 0) lines.push(`   الطلبة: ${group.students.join('، ')}`)
+      lines.push(`   مجموع المجموعة: ${groupTotal.toLocaleString('fr-FR')} DH`)
+      if (percentage && group.rate > 0) lines.push(`   النسبة (تأثير): ${group.rate}%`)
+      lines.push(`   المبلغ المستحق للمجموعة: ${net.toLocaleString('fr-FR')} DH`)
+    })
+  } else {
+    lines.push('لا توجد مجموعات معينة لهذا الأستاذ.')
+  }
+  lines.push('')
+  lines.push(`*الأجر الإجمالي المستحق: ${teacher.amount.toLocaleString('fr-FR')} DH*`)
+  lines.push('')
+  lines.push('شكراً على التزامكم.')
+  lines.push('مع تحياتنا،')
+  lines.push('*مركز أوسكار*')
+  return lines.join('\n')
+}
+
+function openWhatsApp(teacher, monthLabel) {
+  const number = waPhoneNumber(teacher.phone)
+  if (!number) {
+    alert('Aucun numéro de téléphone disponible pour ce professeur')
+    return
+  }
+  const message = buildSalaryMessage(teacher, monthLabel)
+  window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
 }
 
 function Journal({ teacher, monthLabel, close }) {
@@ -110,6 +153,7 @@ function Journal({ teacher, monthLabel, close }) {
           <button disabled={isExporting} onClick={downloadPdf}>
             {isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}
           </button>
+          <button className="journal-whatsapp" onClick={() => openWhatsApp(teacher, monthLabel)}>💬 Envoyer via WhatsApp</button>
           <button onClick={close}>Fermer</button>
         </footer>
       </section>
@@ -192,6 +236,7 @@ export default function SalariesPage() {
           return {
             id: t.id,
             name: `${t.first_name} ${t.last_name}`.trim(),
+            phone: t.phone || '',
             branch_id: t.branch_id,
             paymentType: t.remuneration_type,
             type: t.remuneration_type === 'fixe' ? 'Fixe' : 'Pourcentage',
@@ -348,6 +393,12 @@ export default function SalariesPage() {
                               ▣  Imprimer journal
                             </button>
                           )}
+                          <button
+                            className="whatsapp-button"
+                            onClick={() => openWhatsApp(teacher, monthLabelOf(month))}
+                          >
+                            💬 WhatsApp
+                          </button>
                           <button
                             className={isValidated ? 'validate-salary done' : 'validate-salary'}
                             disabled={isPending}

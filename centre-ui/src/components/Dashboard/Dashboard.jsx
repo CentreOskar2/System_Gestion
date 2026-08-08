@@ -103,7 +103,7 @@ export default function Dashboard({ metrics, revenueSeries, branches }) {
         <div className="profile">
           <div className="profile__avatar">DA</div>
           <div>
-            <strong>Directeur Atlas</strong>
+            <strong>Directeur Oskar</strong>
             <span>Administrateur</span>
           </div>
         </div>
@@ -122,7 +122,7 @@ export default function Dashboard({ metrics, revenueSeries, branches }) {
               Février
             </button>
             <button type="button" className="pill pill--light">
-              2025-2026
+              2026-2027
               <span aria-hidden="true">⌄</span>
             </button>
             <button type="button" className="primary">

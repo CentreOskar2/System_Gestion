@@ -107,11 +107,11 @@ export function buildReminderMessage(debtor, template, centerName) {
       .replace('{nom_eleve}', name)
       .replace('{montant_du}', amount)
       .replace('{mois}', months)
-      .replace('{succursale}', centerName || 'Centre Atlas')
+      .replace('{succursale}', centerName || 'Centre Oskar')
   }
   return (
-    `Bonjour, nous vous rappelons que le règlement des frais de scolarité pour ${name} ` +
-    `est en retard de ${months} mois (Montant total: ${amount}). Merci de procéder au paiement.`
+    `مرحباً، نذكركم أن تسوية مصاريف الدراسة للتلميذ(ة) ${name} ` +
+    `متأخرة بـ ${months} شهراً (المبلغ الإجمالي: ${amount}). نرجو القيام بالتسوية في أقرب وقت.`
   )
 }
 
@@ -149,7 +149,7 @@ export async function fetchDelinquenciesData() {
     debtors,
     stats: summarizeDebtors(debtors),
     template: templatesRes.data || null,
-    centerName: settingsRes.data?.center_name || 'Centre Atlas',
+    centerName: settingsRes.data?.center_name || 'Centre Oskar',
     catalog: fees.catalog,
   }
 }

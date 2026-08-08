@@ -39,7 +39,7 @@ export default function Sidebar({ sections }) {
     <aside className="sidebar">
       <div className="brand">
         <div className="brand__mark">CA</div>
-        <div><strong>Centre Atlas</strong><span>Gestion interne</span></div>
+        <div><strong>Centre Oskar</strong><span>Gestion interne</span></div>
       </div>
 
       <nav className="sidebar__nav" aria-label="Navigation principale">

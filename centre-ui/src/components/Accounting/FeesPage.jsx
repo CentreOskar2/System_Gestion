@@ -7,6 +7,7 @@ import { useAuth } from '../../context/AuthContext'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { syncSubscriptions } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
+import { normalizeMonthKey } from './monthUtils'
 import {
   MONTHS,
   academicYearStart,
@@ -24,9 +25,9 @@ import './Receipt.css'
 function AdvanceModal({ student, close, onValidate }) {
   const [selectedMonths, setSelectedMonths] = useState([])
 
-  const unpaidMonths = student.payments
+  const payableMonths = student.payments
     .map((status, index) => ({ month: MONTHS[index], index, status }))
-    .filter((item) => item.status === 'unpaid')
+    .filter((item) => item.status !== 'paid')
 
   const paidMonths = student.payments
     .map((status, index) => ({ month: MONTHS[index], index, status }))
@@ -38,7 +39,9 @@ function AdvanceModal({ student, close, onValidate }) {
     )
   }
 
-  const totalAmount = selectedMonths.length * student.monthly
+  const monthly = Number(student.monthly) || 0
+  const totalAmount = selectedMonths.length * monthly
+  const formatAmount = (value) => `${Number(value || 0).toLocaleString('fr-FR')} DH`
 
   const handleValidate = () => {
     onValidate(selectedMonths)
@@ -59,23 +62,30 @@ function AdvanceModal({ student, close, onValidate }) {
         </div>
         <div className="payment-amount">
           <span>Montant dû/mois</span>
-          <strong>{student.monthly} DH</strong>
+          <strong>{formatAmount(monthly)}</strong>
         </div>
 
         <div className="advance-months-selection">
           <h3>Mois à payer</h3>
-          <div className="advance-months-grid">
-            {unpaidMonths.map(({ month, index }) => (
-              <label key={index} className="advance-month-checkbox">
-                <input
-                  type="checkbox"
-                  checked={selectedMonths.includes(index)}
-                  onChange={() => toggleMonth(index)}
-                />
-                <span>{month}</span>
-              </label>
-            ))}
-          </div>
+          {payableMonths.length > 0 ? (
+            <div className="advance-months-grid">
+              {payableMonths.map(({ month, index }) => (
+                <label
+                  key={index}
+                  className={`advance-month-checkbox ${selectedMonths.includes(index) ? 'selected' : ''}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedMonths.includes(index)}
+                    onChange={() => toggleMonth(index)}
+                  />
+                  <span>{month}</span>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="advance-empty">Tous les mois de l'année académique sont déjà réglés.</p>
+          )}
 
           <h3>Mois déjà payés</h3>
           <div className="advance-months-grid">
@@ -90,7 +100,7 @@ function AdvanceModal({ student, close, onValidate }) {
 
         <div className="advance-total">
           <span>Total à payer</span>
-          <strong>{totalAmount} DH</strong>
+          <strong>{formatAmount(totalAmount)}</strong>
         </div>
 
         <div className="advance-actions">
@@ -178,9 +188,9 @@ function Receipt({ receipts, close, catalog }) {
           >
             <header>
               <div className="fee-brand">
-                <img src="/oskar-logo.png" alt="Logo Centre Atlas" />
+                <img src="/oskar-logo.png" alt="Logo Centre Oskar" />
                 <div>
-                  <strong>Centre Atlas</strong>
+                  <strong>Centre Oskar</strong>
                   <span>Cours particuliers — Casablanca</span>
                 </div>
               </div>
@@ -345,8 +355,10 @@ export default function FeesPage() {
 
   const stateOf = (student, index) => {
     const key = monthDate(index)
-    if (paymentsByStudent[student.id]?.some((p) => p.month === key)) return 'paid'
-    if (!student.active || isFutureMonth(index)) return 'inactive'
+    const payment = (paymentsByStudent[student.id] || []).find((p) => normalizeMonthKey(p.month) === key)
+    if (payment && (payment.status === 'paid' || payment.status === 'validé')) return 'paid'
+    if (!student.active) return 'inactive'
+    if (isFutureMonth(index) && key !== `${academicYearStart()}-09-01`) return 'inactive'
     return 'unpaid'
   }
 
@@ -569,7 +581,7 @@ export default function FeesPage() {
                     <td>
                       <div className="fee-actions">
                         <button className="fee-edit" onClick={() => openEdit(student)}><Icon name="pencil" /></button>
-                        <button className="fee-advance" onClick={() => setAdvance(student)} title="Paiement d'avance"><Icon name="advance" /></button>
+                        <button className="fee-advance" onClick={() => setAdvance(student)} disabled={!student.active} title="Paiement d'avance"><Icon name="advance" /></button>
                       </div>
                     </td>
                   </tr>
