@@ -171,8 +171,77 @@ export default function Icon({ name }) {
          </svg>
        )
      case 'close':
-       return <span aria-hidden="true">×</span>
-     default:
-       return null
+        return <span aria-hidden="true">×</span>
+     case 'check':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m4.5 12.5 5 5 10-11" {...common} />
+          </svg>
+        )
+     case 'clock':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" {...common} />
+            <path d="M12 7.5V12l3 2" {...common} />
+          </svg>
+        )
+     case 'printer':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 8V4h10v4" {...common} />
+            <rect x="5" y="8" width="14" height="8" rx="1.6" {...common} />
+            <path d="M7 14h10v6H7z" {...common} />
+          </svg>
+        )
+     case 'clipboard':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="5" y="5" width="14" height="16" rx="2" {...common} />
+            <path d="M9 5a3 3 0 0 1 6 0" {...common} />
+            <path d="M9 12h6M9 16h4" {...common} />
+          </svg>
+        )
+     case 'user-plus':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M16 19c0-2.2-2-4-4-4s-4 1.8-4 4" {...common} />
+            <circle cx="12" cy="8" r="3.2" {...common} />
+            <path d="M19 8v5M21.5 10.5h-5" {...common} />
+          </svg>
+        )
+     case 'coin':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <circle cx="12" cy="12" r="8.5" {...common} />
+            <path d="M9.5 15.5c.6.7 1.5 1 2.5 1s1.9-.4 2.5-1.1c.6-.7.6-1.6.2-2.3-.8-1.3-5.1-.7-5.4-2.2-.1-.5.2-1 .9-1.3M12 7v10" {...common} />
+          </svg>
+        )
+     case 'arrow-up':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 19V5M6 11l6-6 6 6" {...common} />
+          </svg>
+        )
+     case 'arrow-down':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M6 13l6 6 6-6" {...common} />
+          </svg>
+        )
+     case 'sparkles':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 3.5 13.7 9 19 10.8 13.7 12.5 12 18l-1.7-5.5L5 10.8 10.3 9 12 3.5Z" {...common} />
+            <path d="M19 3v3M17.5 4.5h3M5 16v3M3.5 17.5h3" {...common} />
+          </svg>
+        )
+     case 'flame':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 21c4 0 6.5-2.7 6.5-6.2 0-4.2-4.5-6.8-5.8-10-.5 2.6-2 4.6-3.7 5.7C7 9.6 5.5 9 4.6 7.5c-.5 1.7-.1 4.2 1.5 6.1C4.9 15.4 8 21 12 21Z" {...common} />
+          </svg>
+        )
+      default:
+        return null
    }
 }

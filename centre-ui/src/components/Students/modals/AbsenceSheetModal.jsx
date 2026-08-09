@@ -1,27 +1,297 @@
-import { useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../../Icon'
+import { supabase } from '../../../supabaseClient'
 import { exportToPdf, safeFilename } from '../../../utils/exportToPdf'
 import './AttendanceSheet.css'
 import './AttendancePdf.css'
 
-const roster = ['Qadiri Salma', 'Tazi Anas', 'Chraibi Malak', 'Fassi Youssef', 'Idrissi Kenza', 'Lahlou Hamza', 'Ouazzani Rim', 'Riad Bilal']
+const ACADEMIC_YEAR = '2026 – 2027'
 const sessions = Array.from({ length: 18 }, (_, index) => `S${index + 1}`)
 
-function AttendanceSheet({ values, close }) {
+function AbsenceSheet({ meta, students, close }) {
   const sheetRef = useRef(null)
   const [isExporting, setIsExporting] = useState(false)
   const downloadPdf = async () => {
     setIsExporting(true)
-    try { await exportToPdf(sheetRef.current, `fiche-absence-${safeFilename(values.teacher)}-${safeFilename(values.subject)}-${safeFilename(values.group)}.pdf`) } finally { setIsExporting(false) }
+    try {
+      await exportToPdf(sheetRef.current, `fiche-absence-${safeFilename(meta.teacher)}-${safeFilename(meta.subject)}-${safeFilename(meta.group)}.pdf`)
+    } finally {
+      setIsExporting(false)
+    }
   }
-  return <main className="absence-sheet-page"><div className="absence-sheet-actions"><button onClick={close}>← Retour aux étudiants</button><button className="absence-print" disabled={isExporting} onClick={downloadPdf}>{isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}</button></div><article ref={sheetRef} className="absence-sheet"><header className="absence-sheet-header"><div className="absence-brand"><img src="/oskar-logo.png" alt="Centre Oskar" /><div><strong>Centre Oskar</strong><span>Fiche de présence —</span></div></div><div><strong>Fiche d'absence</strong><span>Année scolaire 2026 – 2027</span></div></header><section className="absence-details"><div><small>PROFESSEUR</small><b>{values.teacher}</b></div><div><small>MATIÈRE</small><b>{values.subject}</b></div><div><small>NIVEAU</small><b>{values.level}</b></div><div><small>GROUPE</small><b>{values.group}</b></div></section><table className="absence-table"><thead><tr><th>#</th><th>Élève</th><th>Note°1</th><th>Note°2</th>{sessions.map(session => <th key={session}>{session}</th>)}</tr></thead><tbody>{roster.map((name, index) => <tr key={name}><td>{index + 1}</td><td>{name}</td><td /><td />{sessions.map(session => <td key={session} />)}</tr>)}</tbody></table><p className="absence-help">Cocher <b>P</b> pour présent, <b>A</b> pour absent, <b>R</b> pour retard.</p><footer className="absence-signatures"><span>Signature du professeur</span><span>Signature de l'administration</span></footer></article></main>
+  return (
+    <main className="absence-sheet-page">
+      <div className="absence-sheet-actions">
+        <button onClick={close}>← Retour aux étudiants</button>
+        <button className="absence-print" disabled={isExporting} onClick={downloadPdf}>
+          {isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}
+        </button>
+      </div>
+      <article ref={sheetRef} className="absence-sheet">
+        <header className="absence-sheet-header">
+          <div className="absence-brand">
+            <img src="/oskar-logo.png" alt="Centre Oskar" />
+            <div>
+              <strong>Centre Oskar</strong>
+              <span>Fiche de présence —</span>
+            </div>
+          </div>
+          <div>
+            <strong>Fiche d'absence</strong>
+            <span>Année scolaire {ACADEMIC_YEAR}</span>
+          </div>
+        </header>
+        <section className="absence-details">
+          <div><small>PROFESSEUR</small><b>{meta.teacher || '—'}</b></div>
+          <div><small>MATIÈRE</small><b>{meta.subject || '—'}</b></div>
+          <div><small>NIVEAU</small><b>{meta.level || '—'}</b></div>
+          <div><small>GROUPE</small><b>{meta.group || '—'}</b></div>
+        </section>
+        <table className="absence-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Élève</th>
+              <th>Matricule</th>
+              <th>Note°1</th>
+              <th>Note°2</th>
+              {sessions.map((session) => <th key={session}>{session}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {students.length === 0 ? (
+              <tr><td colSpan={5 + sessions.length} style={{ height: 60, color: '#53647e' }}>Aucun élève inscrit dans ce groupe.</td></tr>
+            ) : (
+              students.map((student, index) => (
+                <tr key={student.id}>
+                  <td>{index + 1}</td>
+                  <td>{student.name}</td>
+                  <td>{student.registration_number || ''}</td>
+                  <td />
+                  <td />
+                  {sessions.map((session) => <td key={session} />)}
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+        <p className="absence-help">Cocher <b>P</b> pour présent, <b>A</b> pour absent, <b>R</b> pour retard.</p>
+        <footer className="absence-signatures"><span>Signature du professeur</span><span>Signature de l'administration</span></footer>
+      </article>
+    </main>
+  )
 }
 
 export default function AbsenceSheetModal({ close }) {
-  const [values, setValues] = useState({ teacher: '', subject: '', level: '', group: '' })
-  const [generated, setGenerated] = useState(false)
-  const update = (field) => (event) => setValues((current) => ({ ...current, [field]: event.target.value }))
-  if (generated) return <AttendanceSheet values={values} close={close} />
-  const ready = Object.values(values).every(Boolean)
-  return <div className="student-overlay" onMouseDown={close}><section className="absence-modal" onMouseDown={(event) => event.stopPropagation()}><button className="student-close" onClick={close}><Icon name="close" /></button><h2>Fiche d'absence vierge</h2><p>Sélectionnez les paramètres pour générer la fiche imprimable.</p><label>Professeur<select value={values.teacher} onChange={update('teacher')}><option value="">—</option><option>Youssef Tazi</option><option>Karim El Amrani</option><option>Salma Bennani</option></select></label><label>Matière<select value={values.subject} onChange={update('subject')}><option value="">—</option><option>Anglais</option><option>Mathématiques</option><option>Physique-Chimie</option><option>Français</option></select></label><label>Niveau<select value={values.level} onChange={update('level')}><option value="">—</option><option>Tronc commun</option><option>9ème (3AC)</option><option>2ème Bac</option></select></label><label>Groupe<select value={values.group} onChange={update('group')}><option value="">—</option><option>Anglais — Tronc commun · G1</option><option>Groupe A</option><option>Groupe B</option></select></label><footer><button onClick={close}>Annuler</button><button disabled={!ready} onClick={() => setGenerated(true)}>▣ &nbsp; Générer la fiche</button></footer></section></div>
+  const [teachers, setTeachers] = useState([])
+  const [subjects, setSubjects] = useState([])
+  const [levels, setLevels] = useState([])
+  const [groups, setGroups] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [teacherId, setTeacherId] = useState('')
+  const [subjectId, setSubjectId] = useState('')
+  const [levelId, setLevelId] = useState('')
+  const [groupId, setGroupId] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [sheet, setSheet] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchCatalog() {
+      setLoading(true)
+      try {
+        const [teachersRes, subjectsRes, levelsRes, groupsRes, gsRes, tgsRes, sgsRes] = await Promise.all([
+          supabase.from('teachers').select('id, first_name, last_name').eq('status', 'active').order('last_name'),
+          supabase.from('subjects').select('id, name').order('name'),
+          supabase.from('levels').select('id, name').order('name'),
+          supabase.from('groups').select('id, name, subject_id, level_id, teacher_id').eq('status', 'active').order('name'),
+          supabase.from('group_students').select('group_id, student_id'),
+          supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
+          supabase.from('student_group_subjects').select('group_id, subject_id'),
+        ])
+        if (teachersRes.error) throw new Error(teachersRes.error.message)
+        if (subjectsRes.error) throw new Error(subjectsRes.error.message)
+        if (levelsRes.error) throw new Error(levelsRes.error.message)
+        if (groupsRes.error) throw new Error(groupsRes.error.message)
+        if (gsRes.error) throw new Error(gsRes.error.message)
+        if (tgsRes.error) throw new Error(tgsRes.error.message)
+        if (sgsRes.error) throw new Error(sgsRes.error.message)
+
+        const groupSubjectIds = {}
+        const groupTeacherIds = {}
+        for (const row of [...(tgsRes.data || []), ...(sgsRes.data || [])]) {
+          if (row.group_id && row.subject_id) {
+            if (!groupSubjectIds[row.group_id]) groupSubjectIds[row.group_id] = new Set()
+            groupSubjectIds[row.group_id].add(row.subject_id)
+          }
+        }
+        for (const row of tgsRes.data || []) {
+          if (row.group_id && row.teacher_id) {
+            if (!groupTeacherIds[row.group_id]) groupTeacherIds[row.group_id] = new Set()
+            groupTeacherIds[row.group_id].add(row.teacher_id)
+          }
+        }
+
+        setTeachers((teachersRes.data || []).map((t) => ({ id: t.id, name: `${t.first_name} ${t.last_name}`.trim() || 'Professeur' })))
+        setSubjects((subjectsRes.data || []).map((s) => ({ id: s.id, name: s.name })))
+        setLevels((levelsRes.data || []).map((l) => ({ id: l.id, name: l.name })))
+        setGroups((groupsRes.data || []).map((g) => {
+          const subjectIds = new Set(groupSubjectIds[g.id] || [])
+          if (g.subject_id) subjectIds.add(g.subject_id)
+          const teacherIds = new Set(groupTeacherIds[g.id] || [])
+          if (g.teacher_id) teacherIds.add(g.teacher_id)
+          return { id: g.id, name: g.name, levelId: g.level_id || '', subjectIds: [...subjectIds], teacherIds: [...teacherIds] }
+        }))
+      } catch (err) {
+        console.error(err)
+        setLoadError(err.message)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    fetchCatalog()
+    return () => { cancelled = true }
+  }, [])
+
+  const teacherGroups = useMemo(
+    () => (teacherId ? groups.filter((g) => g.teacherIds.includes(teacherId)) : groups),
+    [groups, teacherId]
+  )
+  const subjectOptions = useMemo(
+    () => (teacherId ? subjects.filter((s) => teacherGroups.some((g) => g.subjectIds.includes(s.id))) : subjects),
+    [subjects, teacherGroups, teacherId]
+  )
+  const subjectGroups = useMemo(
+    () => (subjectId ? teacherGroups.filter((g) => g.subjectIds.includes(subjectId)) : teacherGroups),
+    [teacherGroups, subjectId]
+  )
+  const levelOptions = useMemo(
+    () => (teacherId ? levels.filter((l) => subjectGroups.some((g) => g.levelId === l.id)) : levels),
+    [levels, subjectGroups, teacherId]
+  )
+  const groupOptions = useMemo(
+    () => (levelId ? subjectGroups.filter((g) => g.levelId === levelId) : subjectGroups),
+    [subjectGroups, levelId]
+  )
+
+  const changeTeacher = (value) => {
+    setTeacherId(value)
+    setSubjectId('')
+    setLevelId('')
+    setGroupId('')
+  }
+  const changeSubject = (value) => {
+    setSubjectId(value)
+    setLevelId('')
+    setGroupId('')
+  }
+  const changeLevel = (value) => {
+    setLevelId(value)
+    setGroupId('')
+  }
+  const changeGroup = (value) => {
+    setGroupId(value)
+    if (!value) return
+    const group = groups.find((g) => g.id === value)
+    if (!group) return
+    if (group.teacherIds.length > 0) setTeacherId(group.teacherIds[0])
+    if (group.levelId) setLevelId(group.levelId)
+    if (group.subjectIds.length > 0 && !group.subjectIds.includes(subjectId)) setSubjectId(group.subjectIds[0])
+  }
+
+  const handleGenerate = async () => {
+    if (!groupId || generating) return
+    setGenerating(true)
+    setLoadError('')
+    try {
+      const group = groups.find((g) => g.id === groupId)
+      const subjectQuery = subjectId
+        ? supabase.from('student_group_subjects').select('student_id, students(first_name, last_name, registration_number)').eq('group_id', groupId).eq('subject_id', subjectId)
+        : supabase.from('student_group_subjects').select('student_id, students(first_name, last_name, registration_number)').eq('group_id', groupId)
+      const [sgsRes, gsRes] = await Promise.all([
+        subjectQuery,
+        supabase.from('group_students').select('student_id, students(first_name, last_name, registration_number)').eq('group_id', groupId),
+      ])
+      if (sgsRes.error) throw new Error(sgsRes.error.message)
+      if (gsRes.error) throw new Error(gsRes.error.message)
+
+      const seen = new Set()
+      const roster = []
+      for (const row of [...(sgsRes.data || []), ...(gsRes.data || [])]) {
+        if (!row.students || seen.has(row.student_id)) continue
+        seen.add(row.student_id)
+        const s = row.students
+        roster.push({ id: row.student_id, name: `${s.first_name} ${s.last_name}`.trim(), registration_number: s.registration_number || '' })
+      }
+      roster.sort((a, b) => a.name.localeCompare(b.name))
+
+      setSheet({
+        meta: {
+          teacher: teachers.find((t) => t.id === teacherId)?.name || '—',
+          subject: subjects.find((s) => s.id === subjectId)?.name || '—',
+          level: levels.find((l) => l.id === levelId)?.name || '—',
+          group: group?.name || '—',
+        },
+        students: roster,
+      })
+    } catch (err) {
+      console.error(err)
+      setLoadError(err.message)
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  if (sheet) return <AbsenceSheet meta={sheet.meta} students={sheet.students} close={close} />
+
+  const ready = Boolean(groupId)
+
+  return (
+    <div className="student-overlay" onMouseDown={close}>
+      <section className="absence-modal" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="student-close" onClick={close}><Icon name="close" /></button>
+        <h2>Fiche d'absence vierge</h2>
+        <p>Sélectionnez les paramètres pour générer la fiche imprimable.</p>
+        {loading ? (
+          <p className="absence-loading" style={{ marginTop: 20, color: '#647088' }}>Chargement des données…</p>
+        ) : loadError ? (
+          <p className="absence-error" style={{ marginTop: 20, color: '#c0392b' }}>{loadError}</p>
+        ) : (
+          <>
+            <label>Professeur
+              <select value={teacherId} onChange={(event) => changeTeacher(event.target.value)}>
+                <option value="">— Tous —</option>
+                {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </label>
+            <label>Matière
+              <select value={subjectId} onChange={(event) => changeSubject(event.target.value)} disabled={subjectOptions.length === 0}>
+                <option value="">—</option>
+                {subjectOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </label>
+            <label>Niveau
+              <select value={levelId} onChange={(event) => changeLevel(event.target.value)} disabled={levelOptions.length === 0}>
+                <option value="">—</option>
+                {levelOptions.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </label>
+            <label>Groupe
+              <select value={groupId} onChange={(event) => changeGroup(event.target.value)} disabled={groupOptions.length === 0}>
+                <option value="">—</option>
+                {groupOptions.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+              </select>
+            </label>
+            <footer>
+              <button onClick={close}>Annuler</button>
+              <button disabled={!ready || generating} onClick={handleGenerate}>
+                {generating ? 'Génération…' : '▣  Générer la fiche'}
+              </button>
+            </footer>
+          </>
+        )}
+      </section>
+    </div>
+  )
 }

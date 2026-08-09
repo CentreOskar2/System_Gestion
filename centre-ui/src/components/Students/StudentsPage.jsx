@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import Header from '../shared/Header'
 import StudentsToolbar from './StudentsToolbar'
 import StudentsFilters from './StudentsFilters'
@@ -12,6 +13,8 @@ import { fetchCatalog, fetchStudents, setStudentStatus, deactivateAllStudents } 
 import './Students.css'
 
 export default function StudentsPage() {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [items, setItems] = useState([])
   const [catalog, setCatalog] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -20,10 +23,10 @@ export default function StudentsPage() {
   const [activeLevel, setActiveLevel] = useState('Tous')
   const [activeSubject, setActiveSubject] = useState('Tous')
   const [attendanceStudent, setAttendanceStudent] = useState(null)
-  const [absenceSheetOpen, setAbsenceSheetOpen] = useState(false)
+  const [absenceSheetOpen, setAbsenceSheetOpen] = useState(location.state?.quick === 'absence-sheet')
   const [sheetStudent, setSheetStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
-  const [isEnrolling, setIsEnrolling] = useState(false)
+  const [isEnrolling, setIsEnrolling] = useState(location.state?.quick === 'enroll')
 
   const refresh = async () => {
     setLoading(true)
@@ -136,6 +139,10 @@ export default function StudentsPage() {
     setAttendanceStudent(null)
     setEditingStudent(student)
   }
+
+  useEffect(() => {
+    if (location.state?.quick) navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
 
   if (isEnrolling) {
     return (

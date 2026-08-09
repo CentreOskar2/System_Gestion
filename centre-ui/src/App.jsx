@@ -51,51 +51,6 @@ const sidebarSections = [
   },
 ]
 
-const metrics = [
-  {
-    title: 'CA du mois',
-    value: '23 100 DH',
-    note: '16 700 DH encaissé · 6 400 DH dû',
-    tone: 'blue',
-    icon: 'trending-up',
-  },
-  {
-    title: 'Élèves en retard',
-    value: '8',
-    note: 'paiements impayés',
-    tone: 'red',
-    icon: 'alert',
-  },
-  {
-    title: 'Total élèves',
-    value: '40',
-    note: '36 actifs',
-    tone: 'slate',
-    icon: 'users',
-  },
-  {
-    title: 'Professeurs',
-    value: '4',
-    note: '5 au total',
-    tone: 'slate',
-    icon: 'cap',
-  },
-  {
-    title: 'Bénéfice net',
-    value: '-34 000 DH',
-    note: 'ce mois',
-    tone: 'danger',
-    icon: 'wallet',
-  },
-]
-
-const revenueSeries = [23000, 23500, 24600, 23900, 23200, 23100]
-const branches = [
-  { name: 'Nord', revenue: 6800, profit: -22000 },
-  { name: 'Sud', revenue: 6200, profit: -15500 },
-  { name: 'Centre', revenue: 6800, profit: 3500 },
-]
-
 function DashboardLayout() {
   return (
     <div className="dashboard-shell">
@@ -114,7 +69,7 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<DashboardLayout />}>
-              <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+              <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/students" element={<ProtectedRoute requiredPerm="students"><Students /></ProtectedRoute>} />
               <Route path="/groups" element={<ProtectedRoute requiredPerm="groups"><Groups /></ProtectedRoute>} />
               <Route path="/teachers" element={<ProtectedRoute requiredPerm="teachers"><Teachers /></ProtectedRoute>} />
@@ -126,7 +81,7 @@ function App() {
               <Route path="/settings" element={<ProtectedRoute requiredPerm="settings"><Settings /></ProtectedRoute>} />
               <Route path="/branches" element={<ProtectedRoute requiredPerm="administration"><Branches /></ProtectedRoute>} />
               <Route path="/users" element={<ProtectedRoute requiredPerm="administration"><Users /></ProtectedRoute>} />
-              <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+              <Route path="*" element={<Dashboard />} />
             </Route>
           </Route>
         </Routes>

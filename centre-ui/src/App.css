@@ -311,7 +311,7 @@
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto;
+  grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -392,6 +392,29 @@
   color: #3562ff;
   font-size: 0.76rem;
 }
+
+.db-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 14px;
+  border: 0;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 8px 24px rgba(38, 52, 84, 0.07), inset 0 0 0 1px rgba(221, 227, 236, 0.9);
+  color: #e4505f;
+  font-size: 0.88rem;
+  font-weight: 650;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.db-logout:hover {
+  background: #fff0f1;
+  color: #d83a4a;
+  transform: translateY(-1px);
+}
+.db-logout svg { width: 17px; height: 17px; }
 
 .content {
   width: 100%;
