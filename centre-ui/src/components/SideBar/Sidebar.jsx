@@ -3,7 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import Icon from '../Icon'
 import { useAuth } from '../../context/AuthContext'
 
-const accountingIcons = ['💲', '⚠️', '🗂️', '🔗', '📈']
+const accountingIcons = ['calendar', 'advance', 'id', 'calculator', 'layers']
 
 export default function Sidebar({ sections }) {
   const { permissions, signOut } = useAuth()
@@ -38,13 +38,13 @@ export default function Sidebar({ sections }) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand__mark">CA</div>
+        <img className="brand__logo" src="/oskar-logo.png" alt="Centre Oskar" />
         <div><strong>Centre Oskar</strong><span>Gestion interne</span></div>
       </div>
 
       <nav className="sidebar__nav" aria-label="Navigation principale">
         {visibleSections.map((section) => (
-          <div className="sidebar__section" key={section.title}>
+          <div className={`sidebar__section${section.separated ? ' sidebar__section--separated' : ''}`} key={section.title}>
             <p>{section.title}</p>
             <ul>
               {section.items.map((item) => (
@@ -53,7 +53,7 @@ export default function Sidebar({ sections }) {
                     <button type="button" className={`nav-link nav-link--accordion ${isAccountingRoute ? 'is-active' : ''}`} onClick={() => setAccountingOpen((open) => !open)} aria-expanded={accountingOpen}>
                       <span className="nav-link__icon"><Icon name={item.icon} /></span>
                       <span>{item.label}</span>
-                      <span className={`nav-link__caret ${accountingOpen ? 'is-open' : ''}`}>⌄</span>
+                      <span className={`nav-link__caret ${accountingOpen ? 'is-open' : ''}`}><Icon name="chevron-down" /></span>
                     </button>
                   ) : (
                     <NavLink to={item.path || '#'} className={({ isActive }) => `nav-link ${isActive ? 'is-active' : ''}`}>
@@ -66,7 +66,7 @@ export default function Sidebar({ sections }) {
                         {item.children.map((child, index) => (
                           <li key={child.label}>
                             <NavLink to={child.path || '#'} className="nav-sub-link">
-                              <span className="nav-sub-link__icon" aria-hidden="true">{child.icon || accountingIcons[index] || '•'}</span>{child.label}
+                              <span className="nav-sub-link__icon" aria-hidden="true"><Icon name={child.icon || accountingIcons[index]} /></span>{child.label}
                             </NavLink>
                           </li>
                         ))}
@@ -82,7 +82,7 @@ export default function Sidebar({ sections }) {
 
       <button type="button" className="logout" onClick={signOut}>
         <span className="nav-link__icon">
-          <Icon name="settings" />
+          <Icon name="logout" />
         </span>
         Se déconnecter
       </button>

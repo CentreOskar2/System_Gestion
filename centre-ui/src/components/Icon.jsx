@@ -8,6 +8,12 @@ export default function Icon({ name }) {
   }
 
   switch (name) {
+    case 'chevron-down':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m6 9 6 6 6-6" {...common} />
+        </svg>
+      )
     case 'grid':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -122,6 +128,36 @@ export default function Icon({ name }) {
          <svg viewBox="0 0 24 24" aria-hidden="true">
            <path d="M12 3v8" {...common} />
            <path d="M6.3 5.8a8 8 0 1 0 11.4 0" {...common} />
+         </svg>
+       )
+     case 'trending-up':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <path d="M4 16 10 10l4 4 6-7" {...common} />
+           <path d="M15 7h5v5" {...common} />
+         </svg>
+       )
+     case 'alert':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <circle cx="12" cy="12" r="8.5" {...common} />
+           <path d="M12 8v5" {...common} />
+           <path d="M12 15.5h0" {...common} />
+         </svg>
+       )
+     case 'wallet':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <rect x="3.5" y="6.5" width="17" height="12.5" rx="2.2" {...common} />
+           <path d="M15 12.2h3.2" {...common} />
+         </svg>
+       )
+     case 'logout':
+       return (
+         <svg viewBox="0 0 24 24" aria-hidden="true">
+           <path d="M9 4H6.5A1.5 1.5 0 0 0 5 5.5v13A1.5 1.5 0 0 0 6.5 20H9" {...common} />
+           <path d="M15 16l4-4-4-4" {...common} />
+           <path d="M19 12H9" {...common} />
          </svg>
        )
      case 'advance':

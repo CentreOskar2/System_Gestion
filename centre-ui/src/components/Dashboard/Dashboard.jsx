@@ -1,11 +1,11 @@
 import Icon from '../Icon'
 
-function StatCard({ title, value, note, tone }) {
+function StatCard({ title, value, note, tone, icon }) {
   return (
     <article className={`stat-card tone-${tone}`}>
       <div className="stat-card__header">
         <span>{title}</span>
-        <span className="stat-card__badge" aria-hidden="true" />
+        <span className="stat-card__badge" aria-hidden="true"><Icon name={icon} /></span>
       </div>
       <strong>{value}</strong>
       <p>{note}</p>
@@ -13,36 +13,67 @@ function StatCard({ title, value, note, tone }) {
   )
 }
 
+const MONTHS = ['Sept', 'Oct', 'Nov', 'Déc', 'Janv', 'Févr']
+
+function fmtDH(value) {
+  return `${Math.round(value).toLocaleString('fr-FR')} DH`
+}
+
+function buildCurve(pts) {
+  let d = ''
+  for (let i = 0; i < pts.length - 1; i += 1) {
+    const p0 = pts[i - 1] || pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2] || p2
+    const c1x = p1.x + (p2.x - p0.x) / 6
+    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6
+    const c2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`
+  }
+  return d
+}
+
 function LineChart({ revenueSeries }) {
-  const points = revenueSeries
-    .map((value, index) => {
-      const x = (index / (revenueSeries.length - 1)) * 100
-      const min = 22000
-      const max = 24800
-      const y = 100 - ((value - min) / (max - min)) * 100
-      return `${x},${y}`
-    })
-    .join(' ')
+  const min = 22000
+  const max = 24800
+  const n = revenueSeries.length
+  const pts = revenueSeries.map((value, index) => {
+    const x = n === 1 ? 50 : (index / (n - 1)) * 100
+    const y = 100 - ((value - min) / (max - min)) * 100
+    return { x, y, value }
+  })
+  const curve = buildCurve(pts)
+  const last = pts[pts.length - 1]
+  const lineD = `M ${pts[0].x},${pts[0].y}${curve}`
+  const areaD = `M ${pts[0].x},90 L ${pts[0].x},${pts[0].y}${curve} L ${last.x},${last.y} L ${last.x},90 Z`
 
   return (
-    <div className="chart chart--line" aria-label="Évolution du chiffre d'affaires">
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-        <defs>
-          <linearGradient id="revenue-fill" x1="0" x2="0" y1="0" y2="1">
-            <stop offset="0%" stopColor="rgba(57, 94, 255, 0.28)" />
-            <stop offset="100%" stopColor="rgba(57, 94, 255, 0)" />
-          </linearGradient>
-        </defs>
-        <polyline
-          points={`0,90 ${points} 100,90`}
-          fill="url(#revenue-fill)"
-          stroke="none"
-        />
-        <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" />
-      </svg>
+    <div className="chart chart--line">
+      <div className="chart__plot">
+        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <linearGradient id="revenue-fill" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stopColor="rgba(57, 94, 255, 0.28)" />
+              <stop offset="100%" stopColor="rgba(57, 94, 255, 0)" />
+            </linearGradient>
+          </defs>
+          <path className="chart__area" d={areaD} />
+          <path className="chart__line" d={lineD} />
+        </svg>
+        {pts.map((point, index) => (
+          <span
+            key={MONTHS[index]}
+            className="chart__dot"
+            style={{ left: `${point.x}%`, top: `${point.y}%` }}
+            title={`${MONTHS[index]} — ${fmtDH(point.value)}`}
+          />
+        ))}
+      </div>
       <div className="chart__labels">
-        {['Sept', 'Octo', 'Nove', 'Déce', 'Janv', 'Févr'].map((label) => (
-          <span key={label}>{label}</span>
+        {MONTHS.map((label, index) => (
+          <span key={label} style={{ left: `${(index / (n - 1)) * 100}%` }}>{label}</span>
         ))}
       </div>
     </div>
@@ -50,23 +81,32 @@ function LineChart({ revenueSeries }) {
 }
 
 function BranchChart({ branches }) {
-  const scale = 23000
+  const maxMag = 22000
+  const amplitude = 47
+
+  const barStyle = (value) => {
+    const pct = Math.min((Math.abs(value) / maxMag) * amplitude, amplitude)
+    return value >= 0
+      ? { top: `${50 - pct}%`, height: `${pct}%` }
+      : { top: '50%', height: `${pct}%` }
+  }
 
   return (
-    <div className="chart chart--bars" aria-label="Rentabilité par succursale">
+    <div className="chart chart--bars">
       <div className="bars">
+        <div className="bars__zero" aria-hidden="true" />
         {branches.map((branch) => (
           <div className="bars__group" key={branch.name}>
-            <div className="bars__stack">
-              <div
-                className="bar bar--revenue"
-                style={{ height: `${Math.max((branch.revenue / scale) * 100, 12)}%` }}
-              />
-              <div
-                className="bar bar--profit"
-                style={{ height: `${Math.max((Math.abs(branch.profit) / scale) * 100, 18)}%` }}
-              />
-            </div>
+            <div
+              className="bar bar--revenue"
+              style={barStyle(branch.revenue)}
+              data-val={fmtDH(branch.revenue).replace(' DH', '')}
+            />
+            <div
+              className={`bar bar--profit${branch.profit < 0 ? ' bar--below' : ''}`}
+              style={barStyle(branch.profit)}
+              data-val={fmtDH(branch.profit).replace(' DH', '')}
+            />
             <span>{branch.name}</span>
           </div>
         ))}
@@ -120,6 +160,7 @@ export default function Dashboard({ metrics, revenueSeries, branches }) {
             <button type="button" className="pill">
               <Icon name="calendar" />
               Février
+              <span aria-hidden="true">⌄</span>
             </button>
             <button type="button" className="pill pill--light">
               2026-2027

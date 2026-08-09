@@ -43,6 +43,7 @@ const sidebarSections = [
   },
   {
     title: 'Administration',
+    separated: true,
     items: [
       { label: 'Utilisateurs', icon: 'users', path: '/users', requiredPerm: 'administration' },
       { label: 'Succursales', icon: 'building', path: '/branches', requiredPerm: 'administration' },
@@ -56,34 +57,39 @@ const metrics = [
     value: '23 100 DH',
     note: '16 700 DH encaissé · 6 400 DH dû',
     tone: 'blue',
+    icon: 'trending-up',
   },
   {
     title: 'Élèves en retard',
     value: '8',
     note: 'paiements impayés',
     tone: 'red',
+    icon: 'alert',
   },
   {
     title: 'Total élèves',
     value: '40',
     note: '36 actifs',
     tone: 'slate',
+    icon: 'users',
   },
   {
     title: 'Professeurs',
     value: '4',
     note: '5 au total',
     tone: 'slate',
+    icon: 'cap',
   },
   {
     title: 'Bénéfice net',
     value: '-34 000 DH',
     note: 'ce mois',
     tone: 'danger',
+    icon: 'wallet',
   },
 ]
 
-const revenueSeries = [23000, 23000, 23500, 24600, 23900, 23200, 23100]
+const revenueSeries = [23000, 23500, 24600, 23900, 23200, 23100]
 const branches = [
   { name: 'Nord', revenue: 6800, profit: -22000 },
   { name: 'Sud', revenue: 6200, profit: -15500 },
