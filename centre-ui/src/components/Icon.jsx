@@ -8,6 +8,12 @@ export default function Icon({ name }) {
   }
 
   switch (name) {
+    case 'chevron-down':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m6 9 6 6 6-6" {...common} />
+        </svg>
+      )
     case 'grid':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">

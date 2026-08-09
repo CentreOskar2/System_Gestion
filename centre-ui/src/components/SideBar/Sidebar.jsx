@@ -27,7 +27,7 @@ export default function Sidebar({ sections }) {
                     <button type="button" className={`nav-link nav-link--accordion ${isAccountingRoute ? 'is-active' : ''}`} onClick={() => setAccountingOpen((open) => !open)} aria-expanded={accountingOpen}>
                       <span className="nav-link__icon"><Icon name={item.icon} /></span>
                       <span>{item.label}</span>
-                      <span className={`nav-link__caret ${accountingOpen ? 'is-open' : ''}`}>⌄</span>
+                      <span className={`nav-link__caret ${accountingOpen ? 'is-open' : ''}`}><Icon name="chevron-down" /></span>
                     </button>
                   ) : (
                     <NavLink to={item.path || '#'} className={({ isActive }) => `nav-link ${isActive ? 'is-active' : ''}`}>
