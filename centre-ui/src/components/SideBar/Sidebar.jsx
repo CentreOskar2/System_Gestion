@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import Icon from '../Icon'
 
-const accountingIcons = ['💲', '⚠️', '🗂️', '🔗', '📈']
+const accountingIcons = ['calendar', 'advance', 'id', 'calculator', 'layers']
 
 export default function Sidebar({ sections }) {
   const location = useLocation()
@@ -12,13 +12,13 @@ export default function Sidebar({ sections }) {
   return (
     <aside className="sidebar">
       <div className="brand">
-        <div className="brand__mark">CA</div>
-        <div><strong>Centre Atlas</strong><span>Gestion interne</span></div>
+        <img className="brand__logo" src="/oskar-logo.png" alt="Oskar" />
+        <div><strong>Oskar</strong><span>Gestion interne</span></div>
       </div>
 
       <nav className="sidebar__nav" aria-label="Navigation principale">
         {sections.map((section) => (
-          <div className="sidebar__section" key={section.title}>
+          <div className={`sidebar__section${section.separated ? ' sidebar__section--separated' : ''}`} key={section.title}>
             <p>{section.title}</p>
             <ul>
               {section.items.map((item) => (
@@ -40,7 +40,7 @@ export default function Sidebar({ sections }) {
                         {item.children.map((child, index) => (
                           <li key={child.label}>
                             <NavLink to={child.path || '#'} className="nav-sub-link">
-                              <span className="nav-sub-link__icon" aria-hidden="true">{child.icon || accountingIcons[index] || '•'}</span>{child.label}
+                              <span className="nav-sub-link__icon" aria-hidden="true"><Icon name={child.icon || accountingIcons[index]} /></span>{child.label}
                             </NavLink>
                           </li>
                         ))}
@@ -54,7 +54,7 @@ export default function Sidebar({ sections }) {
         ))}
       </nav>
 
-      <button type="button" className="logout"><span className="nav-link__icon"><Icon name="settings" /></span>Se déconnecter</button>
+      <button type="button" className="logout"><span className="nav-link__icon"><Icon name="logout" /></span>Se déconnecter</button>
     </aside>
   )
 }
