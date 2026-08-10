@@ -1,5 +1,6 @@
 /* General Page Layout */
 .students-page {
+  padding-top: 26px;
   background-color: #f9fafb;
   color: #111827;
 }
@@ -41,12 +42,21 @@
 
 /* Buttons */
 .students-heading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   height: 48px;
-  padding: 0 24px;
+  padding: 0 20px;
   border-radius: 8px;
   font-weight: 600;
   font-size: 0.95rem;
   transition: all 0.2s ease-in-out;
+}
+
+.students-heading button svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
 }
 
 .print-button {

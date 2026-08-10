@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import Icon from '../Icon'
 import './FilterSelect.css'
 
 export default function FilterSelect({ value, options, onChange, ariaLabel }) {
@@ -17,7 +18,7 @@ export default function FilterSelect({ value, options, onChange, ariaLabel }) {
   return (
     <div className={`filter-menu ${open ? 'is-open' : ''}`} ref={root}>
       <button type="button" className="filter-menu-trigger" aria-label={ariaLabel} aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-        <span>{selected.label}</span><i aria-hidden="true">⌄</i>
+        <span>{selected.label}</span><i aria-hidden="true"><Icon name="chevron-down" /></i>
       </button>
       {open && <div className="filter-menu-options" role="listbox" aria-label={ariaLabel}>
         {options.map((option) => <button key={option.value} type="button" role="option" aria-selected={value === option.value} className={value === option.value ? 'selected' : ''} onClick={() => { onChange(option.value); setOpen(false) }}>

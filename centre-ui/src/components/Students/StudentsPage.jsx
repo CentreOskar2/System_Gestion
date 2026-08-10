@@ -18,7 +18,7 @@ export default function StudentsPage() {
   const [items, setItems] = useState([])
   const [catalog, setCatalog] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(location.state?.query || '')
   const [activeCycle, setActiveCycle] = useState('Tous')
   const [activeLevel, setActiveLevel] = useState('Tous')
   const [activeSubject, setActiveSubject] = useState('Tous')
@@ -26,7 +26,7 @@ export default function StudentsPage() {
   const [absenceSheetOpen, setAbsenceSheetOpen] = useState(location.state?.quick === 'absence-sheet')
   const [sheetStudent, setSheetStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
-  const [isEnrolling, setIsEnrolling] = useState(location.state?.quick === 'enroll')
+  const [isEnrolling, setIsEnrolling] = useState(location.state?.quick === 'enroll' || Boolean(location.state?.enroll))
 
   const refresh = async () => {
     setLoading(true)

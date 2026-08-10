@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from '../Icon'
+import Header from '../shared/Header'
+import { MenuSelect } from '../shared/Menu'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../supabaseClient'
 import { fetchFeesData } from '../Accounting/feesApi'
 import { buildDebtors, buildReminderMessage, whatsappLink } from '../Accounting/delinquenciesApi'
-import { academicMonths, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
+import { academicMonths, academicYearStart, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
 import { initials } from '../Students/utils/studentHelpers'
 import './Dashboard.css'
 
@@ -30,6 +32,12 @@ const DISCIPLINE_SERIES = [
 
 const CYCLE_COLORS = ['#3b63f0', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ef4444', '#64748b']
 
+const schoolYears = [
+  `${academicYearStart() - 1}-${academicYearStart()}`,
+  `${academicYearStart()}-${academicYearStart() + 1}`,
+  `${academicYearStart() + 1}-${academicYearStart() + 2}`,
+]
+
 const todayISO = () => {
   const now = new Date()
   const pad = (n) => String(n).padStart(2, '0')
@@ -42,6 +50,8 @@ const formatDate = (value) => {
 }
 
 const fmtDH = (value) => `${Math.round(Number(value) || 0).toLocaleString('fr-FR')} DH`
+
+const shortMonth = (month) => String(month || '').slice(0, 4)
 
 const shortMonthLabel = (key) => {
   const match = /^(\d{4})-(\d{2})/.exec(String(key || ''))
@@ -132,6 +142,102 @@ function buildSalaryTeachers(rows, studentMap) {
       groups,
     }
   })
+}
+
+function StatCard({ title, value, note, tone, icon }) {
+  return (
+    <article className={`stat-card tone-${tone}`}>
+      <div className="stat-card__header">
+        <span>{title}</span>
+        <span className="stat-card__badge" aria-hidden="true"><Icon name={icon} /></span>
+      </div>
+      <strong>{value}</strong>
+      <p>{note}</p>
+    </article>
+  )
+}
+
+/** Courbe lissée (Catmull-Rom convertie en courbes de Bézier). */
+function buildCurve(pts) {
+  let d = ''
+  for (let i = 0; i < pts.length - 1; i += 1) {
+    const p0 = pts[i - 1] || pts[i]
+    const p1 = pts[i]
+    const p2 = pts[i + 1]
+    const p3 = pts[i + 2] || p2
+    const c1x = p1.x + (p2.x - p0.x) / 6
+    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6
+    const c2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`
+  }
+  return d
+}
+
+function LineChart({ series }) {
+  const LEFT = 62
+  const RIGHT = 746
+  const TOP = 12
+  const BOTTOM = 256
+
+  const n = series.length
+  if (n === 0) return null
+
+  const maxValue = Math.max(1, ...series.map((s) => Number(s.revenue) || 0))
+  const step = Math.max(500, Math.ceil(maxValue / 4 / 500) * 500)
+  const MAX = step * 4
+  const TICKS = [0, step, step * 2, step * 3, step * 4]
+
+  const yFor = (value) => BOTTOM - (value / MAX) * (BOTTOM - TOP)
+  const xFor = (index) => (n === 1 ? (LEFT + RIGHT) / 2 : LEFT + (index / (n - 1)) * (RIGHT - LEFT))
+
+  const pts = series.map((entry, index) => ({
+    x: xFor(index),
+    y: yFor(Number(entry.revenue) || 0),
+    entry,
+  }))
+  const lineD = `M ${pts[0].x},${pts[0].y}${buildCurve(pts)}`
+
+  return (
+    <svg
+      className="chart-svg"
+      viewBox="0 0 760 300"
+      role="img"
+      aria-label="Évolution du chiffre d'affaires"
+    >
+      {TICKS.map((tick) => (
+        <g key={tick}>
+          <line className="chart-grid" x1={LEFT} x2={RIGHT} y1={yFor(tick)} y2={yFor(tick)} />
+          <text className="chart-tick" x={LEFT - 12} y={yFor(tick)} textAnchor="end" dominantBaseline="middle">
+            {tick.toLocaleString('fr-FR')}
+          </text>
+        </g>
+      ))}
+
+      <line className="chart-axis" x1={LEFT} x2={LEFT} y1={TOP} y2={BOTTOM} />
+      <line className="chart-axis" x1={LEFT} x2={RIGHT} y1={BOTTOM} y2={BOTTOM} />
+
+      <path className="chart-line" d={lineD} />
+
+      {pts.map((point) => (
+        <circle key={point.entry.month} className="chart-hit" cx={point.x} cy={point.y} r="12">
+          <title>{`${point.entry.month} — ${fmtDH(point.entry.revenue)}`}</title>
+        </circle>
+      ))}
+
+      {pts.map((point) => (
+        <text
+          key={point.entry.month}
+          className="chart-label"
+          x={point.x}
+          y={BOTTOM + 24}
+          textAnchor="middle"
+        >
+          {shortMonth(point.entry.month)}
+        </text>
+      ))}
+    </svg>
+  )
 }
 
 function GroupedBarChart({ months, incomeByMonth, salariesByMonth }) {
@@ -371,12 +477,17 @@ export default function Dashboard() {
   const academic = useMemo(() => academicMonths(), [])
   const currentMonth = useMemo(() => currentMonthKey(new Date()), [])
   const currentLabel = useMemo(() => monthLabelOf(currentMonth), [currentMonth])
+  const [month, setMonth] = useState(currentLabel)
+  const [year, setYear] = useState(schoolYears[1])
 
   const windowMonths = useMemo(() => {
     const idx = academic.findIndex((m) => m.key === currentMonth)
     if (idx === -1) return academic.slice(0, 6).map((m) => m.key)
     return academic.slice(Math.max(0, idx - 5), idx + 1).map((m) => m.key)
   }, [academic, currentMonth])
+
+  const monthOptions = useMemo(() => academic.map((m) => m.label), [academic])
+  const endYear = year.split('-')[1]
 
   const activeCount = useMemo(() => students.filter((s) => s.active).length, [students])
   const inactiveCount = students.length - activeCount
@@ -524,6 +635,26 @@ export default function Dashboard() {
     return teachers.filter((t) => paid.has(t.id)).length
   }, [salaryRecords, teachers, currentMonth])
 
+  // La courbe du CA s'arrête au mois sélectionné dans la barre d'outils.
+  const shownSeries = useMemo(() => {
+    const idx = academic.findIndex((m) => m.label === month)
+    return academic.slice(0, idx === -1 ? academic.length : idx + 1).map((m) => ({
+      month: m.label,
+      revenue: incomeByMonth[m.key] || 0,
+      collected: incomeByMonth[m.key] || 0,
+    }))
+  }, [academic, month, incomeByMonth])
+
+  const todayCount = snapshot.counts.absence + snapshot.counts.retard + snapshot.counts.betise + snapshot.counts.exercice
+
+  const statCards = [
+    { title: 'Élèves', value: students.length, note: `${activeCount} actifs · ${inactiveCount} inactifs`, tone: 'blue', icon: 'users' },
+    { title: 'Encaissé ce mois', value: fmtDH(revenue.collected), note: `${revenue.rate}% de ${fmtDH(revenue.expected)} attendus`, tone: 'slate', icon: 'coin' },
+    { title: 'En attente', value: fmtDH(revenue.pending), note: `${debtors.length} élève${debtors.length > 1 ? 's' : ''} en retard`, tone: 'red', icon: 'alert' },
+    { title: 'Salaires profs', value: fmtDH(massSalariale), note: `${teachers.length} prof${teachers.length > 1 ? 's' : ''} · ${paidSalaryTeachers} validé${paidSalaryTeachers > 1 ? 's' : ''}`, tone: 'slate', icon: 'cap' },
+    { title: 'Pointage du jour', value: todayCount, note: `${snapshot.counts.absence} absences · ${snapshot.counts.retard} retards`, tone: 'blue', icon: 'flame' },
+  ]
+
   const openReminder = (debtor) => {
     const link = whatsappLink(debtor.phone, buildReminderMessage(debtor, null, centerName))
     if (link) window.open(link, '_blank', 'noopener,noreferrer')
@@ -538,7 +669,6 @@ export default function Dashboard() {
     { icon: 'wallet', label: 'Imprimer Journal de Salaire', hint: 'Masse salariale', tone: 'green', onClick: () => navigate('/accounting/salaries') },
   ]
 
-  const avatarLabel = initials(`${profile?.first_name || ''} ${profile?.last_name || ''}`.trim()) || 'DA'
   const greetingName = profile?.first_name || 'Directeur'
 
   if (loading && !fees) {
@@ -559,31 +689,7 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-main">
-      <header className="topbar">
-        <label className="searchbar">
-          <span className="searchbar__icon"><Icon name="search" /></span>
-          <input type="search" placeholder="Rechercher un élève, professeur..." />
-        </label>
-        <button type="button" className="branch-select">
-          <span>Toutes les succursales</span>
-          <span aria-hidden="true">⌄</span>
-        </button>
-        <button type="button" className="notifications" aria-label="Notifications">
-          <Icon name="bell" />
-          {debtors.length > 0 && <span className="notifications__badge">{debtors.length}</span>}
-        </button>
-        <div className="profile">
-          <div className="profile__avatar">{avatarLabel}</div>
-          <div>
-            <strong>{profile?.first_name ? `${profile.first_name} ${profile.last_name || ''}` : 'Directeur Oskar'}</strong>
-            <span>{profile?.role === 'super_admin' ? 'Administrateur' : 'Gestion'}</span>
-          </div>
-        </div>
-        <button type="button" className="db-logout" onClick={signOut} title="Se déconnecter">
-          <Icon name="logout" />
-          <span>Se déconnecter</span>
-        </button>
-      </header>
+      <Header />
 
       <main className="content">
         {error && (
@@ -594,102 +700,74 @@ export default function Dashboard() {
           </div>
         )}
 
-        <section className="db-hero">
-          <div className="db-hero__brand">
-            <div className="db-hero__logo">
-              <img src="/oskar-logo.png" alt="Logo Centre Oskar" />
-            </div>
-            <div>
-              <h1>Centre Oskar <span className="db-hero__ar">مركز أوسكار</span></h1>
-              <p>
-                Bonjour, <strong>{greetingName}</strong> 👋 — command center opérationnel.
-              </p>
-            </div>
+        <section className="hero-card">
+          <div>
+            <h1>Centre Oskar <span className="db-hero__ar">مركز أوسكار</span></h1>
+            <p>Bonjour, <strong>{greetingName}</strong> 👋 — command center opérationnel.</p>
           </div>
-          <div className="db-hero__chips">
-            <span className="db-chip db-chip--date">
-              <Icon name="calendar" />
-              {currentLabel}
-            </span>
-            <span className="db-chip">Année 2026-2027</span>
-            <span className="db-chip db-chip--live"><i />Temps réel</span>
-          </div>
+
           <div className="controls">
-            <button type="button" className="primary" onClick={goEnroll}>
-              <span aria-hidden="true">+</span>
+            <span className="db-chip db-chip--date"><Icon name="calendar" />{currentLabel}</span>
+            <span className="db-chip db-chip--live"><i />Temps réel</span>
+            <div className="period-group">
+              <MenuSelect
+                className="pill"
+                icon="calendar"
+                label="Choisir le mois"
+                value={month}
+                options={monthOptions}
+                onChange={setMonth}
+              />
+              <MenuSelect
+                className="pill pill--light"
+                label="Choisir l'année scolaire"
+                value={year}
+                options={schoolYears}
+                onChange={setYear}
+              />
+            </div>
+            <button
+              type="button"
+              className="primary"
+              onClick={goEnroll}
+            >
+              <Icon name="user-plus" />
               Nouvelle inscription
             </button>
-            <button type="button" className="secondary" onClick={() => navigate('/accounting/delinquencies')}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => navigate('/accounting/delinquencies')}
+            >
               <Icon name="eye" />
               Voir les impayés
             </button>
           </div>
         </section>
 
-        <section className="db-kpis" aria-label="Indicateurs clés">
-          <article className="db-kpi db-kpi--students">
-            <div className="db-kpi__head">
-              <span className="db-kpi__label">Élèves</span>
-              <span className="db-kpi__badge"><Icon name="users" /></span>
+        <section className="metrics-grid" aria-label="Indicateurs clés">
+          {statCards.map((card) => (
+            <StatCard key={card.title} {...card} />
+          ))}
+        </section>
+
+        <section className="analytics-grid">
+          <article className="panel panel--wide">
+            <div className="panel__head">
+              <div>
+                <h2>Évolution du chiffre d'affaires — jusqu'à {month}</h2>
+              </div>
             </div>
-            <strong className="db-kpi__value">{students.length}</strong>
-            <div className="db-kpi__split">
-              <span><i className="dot dot--green" />{activeCount} actifs</span>
-              <span><i className="dot dot--gray" />{inactiveCount} inactifs</span>
-            </div>
-            <div className="db-kpi__bar"><i style={{ width: `${students.length ? Math.round((activeCount / students.length) * 100) : 0}%` }} /></div>
-            <p className="db-kpi__note">
-              <span className={`db-trend ${growth > 0 ? 'up' : 'flat'}`}>
-                <Icon name={growth > 0 ? 'arrow-up' : 'arrow-down'} />+{growth} ce mois
-              </span>
-            </p>
+            <LineChart series={shownSeries} />
           </article>
 
-          <article className="db-kpi db-kpi--revenue">
-            <div className="db-kpi__head">
-              <span className="db-kpi__label">Revenus & encaissements</span>
-              <span className="db-kpi__badge"><Icon name="coin" /></span>
+          <article className="panel">
+            <div className="panel__head">
+              <div>
+                <h2>Répartition par cycle</h2>
+              </div>
             </div>
-            <strong className="db-kpi__value">{fmtDH(revenue.collected)}</strong>
-            <div className="db-kpi__split">
-              <span className="paid">Payé · {fmtDH(revenue.collected)}</span>
-              <span className="pending">En attente · {fmtDH(revenue.pending)}</span>
-            </div>
-            <div className="db-kpi__bar db-kpi__bar--revenue"><i style={{ width: `${revenue.rate}%` }} /></div>
-            <p className="db-kpi__note">
-              {revenue.rate}% encaissé sur {fmtDH(revenue.expected)} attendus
-            </p>
-          </article>
-
-          <article className="db-kpi db-kpi--salary">
-            <div className="db-kpi__head">
-              <span className="db-kpi__label">Salaires profs</span>
-              <span className="db-kpi__badge"><Icon name="cap" /></span>
-            </div>
-            <strong className="db-kpi__value">{fmtDH(massSalariale)}</strong>
-            <div className="db-kpi__split">
-              <span>{teachers.length} prof{teachers.length > 1 ? 's' : ''} actif{teachers.length > 1 ? 's' : ''}</span>
-              <span>{paidSalaryTeachers} validé{paidSalaryTeachers > 1 ? 's' : ''}</span>
-            </div>
-            <div className="db-kpi__bar db-kpi__bar--salary"><i style={{ width: `${teachers.length ? Math.round((paidSalaryTeachers / teachers.length) * 100) : 0}%` }} /></div>
-            <p className="db-kpi__note">Engagement du mois · {currentLabel}</p>
-          </article>
-
-          <article className="db-kpi db-kpi--discipline">
-            <div className="db-kpi__head">
-              <span className="db-kpi__label">Pointage du jour</span>
-              <span className="db-kpi__badge"><Icon name="flame" /></span>
-            </div>
-            <div className="db-kpi__snap">
-              <div className="snap"><i className="snap__i snap__i--red" /><b>{snapshot.counts.absence}</b><span>Absences</span></div>
-              <div className="snap"><i className="snap__i snap__i--amber" /><b>{snapshot.counts.retard}</b><span>Retards</span></div>
-              <div className="snap"><i className="snap__i snap__i--violet" /><b>{snapshot.counts.betise}</b><span>Bêtises</span></div>
-              <div className="snap"><i className="snap__i snap__i--cyan" /><b>{snapshot.counts.exercice}</b><span>Exercices</span></div>
-            </div>
-            <p className="db-kpi__note">
-              {snapshot.isToday ? "Aujourd'hui" : `Pointage du ${formatDate(snapshot.date)}`}
-              <span className="db-live-dot" title="Données en direct" />
-            </p>
+            <DonutChart items={cycleDist} />
           </article>
         </section>
 
@@ -703,17 +781,6 @@ export default function Dashboard() {
               <span className="db-panel__icon"><Icon name="trending-up" /></span>
             </header>
             <GroupedBarChart months={windowMonths} incomeByMonth={incomeByMonth} salariesByMonth={salariesByMonth} />
-          </article>
-
-          <article className="db-panel db-panel--cycles">
-            <header className="db-panel__head">
-              <div>
-                <h2>Répartition par cycle</h2>
-                <p>Collège · Lycée · autres</p>
-              </div>
-              <span className="db-panel__icon"><Icon name="layers" /></span>
-            </header>
-            <DonutChart items={cycleDist} />
           </article>
 
           <article className="db-panel db-panel--heatmap">

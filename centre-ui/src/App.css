@@ -156,13 +156,26 @@
 .searchbar,
 .branch-select,
 .notifications,
+.profile,
 .pill,
 .primary,
 .secondary {
   border: 0;
   background: transparent;
   font: inherit;
+  text-align: left;
   text-decoration: none;
+}
+
+.branch-select,
+.notifications,
+.profile,
+.pill,
+.primary,
+.secondary,
+.menu__list button,
+.menu__panel button {
+  cursor: pointer;
 }
 
 .nav-link {
@@ -190,11 +203,13 @@
 .nav-link__icon svg,
 .searchbar__icon svg,
 .notifications svg,
+.primary svg,
 .secondary svg,
 .pill svg,
 .logout svg {
   width: 18px;
   height: 18px;
+  flex: 0 0 auto;
 }
 
 .nav-link__caret {
@@ -353,6 +368,8 @@
 }
 
 .branch-select {
+  min-width: 232px;
+  justify-content: space-between;
   color: #2d3548;
   font-weight: 600;
 }
@@ -434,10 +451,11 @@
   box-shadow: 0 12px 28px rgba(48, 62, 88, 0.08);
 }
 
+/* Le titre et les contrôles sont empilés : les contrôles passent sous le salut. */
 .hero-card {
   padding: 2px 4px;
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   align-items: flex-start;
   gap: 18px;
 }
@@ -456,22 +474,41 @@
 .controls {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 10px;
+  align-items: center;
+  gap: 12px;
 }
 
 .pill,
 .primary,
 .secondary {
-  min-height: 38px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 0 14px;
+  padding: 0 16px;
   border-radius: 12px;
   font-weight: 600;
+  white-space: nowrap;
   box-shadow: inset 0 0 0 1px rgba(217, 223, 233, 0.95), 0 6px 16px rgba(24, 35, 59, 0.05);
   transition: background-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+}
+
+/* Mois + année scolaire partagent un seul cadre. */
+.period-group {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px rgba(217, 223, 233, 0.95), 0 6px 16px rgba(24, 35, 59, 0.05);
+}
+
+.period-group .pill {
+  background: transparent;
+  box-shadow: none;
+}
+
+.period-group .pill:hover {
+  background: #f5f7fa;
 }
 
 .pill {
@@ -629,155 +666,68 @@
   color: #1f2737;
 }
 
-.chart {
-  position: relative;
-  min-height: 260px;
-}
-
-.chart--line {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.chart__plot {
-  position: relative;
-  width: 100%;
-  height: 220px;
-}
-
-.chart__plot svg {
-  width: 100%;
-  height: 100%;
+.chart-svg {
   display: block;
-  color: #3d63ff;
+  width: 100%;
+  height: auto;
+  overflow: visible;
 }
 
-.chart__area {
-  fill: url(#revenue-fill);
-  stroke: none;
+.chart-grid {
+  stroke: #e4e9f2;
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
 }
 
-.chart__line {
+.chart-axis {
+  stroke: #c8d0de;
+  stroke-width: 1;
+}
+
+.chart-zero {
+  stroke: #98a4b8;
+  stroke-width: 1.5;
+}
+
+.chart-tick {
+  fill: #8a93a5;
+  font-size: 11px;
+}
+
+.chart-label {
+  fill: #6b7486;
+  font-size: 12px;
+}
+
+.chart-line {
   fill: none;
-  stroke: currentColor;
-  stroke-width: 2;
+  stroke: #3b63f0;
+  stroke-width: 2.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.chart__dot {
-  position: absolute;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  background: #2450ef;
-  border: 2px solid #fff;
-  box-shadow: 0 0 0 1px rgba(36, 80, 239, 0.35), 0 3px 8px rgba(21, 27, 41, 0.22);
-  cursor: default;
+/* Cible de survol invisible : donne l'infobulle sans marquer le point. */
+.chart-hit {
+  fill: transparent;
 }
 
-.chart__labels {
-  position: relative;
-  height: 18px;
-  font-size: 0.78rem;
-  text-align: center;
+.chart-bar--revenue {
+  fill: #3b63f0;
 }
 
-.chart__labels span {
-  position: absolute;
-  top: 0;
-  transform: translateX(-50%);
-}
-
-.chart--bars {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 260px;
-  padding: 10px 8px 4px;
-}
-
-.bars {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
-  height: 170px;
-  padding: 0 10px;
-}
-
-.bars__zero {
-  position: absolute;
-  left: 12px;
-  right: 12px;
-  top: 50%;
-  height: 0;
-  border-top: 2px solid #98a4b8;
-  border-radius: 1px;
-}
-
-.bars__group {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  align-items: center;
-  height: 100%;
-}
-
-.bars__group > span {
-  margin-top: 6px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: #616c7d;
-}
-
-.bar {
-  position: absolute;
-  width: 30px;
-  left: 50%;
-  border-radius: 6px 6px 4px 4px;
-  box-shadow: 0 4px 14px rgba(26, 39, 70, 0.18);
-}
-
-.bar::after {
-  content: attr(data-val);
-  position: absolute;
-  left: 50%;
-  top: 0;
-  transform: translate(-50%, -100%);
-  margin-top: -5px;
-  font-size: 0.62rem;
-  font-weight: 800;
-  color: #4b5563;
-  white-space: nowrap;
-}
-
-.bar--below::after {
-  top: auto;
-  bottom: 0;
-  transform: translate(-50%, 100%);
-  margin-top: 0;
-  margin-bottom: -5px;
-}
-
-.bar--revenue {
-  transform: translateX(calc(-100% - 5px));
-  background: #3b63f0;
-}
-
-.bar--profit {
-  transform: translateX(5px);
-  background: #1f9d57;
+.chart-bar--profit {
+  fill: #22c55e;
 }
 
 .chart__legend {
   display: flex;
   gap: 16px;
+  margin-top: 4px;
+  padding-left: 8px;
   font-size: 0.82rem;
   font-weight: 600;
+  color: #6b7486;
 }
 
 .chart__legend span {
@@ -798,7 +748,107 @@
 }
 
 .legend--profit {
-  background: #1f9d57;
+  background: #22c55e;
+}
+
+/* Menus déroulants du dashboard (mois, année, succursale, notifications, profil) */
+.menu {
+  position: relative;
+}
+
+.menu__caret {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #99a2b4;
+  transition: transform 0.2s ease;
+}
+
+.menu__caret svg {
+  width: 15px;
+  height: 15px;
+}
+
+.menu__caret.is-open {
+  transform: rotate(180deg);
+}
+
+.menu__list,
+.menu__panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 100%;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(20, 32, 51, 0.16);
+}
+
+.menu__panel {
+  width: max-content;
+  max-width: 280px;
+}
+
+.menu__list button,
+.menu__panel button {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #34425b;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.menu__list button:hover,
+.menu__panel button:hover {
+  background: #f4f7ff;
+}
+
+.menu__list button.is-selected {
+  background: #edf3ff;
+  color: #2563eb;
+  font-weight: 700;
+}
+
+.menu__title {
+  margin: 4px 12px 8px;
+  color: #8a93a5;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.menu__panel button strong {
+  display: block;
+  color: #172033;
+  font-size: 0.9rem;
+}
+
+.menu__panel button span {
+  display: block;
+  margin-top: 2px;
+  color: #6b7486;
+  font-size: 0.8rem;
+  white-space: normal;
+}
+
+/* Le sélecteur de succursale s'ouvre aligné à gauche : il est large et à gauche du bandeau. */
+.branch-select + .menu__list {
+  left: 0;
+  right: auto;
 }
 
 @media (max-width: 1180px) {
@@ -832,14 +882,6 @@
   .searchbar {
     grid-column: 1 / -1;
   }
-
-  .hero-card {
-    flex-direction: column;
-  }
-
-  .controls {
-    justify-content: flex-start;
-  }
 }
 
 @media (max-width: 640px) {
@@ -865,8 +907,7 @@
     border-radius: 18px;
   }
 
-  .chart__legend,
-  .chart__labels {
+  .chart__legend {
     font-size: 0.72rem;
   }
 }

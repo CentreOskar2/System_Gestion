@@ -30,7 +30,7 @@ export default function GroupsTable({ groups, onView, onEdit, onToggleStatus }) 
               <td>{group.level}</td>
               <td>{group.filiere || '—'}</td>
               <td>
-                <span className="group-count">♧ {group.studentIds.length}</span>
+                <span className="group-count"><Icon name="users" /> {group.studentIds.length}</span>
               </td>
               <td>
                 <span className={`group-status ${group.active ? 'active' : ''}`}>
