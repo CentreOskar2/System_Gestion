@@ -135,9 +135,9 @@ export async function logPaymentReminder(studentId, { months, amount, message, c
   return data
 }
 
-export async function fetchDelinquenciesData() {
+export async function fetchDelinquenciesData(branchId = null) {
   const [fees, templatesRes, settingsRes] = await Promise.all([
-    fetchFeesData(),
+    fetchFeesData(branchId),
     supabase.from('whatsapp_templates').select('type, content').eq('type', 'payment_reminder').maybeSingle(),
     supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
   ])

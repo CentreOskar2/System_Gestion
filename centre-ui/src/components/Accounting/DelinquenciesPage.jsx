@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
 import { initials } from '../Students/utils/studentHelpers'
 import { useAuth } from '../../context/AuthContext'
+import { useBranch } from '../../context/BranchContext'
 import {
   buildReminderMessage,
   fetchDelinquenciesData,
@@ -14,6 +15,7 @@ import './DelinquenciesPage.css'
 
 export default function DelinquenciesPage() {
   const { user } = useAuth()
+  const { selectedBranch } = useBranch()
   const [data, setData] = useState({ debtors: [], stats: { count: 0, totalDebt: 0, avgDelay: 0 }, template: null, centerName: 'Centre Oskar' })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -28,7 +30,7 @@ export default function DelinquenciesPage() {
     let active = true
     const load = async () => {
       try {
-        const next = await fetchDelinquenciesData()
+        const next = await fetchDelinquenciesData(selectedBranch)
         if (!active) return
         setData(next)
         setError('')
@@ -44,7 +46,7 @@ export default function DelinquenciesPage() {
     return () => {
       active = false
     }
-  }, [reload])
+  }, [reload, selectedBranch])
 
   useEffect(() => {
     const bump = () => setReload((count) => count + 1)

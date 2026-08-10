@@ -4,6 +4,7 @@ import Header from '../shared/Header'
 import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
+import { useBranch } from '../../context/BranchContext'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { syncSubscriptions } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
@@ -278,6 +279,7 @@ function AdvanceReceiptsModal({ receipts, close, onPrint }) {
 
 export default function FeesPage() {
   const { user } = useAuth()
+  const { selectedBranch } = useBranch()
   const [students, setStudents] = useState([])
   const [paymentsByStudent, setPaymentsByStudent] = useState({})
   const [catalog, setCatalog] = useState(null)
@@ -295,7 +297,7 @@ export default function FeesPage() {
     setLoading(true)
     setError('')
     try {
-      const data = await fetchFeesData()
+      const data = await fetchFeesData(selectedBranch)
       setStudents(data.students)
       setPaymentsByStudent(data.paymentsByStudent)
       setCatalog(data.catalog)
@@ -305,11 +307,11 @@ export default function FeesPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedBranch])
 
   useEffect(() => {
     let active = true
-    fetchFeesData()
+    fetchFeesData(selectedBranch)
       .then((data) => {
         if (!active) return
         setStudents(data.students)
@@ -328,7 +330,7 @@ export default function FeesPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [selectedBranch])
 
   const shown = useMemo(
     () => students.filter((s) => `${s.name} ${s.code}`.toLowerCase().includes(query.toLowerCase())),

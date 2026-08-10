@@ -4,6 +4,7 @@ import Header from '../shared/Header'
 import { initials } from '../Students/utils/studentHelpers'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { supabase } from '../../supabaseClient'
+import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
 import { academicMonths, currentMonthKey, monthLabelOf } from './monthUtils'
 import './SalariesPage.css'
@@ -162,6 +163,7 @@ function Journal({ teacher, monthLabel, close }) {
 }
 
 export default function SalariesPage() {
+  const { selectedBranch } = useBranch()
   const [selected, setSelected] = useState(null)
   const [validated, setValidated] = useState([])
   const [pendingSalaries, setPendingSalaries] = useState([])
@@ -170,17 +172,25 @@ export default function SalariesPage() {
   const [month, setMonth] = useState(currentMonthKey())
   const months = useMemo(() => academicMonths(), [])
 
+  const branchFilter = selectedBranch && selectedBranch !== 'all' ? selectedBranch : null
+
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
+      let teachersQuery = supabase.from('teachers').select('*').eq('status', 'active').order('last_name')
+      let groupsQuery = supabase.from('groups').select('id, name, subject_id, level_id, branch_id')
+      if (branchFilter) {
+        teachersQuery = teachersQuery.eq('branch_id', branchFilter)
+        groupsQuery = groupsQuery.eq('branch_id', branchFilter)
+      }
       const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes] = await Promise.all([
-        supabase.from('teachers').select('*').eq('status', 'active').order('last_name'),
+        teachersQuery,
         supabase.from('cycles').select('id, name'),
         supabase.from('levels').select('id, name, cycle_id'),
         supabase.from('branches').select('id, name'),
         supabase.from('subjects').select('id, name'),
-        supabase.from('groups').select('id, name, subject_id, level_id, branch_id'),
+        groupsQuery,
         supabase.from('teacher_group_subjects').select('teacher_id, group_id'),
         supabase.from('group_students').select('group_id, student_id'),
         supabase.from('students').select('id, first_name, last_name'),
@@ -263,7 +273,7 @@ export default function SalariesPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [month])
+  }, [month, branchFilter])
 
   const validateSalary = async (teacher) => {
     const key = `${teacher.id}:${month}`

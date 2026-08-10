@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
 import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
+import { useBranch } from '../../context/BranchContext'
 import { academicMonths, currentMonthKey } from './monthUtils'
 import './ExpensesPage.css'
 
 const formatAmount = (amount) => `${Number(amount || 0).toLocaleString('fr-FR')} DH`
 
 export default function ExpensesPage() {
+  const { selectedBranch } = useBranch()
   const [expenses, setExpenses] = useState([])
   const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
@@ -17,15 +19,23 @@ export default function ExpensesPage() {
   const [month, setMonth] = useState(currentMonthKey())
   const months = useMemo(() => academicMonths(), [])
 
+  const branchFilter = selectedBranch && selectedBranch !== 'all' ? selectedBranch : null
+
   const load = useCallback(async () => {
     setLoading(true)
+    let expensesQuery = supabase.from('expenses').select('*').eq('month', month).order('created_at')
+    let teachersQuery = supabase
+      .from('teachers')
+      .select('id, first_name, last_name, branch_id, remuneration_type, fixed_salary, remuneration_amount')
+      .eq('status', 'active')
+    if (branchFilter) {
+      expensesQuery = expensesQuery.eq('branch_id', branchFilter)
+      teachersQuery = teachersQuery.eq('branch_id', branchFilter)
+    }
     const [branchesRes, expensesRes, teachersRes] = await Promise.all([
       supabase.from('branches').select('id, name').order('name'),
-      supabase.from('expenses').select('*').eq('month', month).order('created_at'),
-      supabase
-        .from('teachers')
-        .select('id, first_name, last_name, branch_id, remuneration_type, fixed_salary, remuneration_amount')
-        .eq('status', 'active'),
+      expensesQuery,
+      teachersQuery,
     ])
     if (branchesRes.error || expensesRes.error || teachersRes.error) {
       setLoading(false)
@@ -61,7 +71,7 @@ export default function ExpensesPage() {
 
     setExpenses([...auto, ...persisted])
     setLoading(false)
-  }, [month])
+  }, [month, branchFilter])
 
   useEffect(() => {
     let cancelled = false
@@ -130,7 +140,7 @@ export default function ExpensesPage() {
       title: '',
       amount: '',
       month: month.slice(0, 7),
-      branch_id: branches[0]?.id || '',
+      branch_id: branchFilter || branches[0]?.id || '',
     })
 
   return (

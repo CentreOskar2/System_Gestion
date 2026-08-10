@@ -1,33 +1,28 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import Icon from '../Icon'
 import { MenuSelect, Popover } from './Menu'
 import { useAuth } from '../../context/AuthContext'
+import { useBranch, ALL_BRANCHES } from '../../context/BranchContext'
 import { initials } from '../Students/utils/studentHelpers'
-
-const DEFAULT_BRANCHES = [
-  'Toutes les succursales',
-  'Succursale Nord',
-  'Succursale Sud',
-  'Succursale Centre',
-]
 
 /**
  * Bandeau supérieur commun à toutes les pages.
- * Le filtre succursale est autonome par défaut ; une page peut le piloter
- * en passant `branch` + `onBranchChange` (cf. le dashboard).
+ * Le filtre succursale est global (BranchContext) : sélection persistée en localStorage.
  */
-export default function Header({ branch, onBranchChange, branchOptions = DEFAULT_BRANCHES, notificationCount = 0 }) {
+export default function Header({ notificationCount = 0 }) {
   const navigate = useNavigate()
   const { profile, signOut } = useAuth()
+  const { selectedBranch, setSelectedBranch, branches } = useBranch()
   const [search, setSearch] = useState('')
-  const [ownBranch, setOwnBranch] = useState(branchOptions[0])
-  const selectedBranch = branch ?? ownBranch
 
-  const changeBranch = (next) => {
-    setOwnBranch(next)
-    onBranchChange?.(next)
-  }
+  const branchOptions = useMemo(
+    () => [
+      { value: ALL_BRANCHES, label: 'Toutes les succursales' },
+      ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
+    ],
+    [branches]
+  )
 
   const submitSearch = (event) => {
     event.preventDefault()
@@ -58,7 +53,7 @@ export default function Header({ branch, onBranchChange, branchOptions = DEFAULT
         label="Filtrer par succursale"
         value={selectedBranch}
         options={branchOptions}
-        onChange={changeBranch}
+        onChange={setSelectedBranch}
       />
 
       <Popover

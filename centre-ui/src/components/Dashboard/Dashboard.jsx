@@ -4,6 +4,7 @@ import Icon from '../Icon'
 import Header from '../shared/Header'
 import { MenuSelect } from '../shared/Menu'
 import { useAuth } from '../../context/AuthContext'
+import { useBranch } from '../../context/BranchContext'
 import { supabase } from '../../supabaseClient'
 import { buildDebtors } from '../Accounting/delinquenciesApi'
 import { subscribeFeesCache } from '../Accounting/feesApi'
@@ -221,15 +222,17 @@ function BranchBarChart({ items }) {
 
 export default function Dashboard() {
   const { profile } = useAuth()
+  const { selectedBranch } = useBranch()
   const navigate = useNavigate()
 
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [reload, setReload] = useState(0)
-  const [selectedBranch, setSelectedBranch] = useState('Toutes les succursales')
   const [monthKey, setMonthKey] = useState(() => currentMonthKey())
   const [year, setYear] = useState(schoolYears[1])
+
+  const branchFilter = selectedBranch && selectedBranch !== 'all' ? selectedBranch : null
 
   useEffect(() => {
     let cancelled = false
@@ -237,13 +240,25 @@ export default function Dashboard() {
     const load = async () => {
       setLoading(true)
       setError('')
+
+      let studentsQuery = supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date')
+      let paymentsQuery = supabase.from('student_payments').select('student_id, month, amount, status')
+      let salariesQuery = supabase.from('teacher_salaries').select('teacher_id, month, amount, status')
+      let expensesQuery = supabase.from('expenses').select('id, title, amount, month, branch_id, type')
+      let teachersQuery = supabase.from('teachers').select('id, first_name, last_name, branch_id, status')
+      if (branchFilter) {
+        studentsQuery = studentsQuery.eq('branch_id', branchFilter)
+        expensesQuery = expensesQuery.eq('branch_id', branchFilter)
+        teachersQuery = teachersQuery.eq('branch_id', branchFilter)
+      }
+
       try {
         const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes] = await Promise.all([
-          supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date'),
-          supabase.from('student_payments').select('student_id, month, amount, status'),
-          supabase.from('teacher_salaries').select('teacher_id, month, amount, status'),
-          supabase.from('expenses').select('id, title, amount, month, branch_id, type'),
-          supabase.from('teachers').select('id, first_name, last_name, branch_id, status'),
+          studentsQuery,
+          paymentsQuery,
+          salariesQuery,
+          expensesQuery,
+          teachersQuery,
           supabase.from('branches').select('id, name, status').order('name'),
           supabase.from('cycles').select('id, name'),
           supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
@@ -289,7 +304,7 @@ export default function Dashboard() {
       unsubscribe()
       window.removeEventListener('storage', onStorage)
     }
-  }, [reload])
+  }, [reload, branchFilter])
 
   const students = useMemo(() => data?.students || [], [data])
   const payments = useMemo(() => data?.payments || [], [data])
@@ -298,13 +313,11 @@ export default function Dashboard() {
   const teachers = useMemo(() => data?.teachers || [], [data])
   const branches = useMemo(() => data?.branches || [], [data])
 
-  const branchOptions = useMemo(() => ['Toutes les succursales', ...branches.filter((b) => b.status === 'active').map((b) => b.name)], [branches])
-
   const branchId = useMemo(() => {
-    if (selectedBranch === 'Toutes les succursales') return null
-    const found = branches.find((b) => b.name === selectedBranch)
+    if (!branchFilter) return null
+    const found = branches.find((b) => b.id === branchFilter)
     return found ? found.id : null
-  }, [selectedBranch, branches])
+  }, [branchFilter, branches])
 
   const studentBranch = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s.branch_id])), [students])
   const teacherBranch = useMemo(() => Object.fromEntries(teachers.map((t) => [t.id, t.branch_id])), [teachers])
@@ -534,12 +547,7 @@ export default function Dashboard() {
 
   return (
     <div className="dashboard-main">
-      <Header
-        branch={selectedBranch}
-        onBranchChange={setSelectedBranch}
-        branchOptions={branchOptions}
-        notificationCount={notificationCount}
-      />
+      <Header notificationCount={notificationCount} />
 
       <main className="content">
         {error && (

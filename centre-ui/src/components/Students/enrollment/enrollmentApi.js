@@ -474,11 +474,14 @@ export async function deactivateAllStudents() {
   if (error) throw new Error(error.message)
 }
 
-export async function fetchStudents() {
-  const { data, error } = await supabase
+export async function fetchStudents(branchId = null) {
+  let query = supabase
     .from('students')
     .select('*, branches(name), levels(name, cycle_id, cycles(name)), cycles(name), filieres(name)')
     .order('created_at', { ascending: false })
+  if (branchId && branchId !== 'all') query = query.eq('branch_id', branchId)
+
+  const { data, error } = await query
   if (error) throw new Error(error.message)
 
   const { data: subs, error: subsError } = await supabase

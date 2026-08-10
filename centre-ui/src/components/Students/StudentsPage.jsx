@@ -9,12 +9,14 @@ import AbsenceSheetModal from './modals/AbsenceSheetModal'
 import StudentSheetModal from './modals/StudentSheetModal'
 import EnrollmentPage from './enrollment/EnrollmentPage'
 import { fetchCatalog, fetchStudents, setStudentStatus, deactivateAllStudents } from './enrollment/enrollmentApi'
+import { useBranch } from '../../context/BranchContext'
 
 import './Students.css'
 
 export default function StudentsPage() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { selectedBranch } = useBranch()
   const [items, setItems] = useState([])
   const [catalog, setCatalog] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -31,7 +33,7 @@ export default function StudentsPage() {
   const refresh = async () => {
     setLoading(true)
     try {
-      const [nextCatalog, students] = await Promise.all([fetchCatalog(), fetchStudents()])
+      const [nextCatalog, students] = await Promise.all([fetchCatalog(), fetchStudents(selectedBranch)])
       setCatalog(nextCatalog)
       setItems(students)
     } catch (err) {
@@ -43,7 +45,7 @@ export default function StudentsPage() {
 
   useEffect(() => {
     let active = true
-    Promise.all([fetchCatalog(), fetchStudents()])
+    Promise.all([fetchCatalog(), fetchStudents(selectedBranch)])
       .then(([nextCatalog, students]) => {
         if (!active) return
         setCatalog(nextCatalog)
@@ -59,7 +61,7 @@ export default function StudentsPage() {
     return () => {
       active = false
     }
-  }, [])
+  }, [selectedBranch])
 
   const shownStudents = useMemo(
     () =>

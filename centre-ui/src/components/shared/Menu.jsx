@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Icon from '../Icon'
 
 /** Renvoie la racine à surveiller : referme au clic extérieur et à la touche Échap. */
@@ -46,10 +46,21 @@ export function Popover({ className, label, trigger, children }) {
   )
 }
 
-/** Liste de choix simple (mois, année, succursale…). */
+/** Liste de choix simple (mois, année, succursale…). `options` accepte des chaînes ou des objets `{ value, label }`. */
 export function MenuSelect({ className, icon, value, options, onChange, label }) {
   const [open, setOpen] = useState(false)
   const ref = useOutsideClose(open, setOpen)
+
+  const labelOf = (option) => (option && typeof option === 'object' ? option.label : option)
+  const valueOf = (option) => (option && typeof option === 'object' ? option.value : option)
+
+  const displayValue = useMemo(
+    () => {
+      const matched = options.find((option) => valueOf(option) === value)
+      return matched ? labelOf(matched) : value
+    },
+    [options, value]
+  )
 
   return (
     <div className="menu" ref={ref}>
@@ -62,7 +73,7 @@ export function MenuSelect({ className, icon, value, options, onChange, label })
         onClick={() => setOpen((current) => !current)}
       >
         {icon && <Icon name={icon} />}
-        <span>{value}</span>
+        <span>{displayValue}</span>
         <span className={`menu__caret ${open ? 'is-open' : ''}`} aria-hidden="true">
           <Icon name="chevron-down" />
         </span>
@@ -70,22 +81,26 @@ export function MenuSelect({ className, icon, value, options, onChange, label })
 
       {open && (
         <ul className="menu__list" role="listbox" aria-label={label}>
-          {options.map((option) => (
-            <li key={option}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={option === value}
-                className={option === value ? 'is-selected' : ''}
-                onClick={() => {
-                  onChange(option)
-                  setOpen(false)
-                }}
-              >
-                {option}
-              </button>
-            </li>
-          ))}
+          {options.map((option) => {
+            const optionValue = valueOf(option)
+            const optionLabel = labelOf(option)
+            return (
+              <li key={optionValue}>
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={optionValue === value}
+                  className={optionValue === value ? 'is-selected' : ''}
+                  onClick={() => {
+                    onChange(optionValue)
+                    setOpen(false)
+                  }}
+                >
+                  {optionLabel}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
 import { supabase } from '../../supabaseClient'
+import { useBranch } from '../../context/BranchContext'
 import { academicMonths, currentMonthKey } from './monthUtils'
 import { subscribeFeesCache } from './feesApi'
 import './NetProfitPage.css'
@@ -103,32 +104,55 @@ function ProfitChart({ points }) {
 }
 
 export default function NetProfitPage() {
+  const { selectedBranch } = useBranch()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [reload, setReload] = useState(0)
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey())
 
+  const branchFilter = selectedBranch && selectedBranch !== 'all' ? selectedBranch : null
+
   useEffect(() => {
     let cancelled = false
 
     async function load() {
+      let studentsQuery = supabase.from('students').select('id, branch_id')
+      let expensesQuery = supabase.from('expenses').select('branch_id, month, amount, type')
+      let teachersQuery = supabase.from('teachers').select('id, branch_id')
+      if (branchFilter) {
+        studentsQuery = studentsQuery.eq('branch_id', branchFilter)
+        expensesQuery = expensesQuery.eq('branch_id', branchFilter)
+        teachersQuery = teachersQuery.eq('branch_id', branchFilter)
+      }
       const [paymentsRes, studentsRes, expensesRes, salariesRes, teachersRes, branchesRes] = await Promise.all([
         supabase.from('student_payments').select('student_id, month, amount, status'),
-        supabase.from('students').select('id, branch_id'),
-        supabase.from('expenses').select('branch_id, month, amount, type'),
+        studentsQuery,
+        expensesQuery,
         supabase.from('teacher_salaries').select('teacher_id, month, amount, status'),
-        supabase.from('teachers').select('id, branch_id'),
+        teachersQuery,
         supabase.from('branches').select('id, name, status'),
       ])
       if (cancelled) return
 
+      const studentBranch = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s.branch_id]))
+      const teacherBranch = Object.fromEntries((teachersRes.data || []).map((t) => [t.id, t.branch_id]))
+
+      let paidPayments = (paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status))
+      let manualExpenses = (expensesRes.data || []).filter((e) => e.type === 'Manuel')
+      let validatedSalaries = (salariesRes.data || []).filter((s) => s.status === 'paid' || s.status === 'validated')
+      if (branchFilter) {
+        paidPayments = paidPayments.filter((p) => studentBranch[p.student_id] === branchFilter)
+        manualExpenses = manualExpenses.filter((e) => e.branch_id === branchFilter)
+        validatedSalaries = validatedSalaries.filter((s) => teacherBranch[s.teacher_id] === branchFilter)
+      }
+
       const chartMonths = academicMonths().slice(0, 10).map((m, index) => ({ ...m, label: CHART_LABELS[index] }))
       const payload = {
-        paidPayments: (paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status)),
-        manualExpenses: (expensesRes.data || []).filter((e) => e.type === 'Manuel'),
-        validatedSalaries: (salariesRes.data || []).filter((s) => s.status === 'paid' || s.status === 'validated'),
-        studentBranch: Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s.branch_id])),
-        teacherBranch: Object.fromEntries((teachersRes.data || []).map((t) => [t.id, t.branch_id])),
+        paidPayments,
+        manualExpenses,
+        validatedSalaries,
+        studentBranch,
+        teacherBranch,
         activeBranches: (branchesRes.data || []).filter((b) => b.status === 'active'),
       }
       const points = chartMonths.map((m) => ({ ...m, ...aggregateFrom(payload, m.key) }))
@@ -143,18 +167,20 @@ export default function NetProfitPage() {
     return () => {
       cancelled = true
     }
-  }, [reload])
+  }, [reload, branchFilter])
 
   const current = data ? { key: selectedMonth, ...aggregateFrom(data, selectedMonth) } : null
   const branches = data
-    ? data.activeBranches.map((b) => {
-        const ca = sum(data.paidPayments.filter((p) => data.studentBranch[p.student_id] === b.id && sameMonth(p.month, selectedMonth)), (p) => p.amount)
-        const charges = sum(data.manualExpenses.filter((e) => e.branch_id === b.id && sameMonth(e.month, selectedMonth)), (e) => e.amount)
-        const salaries = sum(data.validatedSalaries.filter((s) => data.teacherBranch[s.teacher_id] === b.id && sameMonth(s.month, selectedMonth)), (s) => s.amount)
-        const net = ca - charges - salaries
-        const margin = ca > 0 ? Math.round((net / ca) * 100) : 0
-        return { id: b.id, name: b.name, ca, charges, salaries, net, margin }
-      })
+    ? data.activeBranches
+        .filter((b) => (branchFilter ? b.id === branchFilter : true))
+        .map((b) => {
+          const ca = sum(data.paidPayments.filter((p) => data.studentBranch[p.student_id] === b.id && sameMonth(p.month, selectedMonth)), (p) => p.amount)
+          const charges = sum(data.manualExpenses.filter((e) => e.branch_id === b.id && sameMonth(e.month, selectedMonth)), (e) => e.amount)
+          const salaries = sum(data.validatedSalaries.filter((s) => data.teacherBranch[s.teacher_id] === b.id && sameMonth(s.month, selectedMonth)), (s) => s.amount)
+          const net = ca - charges - salaries
+          const margin = ca > 0 ? Math.round((net / ca) * 100) : 0
+          return { id: b.id, name: b.name, ca, charges, salaries, net, margin }
+        })
     : []
 
   useEffect(() => {

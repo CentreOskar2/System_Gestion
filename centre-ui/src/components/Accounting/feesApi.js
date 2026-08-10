@@ -62,14 +62,17 @@ export function studentLineItems(student, catalog) {
   return student.chosen.map((name) => ({ name, amount: priceFor(catalog, student, name) }))
 }
 
-export async function fetchFeesData() {
+export async function fetchFeesData(branchId = null) {
   const catalog = await fetchCatalog()
 
+  let studentsQuery = supabase
+    .from('students')
+    .select('id, first_name, last_name, registration_number, registration_date, phone1, phone2, status, level_id, cycle_id, du_mois, branch_id, levels(name, cycle_id, cycles(name)), filieres(name)')
+    .order('created_at', { ascending: false })
+  if (branchId && branchId !== 'all') studentsQuery = studentsQuery.eq('branch_id', branchId)
+
   const [studentsRes, subsRes, paymentsRes] = await Promise.all([
-    supabase
-      .from('students')
-      .select('id, first_name, last_name, registration_number, registration_date, phone1, phone2, status, level_id, cycle_id, du_mois, levels(name, cycle_id, cycles(name)), filieres(name)')
-      .order('created_at', { ascending: false }),
+    studentsQuery,
     supabase
       .from('student_subscriptions')
       .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, subjects(name), teachers(first_name,last_name), groups(name)'),
