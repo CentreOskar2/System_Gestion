@@ -21,6 +21,7 @@ export default function GroupsTable({ groups, onEdit, onToggleStatus }) {
             <tr key={group.id}>
               <td>
                 <strong>{group.name}</strong>
+                {group.schedule && <small className="group-schedule">{group.schedule}</small>}
               </td>
               <td>
                 <span className="group-subject">{group.subject}</span>
@@ -29,7 +30,7 @@ export default function GroupsTable({ groups, onEdit, onToggleStatus }) {
               <td>{group.teacher}</td>
               <td>{group.branch}</td>
               <td>
-                <span className="group-count">♧ {group.studentIds.length}</span>
+                <span className="group-count"><Icon name="users" /> {group.studentIds.length}</span>
               </td>
               <td>
                 <span className={`group-status ${group.active ? 'active' : ''}`}>

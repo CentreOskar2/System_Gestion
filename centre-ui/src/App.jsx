@@ -50,6 +50,7 @@ const sidebarSections = [
 
 const metrics = [
   {
+    id: 'revenue',
     title: 'CA du mois',
     value: '23 100 DH',
     note: '16 700 DH encaissé · 6 400 DH dû',
@@ -86,7 +87,22 @@ const metrics = [
   },
 ]
 
-const revenueSeries = [23000, 23500, 24600, 23900, 23200, 23100]
+// Chiffre d'affaires par mois de l'année scolaire (encaissé = déjà payé, le reste est dû).
+const monthlySeries = [
+  { month: 'Septembre', revenue: 23000, collected: 17300 },
+  { month: 'Octobre', revenue: 23500, collected: 18100 },
+  { month: 'Novembre', revenue: 24600, collected: 19400 },
+  { month: 'Décembre', revenue: 23900, collected: 18200 },
+  { month: 'Janvier', revenue: 23200, collected: 17500 },
+  { month: 'Février', revenue: 23100, collected: 16700 },
+  { month: 'Mars', revenue: 24200, collected: 18600 },
+  { month: 'Avril', revenue: 24800, collected: 19100 },
+  { month: 'Mai', revenue: 25100, collected: 19800 },
+  { month: 'Juin', revenue: 22400, collected: 21000 },
+]
+
+const schoolYears = ['2024-2025', '2025-2026', '2026-2027']
+
 const branches = [
   { name: 'Nord', revenue: 6800, profit: -22000 },
   { name: 'Sud', revenue: 6200, profit: -15500 },
@@ -94,11 +110,15 @@ const branches = [
 ]
 
 function DashboardLayout() {
+  const dashboard = (
+    <Dashboard metrics={metrics} monthlySeries={monthlySeries} schoolYears={schoolYears} branches={branches} />
+  )
+
   return (
     <div className="dashboard-shell">
       <Sidebar sections={sidebarSections} />
       <Routes>
-        <Route path="/dashboard" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+        <Route path="/dashboard" element={dashboard} />
         <Route path="/branches" element={<Branches />} />
         <Route path="/users" element={<Users />} />
         <Route path="/teachers" element={<Teachers />} />
@@ -110,7 +130,7 @@ function DashboardLayout() {
         <Route path="/accounting/expenses" element={<ExpensesPage />} />
         <Route path="/accounting/profit" element={<ProfitPage />} />
         <Route path="/settings" element={<Settings />} />
-        <Route path="*" element={<Dashboard metrics={metrics} revenueSeries={revenueSeries} branches={branches} />} />
+        <Route path="*" element={dashboard} />
       </Routes>
     </div>
   )

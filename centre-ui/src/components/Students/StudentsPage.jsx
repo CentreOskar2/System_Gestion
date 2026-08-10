@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import Header from '../shared/Header'
 import StudentsToolbar from './StudentsToolbar'
 import StudentsFilters from './StudentsFilters'
@@ -12,8 +13,10 @@ import { students as initialStudents, levelsByCycle, subjects } from './data/moc
 import './Students.css'
 
 export default function StudentsPage() {
+  // Le dashboard peut arriver ici avec une recherche pré-remplie ou le formulaire d'inscription ouvert.
+  const { state } = useLocation()
   const [items, setItems] = useState(initialStudents)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(state?.query || '')
   const [activeCycle, setActiveCycle] = useState('Tous')
   const [activeLevel, setActiveLevel] = useState('Tous')
   const [activeSubject, setActiveSubject] = useState('Tous')
@@ -21,7 +24,7 @@ export default function StudentsPage() {
   const [absenceSheetOpen, setAbsenceSheetOpen] = useState(false)
   const [sheetStudent, setSheetStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
-  const [isEnrolling, setIsEnrolling] = useState(false)
+  const [isEnrolling, setIsEnrolling] = useState(Boolean(state?.enroll))
 
   const shownStudents = useMemo(
     () =>

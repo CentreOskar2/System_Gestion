@@ -14,6 +14,29 @@ export default function Icon({ name }) {
           <path d="m6 9 6 6 6-6" {...common} />
         </svg>
       )
+    case 'printer':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M7 8.5V4h10v4.5" {...common} />
+          <rect x="3.5" y="8.5" width="17" height="8" rx="1.8" {...common} />
+          <path d="M7 14h10v5.5H7Z" {...common} />
+        </svg>
+      )
+    case 'ban':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.3" {...common} />
+          <path d="m6.4 6.4 11.2 11.2" {...common} />
+        </svg>
+      )
+    case 'user-plus':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14.5 19c0-2.2-2-4-5-4s-5 1.8-5 4" {...common} />
+          <circle cx="9.5" cy="8" r="3.2" {...common} />
+          <path d="M18.5 7.5v6M15.5 10.5h6" {...common} />
+        </svg>
+      )
     case 'grid':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">
