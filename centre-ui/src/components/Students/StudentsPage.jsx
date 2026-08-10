@@ -142,8 +142,15 @@ export default function StudentsPage() {
     setEditingStudent(student)
   }
 
+  const sanitizeRedirect = (path) => {
+    if (typeof path !== 'string' || !path) return '/students'
+    if (!path.startsWith('/') || path.startsWith('//')) return '/students'
+    if (/^(https?:|javascript:|data:)/i.test(path)) return '/students'
+    return path
+  }
+
   useEffect(() => {
-    if (location.state?.quick) navigate(location.pathname, { replace: true, state: null })
+    if (location.state?.quick) navigate(sanitizeRedirect(location.pathname), { replace: true, state: null })
   }, [location, navigate])
 
   if (isEnrolling) {
