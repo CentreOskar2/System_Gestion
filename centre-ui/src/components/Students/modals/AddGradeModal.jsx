@@ -1,22 +1,68 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Icon from '../../Icon'
-import { subjects } from '../data/mockStudents'
+import { supabase } from '../../../supabaseClient'
 
-export default function AddGradeModal({ close, add }) {
+export default function AddGradeModal({ student, onSaved, close }) {
+  const [subjectOptions, setSubjectOptions] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [grade, setGrade] = useState({
-    subject: '',
+    subjectId: '',
     value: '',
     exam: '',
     session: 'S1',
-    date: '2026-07-29',
+    date: new Date().toISOString().slice(0, 10),
   })
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('student_subscriptions')
+      .select('subject_id, subjects(name)')
+      .eq('student_id', student.id)
+      .then(({ data, error: fetchError }) => {
+        if (cancelled) return
+        if (fetchError) {
+          console.error(fetchError)
+          setError(fetchError.message)
+          setSubjectOptions([])
+          return
+        }
+        const seen = new Map()
+        for (const sub of data || []) {
+          if (!sub.subject_id || !sub.subjects?.name) continue
+          if (!seen.has(sub.subject_id)) seen.set(sub.subject_id, sub.subjects.name)
+        }
+        setSubjectOptions([...seen.entries()].map(([id, name]) => ({ id, name })))
+      })
+    return () => { cancelled = true }
+  }, [student.id])
 
   const stopPropagation = (e) => e.stopPropagation()
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    add(grade)
-    close()
+    if (saving) return
+    setSaving(true)
+    setError('')
+    try {
+      const { error: saveError } = await supabase.from('student_grades').insert({
+        student_id: student.id,
+        subject_id: grade.subjectId,
+        value: Number(grade.value),
+        exam: grade.exam || null,
+        session: grade.session,
+        grade_date: grade.date || null,
+      })
+      if (saveError) throw new Error(saveError.message)
+      onSaved?.()
+      close()
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -31,14 +77,26 @@ export default function AddGradeModal({ close, add }) {
             Matière *
             <select
               required
-              value={grade.subject}
-              onChange={(e) => setGrade({ ...grade, subject: e.target.value })}
+              value={grade.subjectId}
+              onChange={(e) => setGrade({ ...grade, subjectId: e.target.value })}
+              disabled={subjectOptions === null}
             >
-              <option value="">—</option>
-              {subjects.map((subject) => (
-                <option key={subject}>{subject}</option>
-              ))}
+              {subjectOptions === null ? (
+                <option>Chargement des matières...</option>
+              ) : (
+                <>
+                  <option value="">—</option>
+                  {subjectOptions.map((subject) => (
+                    <option key={subject.id} value={subject.id}>{subject.name}</option>
+                  ))}
+                </>
+              )}
             </select>
+            {subjectOptions && subjectOptions.length === 0 && (
+              <small style={{ color: '#b45309' }}>
+                Aucune matière inscrite pour cet élève.
+              </small>
+            )}
           </label>
           <label>
             Note (sur 20) *
@@ -47,6 +105,7 @@ export default function AddGradeModal({ close, add }) {
               type="number"
               min="0"
               max="20"
+              step="0.25"
               value={grade.value}
               onChange={(e) => setGrade({ ...grade, value: e.target.value })}
             />
@@ -78,11 +137,14 @@ export default function AddGradeModal({ close, add }) {
               onChange={(e) => setGrade({ ...grade, date: e.target.value })}
             />
           </label>
+          {error && <p className="sheet-empty" style={{ color: '#c0392b' }}>{error}</p>}
           <footer>
-            <button type="button" onClick={close}>
+            <button type="button" onClick={close} disabled={saving}>
               Annuler
             </button>
-            <button>Ajouter</button>
+            <button disabled={saving || subjectOptions === null}>
+              {saving ? 'Enregistrement…' : 'Ajouter'}
+            </button>
           </footer>
         </form>
       </section>

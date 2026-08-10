@@ -5,6 +5,7 @@ import { supabase } from '../../../supabaseClient'
 import { academicMonths } from '../../Accounting/monthUtils'
 import { exportToPdf, safeFilename } from '../../../utils/exportToPdf'
 import { waPhoneNumber } from '../../Accounting/delinquenciesApi'
+import AddGradeModal from './AddGradeModal'
 
 const formatAmount = (value) => `${Number(value || 0).toLocaleString('fr-FR')} DH`
 
@@ -31,6 +32,8 @@ const labelOf = (type) => EVENT_META.find((meta) => meta.id === type)?.label || 
 export default function StudentSheetModal({ student, close }) {
   const [subscriptions, setSubscriptions] = useState(null)
   const [payments, setPayments] = useState(null)
+  const [grades, setGrades] = useState(null)
+  const [gradeModalOpen, setGradeModalOpen] = useState(false)
   const [selectedMonth, setSelectedMonth] = useState('all')
   const [events, setEvents] = useState(null)
   const [exporting, setExporting] = useState(false)
@@ -39,7 +42,7 @@ export default function StudentSheetModal({ student, close }) {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [subsRes, paymentsRes] = await Promise.all([
+      const [subsRes, paymentsRes, gradesRes] = await Promise.all([
         supabase
           .from('student_subscriptions')
           .select('subject_id, group_id, teacher_id, pricing_type, monthly_price, subjects(name), groups(name)')
@@ -48,10 +51,16 @@ export default function StudentSheetModal({ student, close }) {
           .from('student_payments')
           .select('month, amount')
           .eq('student_id', student.id),
+        supabase
+          .from('student_grades')
+          .select('id, value, exam, session, grade_date, subjects(name)')
+          .eq('student_id', student.id)
+          .order('grade_date', { ascending: false }),
       ])
       if (cancelled) return
       setSubscriptions(subsRes.data || [])
       setPayments(paymentsRes.data || [])
+      setGrades(gradesRes.data || [])
     }
     load()
     return () => { cancelled = true }
@@ -123,6 +132,15 @@ export default function StudentSheetModal({ student, close }) {
     window.open(`https://wa.me/${number}`, '_blank', 'noopener,noreferrer')
   }
 
+  const refreshGrades = async () => {
+    const { data } = await supabase
+      .from('student_grades')
+      .select('id, value, exam, session, grade_date, subjects(name)')
+      .eq('student_id', student.id)
+      .order('grade_date', { ascending: false })
+    setGrades(data || [])
+  }
+
   return (
     <div className="student-overlay sheet-overlay" onMouseDown={close}>
       <section className="student-sheet" onMouseDown={stopPropagation}>
@@ -151,7 +169,7 @@ export default function StudentSheetModal({ student, close }) {
           </section>
           <div className="sheet-contact">
             <button className="sheet-download" onClick={downloadPdf} disabled={exporting}>
-              {exporting ? 'Génération du PDF…' : '⬇ &nbsp; Télécharger Fiche Élève PDF'}
+              {exporting ? 'Génération du PDF…' : 'Télécharger Fiche Élève PDF'}
             </button>
             <button>⌕ &nbsp; Appeler</button>
             <button onClick={openWhatsApp}>◯ &nbsp; WhatsApp</button>
@@ -215,8 +233,30 @@ export default function StudentSheetModal({ student, close }) {
           <section className="grades">
             <header>
               <h3>Notes scolaires</h3>
+              <button onClick={() => setGradeModalOpen(true)}>+ Ajouter une note</button>
             </header>
-            <p className="sheet-empty">Aucune donnée enregistrée.</p>
+            {grades === null ? (
+              <p className="sheet-empty">Chargement des notes...</p>
+            ) : grades.length === 0 ? (
+              <p className="sheet-empty">Aucune note enregistrée.</p>
+            ) : (
+              <table>
+                <thead>
+                  <tr><th>Matière</th><th>Note /20</th><th>N° examen</th><th>Session</th><th>Date</th></tr>
+                </thead>
+                <tbody>
+                  {grades.map((grade) => (
+                    <tr key={grade.id}>
+                      <td>{grade.subjects?.name || '—'}</td>
+                      <td><span>{Number(grade.value)}</span></td>
+                      <td>{grade.exam || '—'}</td>
+                      <td>{grade.session}</td>
+                      <td>{formatDate(grade.grade_date)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </section>
           <section className="enrolled-subjects">
             <h3>Matières inscrites</h3>
@@ -238,6 +278,14 @@ export default function StudentSheetModal({ student, close }) {
           </section>
         </main>
       </section>
+
+      {gradeModalOpen && (
+        <AddGradeModal
+          student={student}
+          onSaved={refreshGrades}
+          close={() => setGradeModalOpen(false)}
+        />
+      )}
 
       <div className="sheet-pdf-wrap" aria-hidden="true">
         <div className="sheet-pdf-report" ref={pdfRef}>
@@ -295,6 +343,34 @@ export default function StudentSheetModal({ student, close }) {
                         <td>{sub.subjects?.name || 'Matière inconnue'}</td>
                         <td>{sub.groups?.name || 'Non assigné'}</td>
                         <td>{formatAmount(sub.monthly_price)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          <section className="pdf-section">
+            <h3>Notes scolaires</h3>
+            {grades === null ? (
+              <p className="pdf-empty">Chargement des notes...</p>
+            ) : grades.length === 0 ? (
+              <p className="pdf-empty">Aucune note enregistrée</p>
+            ) : (
+              <div className="pdf-grades">
+                <table>
+                  <thead>
+                    <tr><th>Matière</th><th>Note (/20)</th><th>N° Examen</th><th>Session</th><th>Date</th></tr>
+                  </thead>
+                  <tbody>
+                    {grades.map((grade) => (
+                      <tr key={grade.id}>
+                        <td>{grade.subjects?.name || '—'}</td>
+                        <td>{Number(grade.value)}</td>
+                        <td>{grade.exam || '—'}</td>
+                        <td>{grade.session}</td>
+                        <td>{formatDate(grade.grade_date)}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -1,3 +1,1 @@
--> general icon whtsap
 -> notes in students
--> dashboard traiter par (Sucursal)
