@@ -208,28 +208,12 @@ export default function Icon({ name }) {
             <path d="M12 7.5V12l3 2" {...common} />
           </svg>
         )
-     case 'printer':
-        return (
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M7 8V4h10v4" {...common} />
-            <rect x="5" y="8" width="14" height="8" rx="1.6" {...common} />
-            <path d="M7 14h10v6H7z" {...common} />
-          </svg>
-        )
      case 'clipboard':
         return (
           <svg viewBox="0 0 24 24" aria-hidden="true">
             <rect x="5" y="5" width="14" height="16" rx="2" {...common} />
             <path d="M9 5a3 3 0 0 1 6 0" {...common} />
             <path d="M9 12h6M9 16h4" {...common} />
-          </svg>
-        )
-     case 'user-plus':
-        return (
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M16 19c0-2.2-2-4-4-4s-4 1.8-4 4" {...common} />
-            <circle cx="12" cy="8" r="3.2" {...common} />
-            <path d="M19 8v5M21.5 10.5h-5" {...common} />
           </svg>
         )
      case 'coin':

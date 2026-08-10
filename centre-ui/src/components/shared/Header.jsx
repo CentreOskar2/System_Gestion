@@ -17,7 +17,7 @@ const DEFAULT_BRANCHES = [
  * Le filtre succursale est autonome par défaut ; une page peut le piloter
  * en passant `branch` + `onBranchChange` (cf. le dashboard).
  */
-export default function Header({ branch, onBranchChange, branchOptions = DEFAULT_BRANCHES }) {
+export default function Header({ branch, onBranchChange, branchOptions = DEFAULT_BRANCHES, notificationCount = 0 }) {
   const navigate = useNavigate()
   const { profile, signOut } = useAuth()
   const [search, setSearch] = useState('')
@@ -67,6 +67,11 @@ export default function Header({ branch, onBranchChange, branchOptions = DEFAULT
         trigger={
           <>
             <Icon name="bell" />
+            {notificationCount > 0 && (
+              <span className="notifications__badge" title={`${notificationCount} paiement(s) en retard`}>
+                {notificationCount > 99 ? '99+' : notificationCount}
+              </span>
+            )}
           </>
         }
       >

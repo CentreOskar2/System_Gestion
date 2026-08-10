@@ -5,32 +5,18 @@ import Header from '../shared/Header'
 import { MenuSelect } from '../shared/Menu'
 import { useAuth } from '../../context/AuthContext'
 import { supabase } from '../../supabaseClient'
-import { fetchFeesData } from '../Accounting/feesApi'
-import { buildDebtors, buildReminderMessage, whatsappLink } from '../Accounting/delinquenciesApi'
-import { academicMonths, academicYearStart, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
-import { initials } from '../Students/utils/studentHelpers'
+import { buildDebtors } from '../Accounting/delinquenciesApi'
+import { subscribeFeesCache } from '../Accounting/feesApi'
+import { academicYearStart, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
 import './Dashboard.css'
 
-const SUBJECT_PRICE = 500
-
 const MONTHS_SHORT = ['Sept', 'Oct', 'Nov', 'Déc', 'Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
-
-const EVENT_META = {
-  absence: { label: 'Absence', ar: 'غياب', color: '#ef4444', tone: 'red', icon: 'clock' },
-  retard: { label: 'Retard', ar: 'تأخر', color: '#f59e0b', tone: 'amber', icon: 'clock' },
-  betise: { label: 'Bêtise', ar: 'سلوك', color: '#a855f7', tone: 'violet', icon: 'flame' },
-  cahier: { label: 'Cahier non fait', ar: 'الكراس غير محضر', color: '#8b5cf6', tone: 'violet', icon: 'clipboard' },
-  exercice: { label: 'Exercice non fait', ar: 'تمرين غير منجز', color: '#06b6d4', tone: 'cyan', icon: 'clipboard' },
-}
-
-const DISCIPLINE_SERIES = [
-  { key: 'absence', label: 'Absences', color: '#ef4444' },
-  { key: 'retard', label: 'Retards', color: '#f59e0b' },
-  { key: 'discipline', label: 'Discipline', color: '#a855f7' },
-  { key: 'exercice', label: 'Exercices', color: '#06b6d4' },
+const MONTH_NAMES = [
+  'Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin',
+  'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre',
 ]
-
-const CYCLE_COLORS = ['#3b63f0', '#22c55e', '#f59e0b', '#a855f7', '#06b6d4', '#ef4444', '#64748b']
+const PAID_STATUSES = ['paid', 'validated', 'validé']
+const EVOLUTION_MONTHS = 6
 
 const schoolYears = [
   `${academicYearStart() - 1}-${academicYearStart()}`,
@@ -38,711 +24,561 @@ const schoolYears = [
   `${academicYearStart() + 1}-${academicYearStart() + 2}`,
 ]
 
-const todayISO = () => {
-  const now = new Date()
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+const monthKeyOf = (value) => {
+  const match = /^(\d{4})-(\d{2})/.exec(String(value || ''))
+  return match ? `${match[1]}-${match[2]}-01` : String(value || '')
 }
 
-const formatDate = (value) => {
-  const [year, month, day] = String(value || '').split('-')
-  return year && month && day ? `${day}/${month}/${year}` : String(value || '')
+const monthsForYear = (startYear) => {
+  const months = []
+  for (let i = 0; i < 12; i += 1) {
+    const monthNum = ((i + 8) % 12) + 1
+    const year = startYear + (i >= 4 ? 1 : 0)
+    months.push({
+      key: `${year}-${String(monthNum).padStart(2, '0')}-01`,
+      label: `${MONTH_NAMES[monthNum - 1]} ${year}`,
+      short: MONTHS_SHORT[i],
+    })
+  }
+  return months
 }
+
+const isPaid = (p) => p.status && p.status !== 'unpaid'
 
 const fmtDH = (value) => `${Math.round(Number(value) || 0).toLocaleString('fr-FR')} DH`
+const signedDH = (value) => `${Number(value) < 0 ? '−' : ''}${fmtDH(Math.abs(value))}`
 
-const shortMonth = (month) => String(month || '').slice(0, 4)
+const sum = (items, pick) => items.reduce((total, item) => total + (Number(pick(item)) || 0), 0)
 
-const shortMonthLabel = (key) => {
-  const match = /^(\d{4})-(\d{2})/.exec(String(key || ''))
-  if (!match) return String(key || '')
-  return `${MONTHS_SHORT[Number(match[2]) - 1]} ${String(match[1]).slice(2)}`
+function niceStep(rough) {
+  if (!rough || rough <= 0) return 1
+  const pow = 10 ** Math.floor(Math.log10(rough))
+  const n = rough / pow
+  const factor = n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10
+  return factor * pow
 }
 
-const timeAgo = (value) => {
-  if (!value) return ''
-  const diff = Date.now() - new Date(value).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return "à l'instant"
-  if (mins < 60) return `il y a ${mins} min`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `il y a ${hours} h`
-  const days = Math.floor(hours / 24)
-  if (days < 7) return `il y a ${days} j`
-  return new Date(value).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+/** Courbe lissée (Catmull-Rom convertie en courbes de Bézier). */
+function smoothPath(points) {
+  if (!points.length) return ''
+  let d = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const p0 = points[Math.max(0, i - 1)]
+    const p1 = points[i]
+    const p2 = points[i + 1]
+    const p3 = points[Math.min(points.length - 1, i + 2)]
+    const c1x = p1.x + (p2.x - p0.x) / 6
+    const c1y = p1.y + (p2.y - p0.y) / 6
+    const c2x = p2.x - (p3.x - p1.x) / 6
+    const c2y = p2.y - (p3.y - p1.y) / 6
+    d += ` C ${c1x.toFixed(2)} ${c1y.toFixed(2)}, ${c2x.toFixed(2)} ${c2y.toFixed(2)}, ${p2.x.toFixed(2)} ${p2.y.toFixed(2)}`
+  }
+  return d
 }
 
-function computeSalary(paymentType, fixedSalary, remunerationAmount, cycleRates, groups) {
-  if (paymentType === 'fixe') {
-    return Number(fixedSalary) || Number(remunerationAmount) || 0
-  }
-  let total = 0
-  for (const group of groups) {
-    const rate = cycleRates?.[group.cycleId] || 0
-    total += group.studentsCount * SUBJECT_PRICE * (rate / 100)
-  }
-  return Math.round(total)
-}
-
-function buildSalaryTeachers(rows, studentMap) {
-  const cycleMap = Object.fromEntries((rows.cycles.data || []).map((c) => [c.id, c.name]))
-  const levelMap = Object.fromEntries((rows.levels.data || []).map((l) => [l.id, l.name]))
-  const levelById = Object.fromEntries((rows.levels.data || []).map((l) => [l.id, l]))
-  const branchMap = Object.fromEntries((rows.branches.data || []).map((b) => [b.id, b.name]))
-  const subjectMap = Object.fromEntries((rows.subjects.data || []).map((s) => [s.id, s.name]))
-  const groupById = Object.fromEntries((rows.groups.data || []).map((g) => [g.id, g]))
-
-  const groupIdsByTeacher = {}
-  for (const row of rows.tgs.data || []) {
-    if (!groupIdsByTeacher[row.teacher_id]) groupIdsByTeacher[row.teacher_id] = []
-    if (!groupIdsByTeacher[row.teacher_id].includes(row.group_id)) {
-      groupIdsByTeacher[row.teacher_id].push(row.group_id)
-    }
-  }
-  const studentsByGroup = {}
-  for (const row of rows.gs.data || []) {
-    if (!studentsByGroup[row.group_id]) studentsByGroup[row.group_id] = []
-    if (studentMap[row.student_id]) studentsByGroup[row.group_id].push(studentMap[row.student_id])
-  }
-
-  return (rows.teachers.data || []).map((t) => {
-    const groups = (groupIdsByTeacher[t.id] || [])
-      .map((groupId) => {
-        const group = groupById[groupId]
-        if (!group) return null
-        const cycleId = levelById[group.level_id]?.cycle_id
-        const rate = t.remuneration_type === 'pourcentage' ? Number(t.cycle_rates?.[cycleId] ?? 0) : 0
-        const students = studentsByGroup[groupId] || []
-        return {
-          id: group.id,
-          name: group.name,
-          subject: subjectMap[group.subject_id] || '—',
-          level: levelMap[group.level_id] || '—',
-          branch: branchMap[group.branch_id] || '—',
-          cycleId,
-          rate,
-          students,
-          studentsCount: students.length,
-        }
-      })
-      .filter(Boolean)
-    return {
-      id: t.id,
-      name: `${t.first_name} ${t.last_name}`.trim(),
-      paymentType: t.remuneration_type,
-      type: t.remuneration_type === 'fixe' ? 'Fixe' : 'Pourcentage',
-      cycles: (t.cycle_ids || []).map((id) => cycleMap[id]).filter(Boolean),
-      amount: computeSalary(
-        t.remuneration_type,
-        t.fixed_salary,
-        t.remuneration_amount,
-        t.cycle_rates || {},
-        groups
-      ),
-      groups,
-    }
-  })
-}
-
-function StatCard({ title, value, note, tone, icon }) {
+function StatCard({ title, value, note, tone, icon, negative }) {
   return (
     <article className={`stat-card tone-${tone}`}>
       <div className="stat-card__header">
         <span>{title}</span>
         <span className="stat-card__badge" aria-hidden="true"><Icon name={icon} /></span>
       </div>
-      <strong>{value}</strong>
-      <p>{note}</p>
+      <strong className={negative ? 'db-kpi-value db-kpi-value--negative' : 'db-kpi-value'}>{value}</strong>
+      <p className="db-kpi-note">{note}</p>
     </article>
   )
 }
 
-/** Courbe lissée (Catmull-Rom convertie en courbes de Bézier). */
-function buildCurve(pts) {
-  let d = ''
-  for (let i = 0; i < pts.length - 1; i += 1) {
-    const p0 = pts[i - 1] || pts[i]
-    const p1 = pts[i]
-    const p2 = pts[i + 1]
-    const p3 = pts[i + 2] || p2
-    const c1x = p1.x + (p2.x - p0.x) / 6
-    const c1y = p1.y + (p2.y - p0.y) / 6
-    const c2x = p2.x - (p3.x - p1.x) / 6
-    const c2y = p2.y - (p3.y - p1.y) / 6
-    d += ` C ${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`
-  }
-  return d
-}
+function RevenueLineChart({ series }) {
+  const W = 760
+  const H = 280
+  const L = 58
+  const R = W - 24
+  const T = 18
+  const B = H - 36
 
-function LineChart({ series }) {
-  const LEFT = 62
-  const RIGHT = 746
-  const TOP = 12
-  const BOTTOM = 256
-
-  const n = series.length
-  if (n === 0) return null
-
-  const maxValue = Math.max(1, ...series.map((s) => Number(s.revenue) || 0))
-  const step = Math.max(500, Math.ceil(maxValue / 4 / 500) * 500)
+  const values = series.map((entry) => Number(entry.value) || 0)
+  const step = niceStep(Math.max(1, ...values) / 4)
   const MAX = step * 4
-  const TICKS = [0, step, step * 2, step * 3, step * 4]
+  const ticks = [0, 1, 2, 3, 4].map((index) => step * index)
 
-  const yFor = (value) => BOTTOM - (value / MAX) * (BOTTOM - TOP)
-  const xFor = (index) => (n === 1 ? (LEFT + RIGHT) / 2 : LEFT + (index / (n - 1)) * (RIGHT - LEFT))
+  const yFor = (value) => B - (value / MAX) * (B - T)
+  const xFor = (index) => (series.length === 1 ? (L + R) / 2 : L + (index / (series.length - 1)) * (R - L))
 
-  const pts = series.map((entry, index) => ({
-    x: xFor(index),
-    y: yFor(Number(entry.revenue) || 0),
-    entry,
-  }))
-  const lineD = `M ${pts[0].x},${pts[0].y}${buildCurve(pts)}`
+  const points = series.map((entry, index) => ({ ...entry, x: xFor(index), y: yFor(values[index]) }))
+  const lineD = smoothPath(points)
+  const last = points[points.length - 1]
+  const first = points[0]
+  const areaD = `${lineD} L ${last.x.toFixed(2)} ${B} L ${first.x.toFixed(2)} ${B} Z`
 
   return (
-    <svg
-      className="chart-svg"
-      viewBox="0 0 760 300"
-      role="img"
-      aria-label="Évolution du chiffre d'affaires"
-    >
-      {TICKS.map((tick) => (
+    <svg className="chart-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Évolution du chiffre d'affaires">
+      <defs>
+        <linearGradient id="dbAreaGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#3b63f0" stopOpacity="0.22" />
+          <stop offset="100%" stopColor="#3b63f0" stopOpacity="0.02" />
+        </linearGradient>
+      </defs>
+
+      {ticks.map((tick) => (
         <g key={tick}>
-          <line className="chart-grid" x1={LEFT} x2={RIGHT} y1={yFor(tick)} y2={yFor(tick)} />
-          <text className="chart-tick" x={LEFT - 12} y={yFor(tick)} textAnchor="end" dominantBaseline="middle">
+          <line className="chart-grid" x1={L} x2={R} y1={yFor(tick)} y2={yFor(tick)} />
+          <text className="chart-tick" x={L - 10} y={yFor(tick)} textAnchor="end" dominantBaseline="middle">
             {tick.toLocaleString('fr-FR')}
           </text>
         </g>
       ))}
+      <line className="chart-axis" x1={L} x2={R} y1={B} y2={B} />
 
-      <line className="chart-axis" x1={LEFT} x2={LEFT} y1={TOP} y2={BOTTOM} />
-      <line className="chart-axis" x1={LEFT} x2={RIGHT} y1={BOTTOM} y2={BOTTOM} />
-
+      <path d={areaD} fill="url(#dbAreaGradient)" />
       <path className="chart-line" d={lineD} />
 
-      {pts.map((point) => (
-        <circle key={point.entry.month} className="chart-hit" cx={point.x} cy={point.y} r="12">
-          <title>{`${point.entry.month} — ${fmtDH(point.entry.revenue)}`}</title>
-        </circle>
+      {points.map((point) => (
+        <g key={point.key}>
+          <circle className="db-chart-dot" cx={point.x} cy={point.y} r="4" />
+          <circle className="chart-hit" cx={point.x} cy={point.y} r="15">
+            <title>{`${point.label} — ${fmtDH(point.value)}`}</title>
+          </circle>
+        </g>
       ))}
 
-      {pts.map((point) => (
-        <text
-          key={point.entry.month}
-          className="chart-label"
-          x={point.x}
-          y={BOTTOM + 24}
-          textAnchor="middle"
-        >
-          {shortMonth(point.entry.month)}
+      {points.map((point) => (
+        <text key={`label-${point.key}`} className="chart-label" x={point.x} y={B + 22} textAnchor="middle">
+          {point.label}
         </text>
       ))}
     </svg>
   )
 }
 
-function GroupedBarChart({ months, incomeByMonth, salariesByMonth }) {
-  const max = Math.max(
-    1,
-    ...months.map((key) => Math.max(incomeByMonth[key] || 0, salariesByMonth[key] || 0))
-  )
+function BranchBarChart({ items }) {
+  const W = 400
+  const H = 250
+  const L = 42
+  const R = W - 12
+  const T = 20
+  const B = H - 42
+
+  if (!items.length) {
+    return <div className="db-empty">Aucune donnée de rentabilité pour ce mois.</div>
+  }
+
+  const maxAbs = Math.max(1, ...items.flatMap((item) => [Math.abs(item.revenue), Math.abs(item.net)]))
+  const scale = (B - T) / (2 * maxAbs)
+  const zeroY = (T + B) / 2
+  const slotW = (R - L) / items.length
+  const barW = Math.max(6, Math.min(30, slotW * 0.28))
+
+  const shortName = (name) => {
+    const cleaned = String(name).replace(/^Center\s+/i, '')
+    return cleaned.length > 13 ? `${cleaned.slice(0, 12)}…` : cleaned
+  }
+
   return (
-    <div className="dchart dchart--grouped">
-      <div className="dchart__plot">
-        {months.map((key) => {
-          const income = incomeByMonth[key] || 0
-          const salaries = salariesByMonth[key] || 0
+    <div className="db-bars-wrap">
+      <svg className="chart-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Rentabilité par succursale">
+        <line className="chart-axis" x1={L} x2={R} y1={zeroY} y2={zeroY} />
+        {items.map((item, index) => {
+          const cx = L + slotW * index + slotW / 2
+          const revenueH = item.revenue * scale
+          const netH = item.net * scale
+          const revenueY = zeroY - revenueH
+          const netY = zeroY - netH
           return (
-            <div className="dchart__col" key={key}>
-              <div className="dchart__bars">
-                <div
-                  className="dbar dbar--income"
-                  style={{ height: `${Math.round((income / max) * 100)}%` }}
-                  data-val={income ? fmtDH(income).replace(' DH', '') : ''}
-                  title={`${shortMonthLabel(key)} — Encaissé ${fmtDH(income)}`}
-                />
-                <div
-                  className="dbar dbar--salary"
-                  style={{ height: `${Math.round((salaries / max) * 100)}%` }}
-                  data-val={salaries ? fmtDH(salaries).replace(' DH', '') : ''}
-                  title={`${shortMonthLabel(key)} — Salaires ${fmtDH(salaries)}`}
-                />
-              </div>
-              <span className="dchart__tick">{shortMonthLabel(key)}</span>
-            </div>
+            <g key={item.id}>
+              <rect
+                className="db-bar db-bar--revenue"
+                x={cx - barW - 2}
+                y={Math.min(revenueY, zeroY)}
+                width={barW}
+                height={Math.abs(revenueH)}
+                rx="4"
+              >
+                <title>{`${item.name} — CA ${fmtDH(item.revenue)}`}</title>
+              </rect>
+              <rect
+                className="db-bar db-bar--profit"
+                x={cx + 2}
+                y={Math.min(netY, zeroY)}
+                width={barW}
+                height={Math.abs(netH)}
+                rx="4"
+              >
+                <title>{`${item.name} — Bénéfice ${signedDH(item.net)}`}</title>
+              </rect>
+              <text className="chart-label" x={cx} y={B + 18} textAnchor="middle">{shortName(item.name)}</text>
+            </g>
           )
         })}
-      </div>
-      <div className="dchart__legend">
-        <span><i className="dlegend dlegend--income" />Encaissements</span>
-        <span><i className="dlegend dlegend--salary" />Salaires professeurs</span>
-      </div>
-    </div>
-  )
-}
-
-function StackedBarChart({ months, countsByMonth }) {
-  const max = Math.max(
-    1,
-    ...months.map((key) =>
-      DISCIPLINE_SERIES.reduce((sum, s) => sum + (countsByMonth[key]?.[s.key] || 0), 0)
-    )
-  )
-  return (
-    <div className="dchart dchart--stacked">
-      <div className="dchart__plot">
-        {months.map((key) => {
-          let offset = 0
-          const totals = countsByMonth[key] || {}
-          const total = DISCIPLINE_SERIES.reduce((sum, s) => sum + (totals[s.key] || 0), 0)
-          return (
-            <div className="dchart__col" key={key}>
-              <div className="dchart__stack">
-                {DISCIPLINE_SERIES.map((s) => {
-                  const value = totals[s.key] || 0
-                  if (!value) return null
-                  const el = (
-                    <div
-                      key={s.key}
-                      className="dstack__seg"
-                      style={{
-                        height: `${Math.round((value / max) * 100)}%`,
-                        background: s.color,
-                        bottom: `${offset}%`,
-                      }}
-                      title={`${shortMonthLabel(key)} — ${s.label} : ${value}`}
-                    />
-                  )
-                  offset += (value / max) * 100
-                  return el
-                })}
-                {total === 0 && <div className="dstack__empty" title="Aucun événement" />}
-              </div>
-              <span className="dchart__tick">{shortMonthLabel(key)}</span>
-            </div>
-          )
-        })}
-      </div>
-      <div className="dchart__legend">
-        {DISCIPLINE_SERIES.map((s) => (
-          <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>
-        ))}
+      </svg>
+      <div className="chart__legend">
+        <span><i className="legend legend--revenue" />CA (revenus)</span>
+        <span><i className="legend legend--profit" />Bénéfice net</span>
       </div>
     </div>
-  )
-}
-
-function DonutChart({ items }) {
-  const total = items.reduce((sum, item) => sum + item.value, 0)
-  const R = 15.915
-  const GAP = 0.045
-  const arcs = items.reduce((acc, item, index) => {
-    const fraction = total ? item.value / total : 0
-    const prev = acc.reduce((sum, arc) => sum + arc.fraction, 0)
-    const sweep = Math.max(fraction * 2 * Math.PI - GAP, 0)
-    const a0 = prev * 2 * Math.PI
-    const a1 = a0 + sweep
-    const large = sweep > Math.PI ? 1 : 0
-    const x0 = 21 + R * Math.cos(a0 - Math.PI / 2)
-    const y0 = 21 + R * Math.sin(a0 - Math.PI / 2)
-    const x1 = 21 + R * Math.cos(a1 - Math.PI / 2)
-    const y1 = 21 + R * Math.sin(a1 - Math.PI / 2)
-    const pct = total ? Math.round((item.value / total) * 100) : 0
-    acc.push({
-      item,
-      fraction,
-      pct,
-      color: CYCLE_COLORS[index % CYCLE_COLORS.length],
-      d: `M ${x0.toFixed(3)} ${y0.toFixed(3)} A ${R} ${R} 0 ${large} 1 ${x1.toFixed(3)} ${y1.toFixed(3)}`,
-    })
-    return acc
-  }, [])
-  return (
-    <div className="ddonut">
-      <div className="ddonut__ring">
-        <svg viewBox="0 0 42 42">
-          <circle cx="21" cy="21" r={R} fill="none" stroke="#eef1f6" strokeWidth="6.5" />
-          {arcs.map((arc) => (
-            <path
-              key={arc.item.label}
-              d={arc.d}
-              fill="none"
-              stroke={arc.color}
-              strokeWidth="6.5"
-              className="ddonut__seg"
-            >
-              <title>{`${arc.item.label} — ${arc.item.value} élève${arc.item.value > 1 ? 's' : ''} (${arc.pct}%)`}</title>
-            </path>
-          ))}
-        </svg>
-        <div className="ddonut__center">
-          <strong>{total}</strong>
-          <span>élèves</span>
-        </div>
-      </div>
-      <ul className="ddonut__legend">
-        {arcs.map((arc) => (
-          <li key={arc.item.label}>
-            <i style={{ background: arc.color }} />
-            <span>{arc.item.label || '—'}</span>
-            <b>{arc.item.value}</b>
-            <em>{arc.pct}%</em>
-          </li>
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function QuickAction({ icon, label, hint, tone, onClick }) {
-  return (
-    <button type="button" className={`dqa dqa--${tone}`} onClick={onClick}>
-      <span className="dqa__icon"><Icon name={icon} /></span>
-      <span className="dqa__body">
-        <strong>{label}</strong>
-        <small>{hint}</small>
-      </span>
-      <span className="dqa__arrow" aria-hidden="true">→</span>
-    </button>
   )
 }
 
 export default function Dashboard() {
-  const { profile, signOut } = useAuth()
+  const { profile } = useAuth()
   const navigate = useNavigate()
 
+  const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [fees, setFees] = useState(null)
-  const [events, setEvents] = useState([])
-  const [salaryRecords, setSalaryRecords] = useState([])
-  const [teachers, setTeachers] = useState([])
-  const [centerName, setCenterName] = useState('Centre Oskar')
+  const [reload, setReload] = useState(0)
+  const [selectedBranch, setSelectedBranch] = useState('Toutes les succursales')
+  const [monthKey, setMonthKey] = useState(() => currentMonthKey())
+  const [year, setYear] = useState(schoolYears[1])
 
   useEffect(() => {
     let cancelled = false
+
     const load = async () => {
       setLoading(true)
       setError('')
       try {
-        const [feesData, eventsRes, salariesRes, settingsRes, teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgsRes, gsRes] = await Promise.all([
-          fetchFeesData(),
-          supabase
-            .from('student_events')
-            .select('id, student_id, event_date, event_type, detail, created_at, students(first_name, last_name)'),
-          supabase
-            .from('teacher_salaries')
-            .select('id, teacher_id, month, amount, status, created_at, teachers(first_name, last_name)'),
-          supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
-          supabase.from('teachers').select('*').eq('status', 'active').order('last_name'),
+        const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes] = await Promise.all([
+          supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date'),
+          supabase.from('student_payments').select('student_id, month, amount, status'),
+          supabase.from('teacher_salaries').select('teacher_id, month, amount, status'),
+          supabase.from('expenses').select('id, title, amount, month, branch_id, type'),
+          supabase.from('teachers').select('id, first_name, last_name, branch_id, status'),
+          supabase.from('branches').select('id, name, status').order('name'),
           supabase.from('cycles').select('id, name'),
-          supabase.from('levels').select('id, name, cycle_id'),
-          supabase.from('branches').select('id, name'),
-          supabase.from('subjects').select('id, name'),
-          supabase.from('groups').select('id, name, subject_id, level_id, branch_id'),
-          supabase.from('teacher_group_subjects').select('teacher_id, group_id'),
-          supabase.from('group_students').select('group_id, student_id'),
+          supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
         ])
         if (cancelled) return
 
-        const studentMap = Object.fromEntries((feesData.students || []).map((s) => [s.id, s.name]))
+        const firstError = [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes].find((result) => result.error)
+        if (firstError) throw new Error(firstError.error.message)
 
-        setFees(feesData)
-        setEvents(eventsRes.data || [])
-        setSalaryRecords(salariesRes.data || [])
-        setCenterName(settingsRes.data?.center_name || 'Centre Oskar')
-        setTeachers(
-          buildSalaryTeachers(
-            { teachers: teachersRes, cycles: cyclesRes, levels: levelsRes, branches: branchesRes, subjects: subjectsRes, groups: groupsRes, tgs: tgsRes, gs: gsRes },
-            studentMap
-          )
-        )
+        setData({
+          students: studentsRes.data || [],
+          payments: paymentsRes.data || [],
+          salaries: salariesRes.data || [],
+          expenses: expensesRes.data || [],
+          teachers: teachersRes.data || [],
+          branches: branchesRes.data || [],
+          cycles: cyclesRes.data || [],
+          centerName: settingsRes.data?.center_name || 'Centre Oskar',
+        })
       } catch (err) {
-        if (!cancelled) {
-          console.error(err)
-          setError(err.message)
-        }
+        console.error(err)
+        if (!cancelled) setError(err.message)
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
+
     load()
+
+    const unsubscribe = subscribeFeesCache(() => {
+      if (!cancelled) setReload((count) => count + 1)
+    })
+    const onStorage = (event) => {
+      if (event.key === 'fees_cache_version' && !cancelled) setReload((count) => count + 1)
+    }
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('focus', () => {
+      if (!cancelled) setReload((count) => count + 1)
+    })
+
     return () => {
       cancelled = true
+      unsubscribe()
+      window.removeEventListener('storage', onStorage)
     }
-  }, [])
+  }, [reload])
 
-  const students = useMemo(() => fees?.students || [], [fees])
-  const paymentsByStudent = useMemo(() => fees?.paymentsByStudent || {}, [fees])
+  const students = useMemo(() => data?.students || [], [data])
+  const payments = useMemo(() => data?.payments || [], [data])
+  const salaries = useMemo(() => data?.salaries || [], [data])
+  const expenses = useMemo(() => data?.expenses || [], [data])
+  const teachers = useMemo(() => data?.teachers || [], [data])
+  const branches = useMemo(() => data?.branches || [], [data])
 
-  const academic = useMemo(() => academicMonths(), [])
-  const currentMonth = useMemo(() => currentMonthKey(new Date()), [])
-  const currentLabel = useMemo(() => monthLabelOf(currentMonth), [currentMonth])
-  const [month, setMonth] = useState(currentLabel)
-  const [year, setYear] = useState(schoolYears[1])
+  const branchOptions = useMemo(() => ['Toutes les succursales', ...branches.filter((b) => b.status === 'active').map((b) => b.name)], [branches])
 
-  const windowMonths = useMemo(() => {
-    const idx = academic.findIndex((m) => m.key === currentMonth)
-    if (idx === -1) return academic.slice(0, 6).map((m) => m.key)
-    return academic.slice(Math.max(0, idx - 5), idx + 1).map((m) => m.key)
-  }, [academic, currentMonth])
+  const branchId = useMemo(() => {
+    if (selectedBranch === 'Toutes les succursales') return null
+    const found = branches.find((b) => b.name === selectedBranch)
+    return found ? found.id : null
+  }, [selectedBranch, branches])
 
-  const monthOptions = useMemo(() => academic.map((m) => m.label), [academic])
-  const endYear = year.split('-')[1]
+  const studentBranch = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s.branch_id])), [students])
+  const teacherBranch = useMemo(() => Object.fromEntries(teachers.map((t) => [t.id, t.branch_id])), [teachers])
 
-  const activeCount = useMemo(() => students.filter((s) => s.active).length, [students])
-  const inactiveCount = students.length - activeCount
+  const yearStart = Number(String(year).split('-')[0])
+  const monthsFor = useMemo(() => monthsForYear(yearStart), [yearStart])
+  const monthOptions = useMemo(() => monthsFor.map((m) => m.label), [monthsFor])
 
-  const growth = useMemo(() => {
-    const now = new Date()
-    const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    return students.filter((s) => String(s.registrationDate || '').startsWith(key)).length
-  }, [students])
+  const activeMonthKey = useMemo(
+    () => (monthsFor.some((m) => m.key === monthKey) ? monthKey : monthsFor[0]?.key || monthKey),
+    [monthsFor, monthKey]
+  )
 
-  const revenue = useMemo(() => {
-    const expected = students
-      .filter((s) => s.active)
-      .reduce((sum, s) => sum + (Number(s.du_mois) || 0), 0)
-    let collected = 0
-    for (const list of Object.values(paymentsByStudent)) {
-      for (const p of list) {
-        if (p.month === currentMonth && p.status !== 'unpaid') collected += Number(p.amount) || 0
-      }
-    }
-    const pending = Math.max(0, expected - collected)
-    return { expected, collected, pending, rate: expected ? Math.min(100, Math.round((collected / expected) * 100)) : 0 }
-  }, [students, paymentsByStudent, currentMonth])
+  const monthLabel = monthLabelOf(activeMonthKey)
+  const monthPrefix = String(activeMonthKey).slice(0, 7)
 
-  const salariesByMonth = useMemo(() => {
-    const map = {}
-    for (const record of salaryRecords) {
-      if (record.status === 'pending') continue
-      const key = String(record.month).slice(0, 7) + '-01'
-      map[key] = (map[key] || 0) + (Number(record.amount) || 0)
-    }
-    return map
-  }, [salaryRecords])
+  const branchStudents = useMemo(
+    () => (branchId ? students.filter((s) => s.branch_id === branchId) : students),
+    [students, branchId]
+  )
+  const activeStudents = useMemo(
+    () => branchStudents.filter((s) => s.status === 'active'),
+    [branchStudents]
+  )
 
   const incomeByMonth = useMemo(() => {
     const map = {}
-    for (const list of Object.values(paymentsByStudent)) {
-      for (const p of list) {
-        if (p.status === 'unpaid') continue
-        const key = String(p.month).slice(0, 7) + '-01'
-        map[key] = (map[key] || 0) + (Number(p.amount) || 0)
-      }
+    for (const payment of payments) {
+      if (!isPaid(payment)) continue
+      if (branchId && studentBranch[payment.student_id] !== branchId) continue
+      const key = monthKeyOf(payment.month)
+      map[key] = (map[key] || 0) + (Number(payment.amount) || 0)
     }
     return map
-  }, [paymentsByStudent])
+  }, [payments, branchId, studentBranch])
 
-  const eventsByMonth = useMemo(() => {
-    const map = {}
-    for (const event of events) {
-      const key = String(event.event_date).slice(0, 7) + '-01'
-      const type = event.event_type
-      if (!map[key]) map[key] = { absence: 0, retard: 0, discipline: 0, exercice: 0 }
-      if (type === 'absence') map[key].absence += 1
-      else if (type === 'retard') map[key].retard += 1
-      else if (type === 'betise' || type === 'cahier') map[key].discipline += 1
-      else if (type === 'exercice') map[key].exercice += 1
+  const collected = incomeByMonth[activeMonthKey] || 0
+  const expected = useMemo(() => sum(activeStudents, (s) => s.du_mois), [activeStudents])
+  const pending = Math.max(0, expected - collected)
+
+  const lateCount = useMemo(() => {
+    const paidIds = new Set()
+    for (const payment of payments) {
+      if (!isPaid(payment)) continue
+      if (String(payment.month).slice(0, 7) !== monthPrefix) continue
+      if (branchId && studentBranch[payment.student_id] !== branchId) continue
+      paidIds.add(payment.student_id)
     }
-    return map
-  }, [events])
+    return activeStudents.filter((s) => (Number(s.du_mois) || 0) > 0 && !paidIds.has(s.id)).length
+  }, [payments, activeStudents, monthPrefix, branchId, studentBranch])
 
-  const cycleDist = useMemo(() => {
-    const map = {}
-    for (const student of students) {
-      const cycle = student.cycle || '—'
-      map[cycle] = (map[cycle] || 0) + 1
+  const branchTeachers = useMemo(
+    () => (branchId ? teachers.filter((t) => t.branch_id === branchId) : teachers),
+    [teachers, branchId]
+  )
+  const teacherCount = branchTeachers.length
+  const teacherActive = useMemo(() => branchTeachers.filter((t) => t.status === 'active').length, [branchTeachers])
+
+  const monthSalaries = useMemo(
+    () => salaries.filter(
+      (s) => PAID_STATUSES.includes(s.status)
+        && String(s.month).slice(0, 7) === monthPrefix
+        && (!branchId || teacherBranch[s.teacher_id] === branchId)
+    ),
+    [salaries, monthPrefix, branchId, teacherBranch]
+  )
+  const salaryTotal = useMemo(() => sum(monthSalaries, (s) => s.amount), [monthSalaries])
+
+  const monthExpenses = useMemo(
+    () => expenses.filter(
+      (e) => e.type === 'Manuel'
+        && String(e.month).slice(0, 7) === monthPrefix
+        && (!branchId || e.branch_id === branchId)
+    ),
+    [expenses, monthPrefix, branchId]
+  )
+  const expenseTotal = useMemo(() => sum(monthExpenses, (e) => e.amount), [monthExpenses])
+
+  const netProfit = collected - salaryTotal - expenseTotal
+
+  const revenueSeries = useMemo(
+    () => monthsFor.slice(0, EVOLUTION_MONTHS).map((m) => ({ key: m.key, label: m.short, value: incomeByMonth[m.key] || 0 })),
+    [monthsFor, incomeByMonth]
+  )
+
+  const branchItems = useMemo(() => {
+    const compute = (branch) => {
+      const revenue = payments.reduce((total, payment) => {
+        if (!isPaid(payment)) return total
+        if (String(payment.month).slice(0, 7) !== monthPrefix) return total
+        if (studentBranch[payment.student_id] !== branch.id) return total
+        return total + (Number(payment.amount) || 0)
+      }, 0)
+      const salary = salaries.reduce((total, record) => {
+        if (!PAID_STATUSES.includes(record.status)) return total
+        if (String(record.month).slice(0, 7) !== monthPrefix) return total
+        if (teacherBranch[record.teacher_id] !== branch.id) return total
+        return total + (Number(record.amount) || 0)
+      }, 0)
+      const expense = expenses.reduce((total, record) => {
+        if (record.type !== 'Manuel') return total
+        if (String(record.month).slice(0, 7) !== monthPrefix) return total
+        if (record.branch_id !== branch.id) return total
+        return total + (Number(record.amount) || 0)
+      }, 0)
+      const net = revenue - salary - expense
+      return { id: branch.id, name: branch.name, revenue, salary, expense, net }
     }
-    return Object.entries(map)
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, value]) => ({ label, value }))
-  }, [students])
 
-  const snapshot = useMemo(() => {
-    let date = todayISO()
-    if (events.length > 0) {
-      const latest = events.reduce((acc, e) => (e.event_date > acc ? e.event_date : acc), '')
-      if (latest) date = latest
+    if (branchId) {
+      const branch = branches.find((b) => b.id === branchId)
+      return branch ? [compute(branch)] : []
     }
-    const counts = { absence: 0, retard: 0, betise: 0, exercice: 0 }
-    for (const e of events) {
-      if (e.event_date !== date) continue
-      if (e.event_type === 'absence') counts.absence += 1
-      else if (e.event_type === 'retard') counts.retard += 1
-      else if (e.event_type === 'betise' || e.event_type === 'cahier') counts.betise += 1
-      else if (e.event_type === 'exercice') counts.exercice += 1
-    }
-    return { date, isToday: date === todayISO(), counts }
-  }, [events])
+    return branches
+      .filter((b) => b.status === 'active')
+      .map(compute)
+      .filter((item) => item.revenue > 0 || item.salary > 0 || item.expense > 0 || item.net !== 0)
+  }, [payments, salaries, expenses, branches, branchId, studentBranch, teacherBranch, monthPrefix])
 
-  const studentById = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s.name])), [students])
-
-  const feed = useMemo(() => {
-    const items = []
-    for (const event of events) {
-      const meta = EVENT_META[event.event_type]
-      items.push({
-        id: `ev-${event.id}`,
-        ts: event.created_at,
-        title: event.students?.first_name ? `${event.students.first_name} ${event.students.last_name}` : 'Élève',
-        subtitle: meta?.label || event.event_type,
-        meta: formatDate(event.event_date),
-        tone: meta?.tone || 'slate',
-        icon: meta?.icon || 'clock',
-      })
-    }
-    for (const list of Object.values(paymentsByStudent)) {
-      for (const p of list) {
-        if (p.status === 'unpaid') continue
-        items.push({
-          id: `pay-${p.student_id}-${p.month}`,
-          ts: p.paid_at || p.month,
-          title: studentById[p.student_id] || 'Élève',
-          subtitle: `Paiement reçu · ${fmtDH(p.amount)}`,
-          meta: shortMonthLabel(p.month),
-          tone: 'green',
-          icon: 'coin',
-        })
-      }
-    }
-    for (const record of salaryRecords) {
-      if (record.status === 'pending') continue
-      items.push({
-        id: `sal-${record.id}`,
-        ts: record.created_at,
-        title: record.teachers?.first_name ? `${record.teachers.first_name} ${record.teachers.last_name}` : 'Professeur',
-        subtitle: `Salaire validé · ${fmtDH(record.amount)}`,
-        meta: shortMonthLabel(record.month),
-        tone: 'blue',
-        icon: 'check',
-      })
-    }
-    items.sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')))
-    return items.slice(0, 12)
-  }, [events, paymentsByStudent, salaryRecords, studentById])
-
-  const debtors = useMemo(() => {
-    if (!fees) return []
-    return buildDebtors(fees.students, fees.paymentsByStudent).slice(0, 5)
-  }, [fees])
-
-  const massSalariale = useMemo(() => teachers.reduce((sum, t) => sum + t.amount, 0), [teachers])
-  const paidSalaryTeachers = useMemo(() => {
-    const paid = new Set(
-      salaryRecords.filter((r) => r.status === 'paid' && String(r.month).slice(0, 7) === currentMonth.slice(0, 7)).map((r) => r.teacher_id)
-    )
-    return teachers.filter((t) => paid.has(t.id)).length
-  }, [salaryRecords, teachers, currentMonth])
-
-  // La courbe du CA s'arrête au mois sélectionné dans la barre d'outils.
-  const shownSeries = useMemo(() => {
-    const idx = academic.findIndex((m) => m.label === month)
-    return academic.slice(0, idx === -1 ? academic.length : idx + 1).map((m) => ({
-      month: m.label,
-      revenue: incomeByMonth[m.key] || 0,
-      collected: incomeByMonth[m.key] || 0,
+  const notificationCount = useMemo(() => {
+    if (!data) return 0
+    const debtorStudents = students.map((s) => ({
+      id: s.id,
+      name: `${s.first_name} ${s.last_name}`.trim(),
+      active: s.status === 'active',
+      du_mois: s.du_mois,
+      registrationDate: s.registration_date,
     }))
-  }, [academic, month, incomeByMonth])
+    const byStudent = {}
+    for (const payment of payments) {
+      if (!byStudent[payment.student_id]) byStudent[payment.student_id] = []
+      byStudent[payment.student_id].push({ month: payment.month, amount: Number(payment.amount) || 0, status: payment.status })
+    }
+    return buildDebtors(debtorStudents, byStudent).length
+  }, [data, students, payments])
 
-  const todayCount = snapshot.counts.absence + snapshot.counts.retard + snapshot.counts.betise + snapshot.counts.exercice
+  const cycleName = useMemo(() => {
+    const cycleMap = Object.fromEntries((data?.cycles || []).map((c) => [c.id, c.name]))
+    const counts = {}
+    for (const student of activeStudents) {
+      if (!student.cycle_id) continue
+      const name = cycleMap[student.cycle_id]
+      if (!name) continue
+      counts[name] = (counts[name] || 0) + 1
+    }
+    let best = ''
+    let max = 0
+    for (const [name, count] of Object.entries(counts)) {
+      if (count > max) {
+        max = count
+        best = name
+      }
+    }
+    return best
+  }, [data, activeStudents])
 
-  const statCards = [
-    { title: 'Élèves', value: students.length, note: `${activeCount} actifs · ${inactiveCount} inactifs`, tone: 'blue', icon: 'users' },
-    { title: 'Encaissé ce mois', value: fmtDH(revenue.collected), note: `${revenue.rate}% de ${fmtDH(revenue.expected)} attendus`, tone: 'slate', icon: 'coin' },
-    { title: 'En attente', value: fmtDH(revenue.pending), note: `${debtors.length} élève${debtors.length > 1 ? 's' : ''} en retard`, tone: 'red', icon: 'alert' },
-    { title: 'Salaires profs', value: fmtDH(massSalariale), note: `${teachers.length} prof${teachers.length > 1 ? 's' : ''} · ${paidSalaryTeachers} validé${paidSalaryTeachers > 1 ? 's' : ''}`, tone: 'slate', icon: 'cap' },
-    { title: 'Pointage du jour', value: todayCount, note: `${snapshot.counts.absence} absences · ${snapshot.counts.retard} retards`, tone: 'blue', icon: 'flame' },
-  ]
-
-  const openReminder = (debtor) => {
-    const link = whatsappLink(debtor.phone, buildReminderMessage(debtor, null, centerName))
-    if (link) window.open(link, '_blank', 'noopener,noreferrer')
-  }
+  const greetingName = `${profile?.first_name || ''}`.trim() || 'Directeur'
+  const subtitle = `${cycleName ? `Cycle ${cycleName} · ` : ''}${monthLabel} — Année scolaire ${year}`
 
   const goEnroll = () => navigate('/students', { state: { quick: 'enroll' } })
+  const changeMonth = (label) => {
+    const found = monthsFor.find((m) => m.label === label)
+    if (found) setMonthKey(found.key)
+  }
 
-  const quickActions = [
-    { icon: 'user-plus', label: "Ajouter un élève", hint: 'Nouvelle inscription', tone: 'blue', onClick: goEnroll },
-    { icon: 'clipboard', label: 'Pointer présence', hint: 'Pointage du jour', tone: 'violet', onClick: () => navigate('/students', { state: { quick: 'attendance' } }) },
-    { icon: 'printer', label: "Générer Fiche d'absence", hint: 'Feuille vierge imprimable', tone: 'amber', onClick: () => navigate('/students', { state: { quick: 'absence-sheet' } }) },
-    { icon: 'wallet', label: 'Imprimer Journal de Salaire', hint: 'Masse salariale', tone: 'green', onClick: () => navigate('/accounting/salaries') },
+  const inactiveStudents = branchStudents.length - activeStudents.length
+
+  const statCards = [
+    {
+      title: 'CA du mois',
+      value: fmtDH(collected),
+      tone: 'blue',
+      icon: 'coin',
+      note: (
+        <span className="db-kpi-split">
+          <span className="db-kpi-split__paid">Encaissé {fmtDH(collected)}</span>
+          <span className="db-kpi-split__pending">En attente {fmtDH(pending)}</span>
+        </span>
+      ),
+    },
+    {
+      title: 'Élèves en retard',
+      value: lateCount,
+      tone: 'red',
+      icon: 'alert',
+      note: lateCount > 0 ? `${lateCount} élève${lateCount > 1 ? 's' : ''} avec impayé${lateCount > 1 ? 's' : ''} du mois` : 'Aucun impayé ce mois',
+    },
+    {
+      title: 'Total élèves',
+      value: branchStudents.length,
+      tone: 'blue',
+      icon: 'users',
+      note: `${activeStudents.length} actifs · ${inactiveStudents} inactifs`,
+    },
+    {
+      title: 'Professeurs',
+      value: teacherCount,
+      tone: 'amber',
+      icon: 'cap',
+      note: `${teacherActive} actif${teacherActive > 1 ? 's' : ''}`,
+    },
+    {
+      title: 'Bénéfice net',
+      value: signedDH(netProfit),
+      tone: 'green',
+      icon: 'wallet',
+      negative: netProfit < 0,
+      note: `CA ${fmtDH(collected)} − (salaires ${fmtDH(salaryTotal)} + charges ${fmtDH(expenseTotal)})`,
+    },
   ]
 
-  const greetingName = profile?.first_name || 'Directeur'
-
-  if (loading && !fees) {
+  if (loading && !data) {
     return (
       <div className="dashboard-main">
-        <div className="content">
+        <main className="content">
           <div className="db-skeleton db-skeleton--hero" />
           <div className="db-skeleton-grid">
-            {[0, 1, 2, 3].map((i) => <div className="db-skeleton" key={i} />)}
+            {[0, 1, 2, 3, 4].map((index) => <div className="db-skeleton" key={index} />)}
           </div>
           <div className="db-skeleton-grid db-skeleton-grid--wide">
-            {[0, 1].map((i) => <div className="db-skeleton" key={i} />)}
+            {[0, 1].map((index) => <div className="db-skeleton" key={index} />)}
           </div>
-        </div>
+        </main>
       </div>
     )
   }
 
   return (
     <div className="dashboard-main">
-      <Header />
+      <Header
+        branch={selectedBranch}
+        onBranchChange={setSelectedBranch}
+        branchOptions={branchOptions}
+        notificationCount={notificationCount}
+      />
 
       <main className="content">
         {error && (
           <div className="db-error" role="alert">
             <Icon name="alert" />
             <span>Impossible de charger certaines données : {error}</span>
-            <button type="button" onClick={() => window.location.reload()}>Réessayer</button>
+            <button type="button" onClick={() => setReload((count) => count + 1)}>Réessayer</button>
           </div>
         )}
 
-        <section className="hero-card">
-          <div>
-            <h1>Centre Oskar <span className="db-hero__ar">مركز أوسكار</span></h1>
-            <p>Bonjour, <strong>{greetingName}</strong> 👋 — command center opérationnel.</p>
-          </div>
+        <section className="db-title">
+          <h1>Bonjour, {greetingName} 👋</h1>
+          <p>{subtitle}</p>
+        </section>
 
-          <div className="controls">
-            <span className="db-chip db-chip--date"><Icon name="calendar" />{currentLabel}</span>
-            <span className="db-chip db-chip--live"><i />Temps réel</span>
-            <div className="period-group">
-              <MenuSelect
-                className="pill"
-                icon="calendar"
-                label="Choisir le mois"
-                value={month}
-                options={monthOptions}
-                onChange={setMonth}
-              />
-              <MenuSelect
-                className="pill pill--light"
-                label="Choisir l'année scolaire"
-                value={year}
-                options={schoolYears}
-                onChange={setYear}
-              />
-            </div>
-            <button
-              type="button"
-              className="primary"
-              onClick={goEnroll}
-            >
-              <Icon name="user-plus" />
-              Nouvelle inscription
-            </button>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => navigate('/accounting/delinquencies')}
-            >
-              <Icon name="eye" />
-              Voir les impayés
-            </button>
-          </div>
+        <section className="controls db-controls" aria-label="Filtres de période">
+          <MenuSelect
+            className="pill"
+            icon="calendar"
+            label="Choisir le mois"
+            value={monthLabel}
+            options={monthOptions}
+            onChange={changeMonth}
+          />
+          <MenuSelect
+            className="pill pill--light"
+            label="Choisir l'année scolaire"
+            value={year}
+            options={schoolYears}
+            onChange={setYear}
+          />
+          <button type="button" className="primary" onClick={goEnroll}>
+            <Icon name="user-plus" />
+            Nouvelle inscription
+          </button>
+          <button type="button" className="secondary" onClick={() => navigate('/accounting/delinquencies')}>
+            <Icon name="eye" />
+            Voir les impayés
+          </button>
         </section>
 
         <section className="metrics-grid" aria-label="Indicateurs clés">
@@ -755,120 +591,24 @@ export default function Dashboard() {
           <article className="panel panel--wide">
             <div className="panel__head">
               <div>
-                <h2>Évolution du chiffre d'affaires — jusqu'à {month}</h2>
+                <h2>Évolution du chiffre d'affaires</h2>
+                <p>Encaissements réels de {MONTHS_SHORT[0]} à {MONTHS_SHORT[EVOLUTION_MONTHS - 1]} — {year}</p>
               </div>
+              <span className="db-panel-icon"><Icon name="trending-up" /></span>
             </div>
-            <LineChart series={shownSeries} />
+            <RevenueLineChart series={revenueSeries} />
           </article>
 
           <article className="panel">
             <div className="panel__head">
               <div>
-                <h2>Répartition par cycle</h2>
+                <h2>Rentabilité par succursale</h2>
+                <p>Revenus contre bénéfice net — {monthLabel}</p>
               </div>
+              <span className="db-panel-icon"><Icon name="building" /></span>
             </div>
-            <DonutChart items={cycleDist} />
+            <BranchBarChart items={branchItems} />
           </article>
-        </section>
-
-        <section className="db-analytics">
-          <article className="db-panel db-panel--trend">
-            <header className="db-panel__head">
-              <div>
-                <h2>Revenus vs Salaires professeurs</h2>
-                <p>Encaissements scolaires contre masse salariale, par mois</p>
-              </div>
-              <span className="db-panel__icon"><Icon name="trending-up" /></span>
-            </header>
-            <GroupedBarChart months={windowMonths} incomeByMonth={incomeByMonth} salariesByMonth={salariesByMonth} />
-          </article>
-
-          <article className="db-panel db-panel--heatmap">
-            <header className="db-panel__head">
-              <div>
-                <h2>Discipline & assiduité</h2>
-                <p>Distribution mensuelle des comportements</p>
-              </div>
-              <span className="db-panel__icon"><Icon name="flame" /></span>
-            </header>
-            <StackedBarChart months={windowMonths} countsByMonth={eventsByMonth} />
-          </article>
-        </section>
-
-        <section className="db-ops">
-          <article className="db-panel db-panel--feed">
-            <header className="db-panel__head">
-              <div>
-                <h2>Activité récente</h2>
-                <p>Journal temps réel du centre</p>
-              </div>
-              <span className="db-live-pill"><i />Live</span>
-            </header>
-            <ul className="db-feed">
-              {feed.length === 0 && <li className="db-feed__empty">Aucune activité récente pour le moment.</li>}
-              {feed.map((item) => (
-                <li className={`db-feed__item db-feed__item--${item.tone}`} key={item.id}>
-                  <span className="db-feed__icon"><Icon name={item.icon} /></span>
-                  <span className="db-feed__body">
-                    <strong>{item.title}</strong>
-                    <small>{item.subtitle} · <em>{item.meta}</em></small>
-                  </span>
-                  <time>{timeAgo(item.ts)}</time>
-                </li>
-              ))}
-            </ul>
-          </article>
-
-          <div className="db-ops__side">
-            <article className="db-panel db-panel--quick">
-              <header className="db-panel__head">
-                <div>
-                  <h2>Actions rapides</h2>
-                  <p>Raccourcis fréquents</p>
-                </div>
-                <span className="db-panel__icon"><Icon name="sparkles" /></span>
-              </header>
-              <div className="db-qa-grid">
-                {quickActions.map((action) => (
-                  <QuickAction key={action.label} {...action} />
-                ))}
-              </div>
-            </article>
-
-            <article className="db-panel db-panel--pending">
-              <header className="db-panel__head">
-                <div>
-                  <h2>Paiements en attente</h2>
-                  <p>Rappels WhatsApp directs</p>
-                </div>
-                <span className="db-panel__badge">{debtors.length}</span>
-              </header>
-              {debtors.length === 0 ? (
-                <p className="db-pending__empty">Aucun élève en retard. Tout est à jour ✨</p>
-              ) : (
-                <ul className="db-pending">
-                  {debtors.map((debtor) => (
-                    <li className="db-pending__item" key={debtor.id}>
-                      <span className="db-pending__avatar">{initials(debtor.name)}</span>
-                      <span className="db-pending__body">
-                        <strong>{debtor.name}</strong>
-                        <small>{debtor.months} mois · <b>{debtor.debt.toLocaleString('fr-FR')} DH</b></small>
-                      </span>
-                      <button
-                        type="button"
-                        className="db-wa"
-                        onClick={() => openReminder(debtor)}
-                        disabled={!debtor.phone}
-                        title={debtor.phone ? 'Envoyer un rappel WhatsApp' : 'Aucun numéro enregistré'}
-                      >
-                        <Icon name="phone" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </article>
-          </div>
         </section>
       </main>
     </div>
