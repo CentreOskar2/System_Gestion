@@ -1,3 +1,5 @@
+import Icon from '../Icon'
+
 export default function TeachersToolbar({ count, onAdd }) {
   return (
     <div className="teachers-heading">
@@ -6,7 +8,7 @@ export default function TeachersToolbar({ count, onAdd }) {
         <p>{count} professeurs enregistrés</p>
       </div>
       <button onClick={onAdd} className="teacher-add">
-        ♙ <span>Ajouter un professeur</span>
+        <Icon name="user-plus" /> <span>Ajouter un professeur</span>
       </button>
     </div>
   )

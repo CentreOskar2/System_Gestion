@@ -1,7 +1,7 @@
 /* eslint-disable no-irregular-whitespace */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../supabaseClient'
-import Icon from '../Icon'
+import Header from '../shared/Header'
 import './Settings.css'
 
 const textDefault = 'مرحباً، هذا تذكير من مركز أوسكار بخصوص مصاريف الدراسة للتلميذ(ة) {nom_eleve} لشهر {mois}.\n\nالمبلغ المستحق: {montant_du}.\n\nنرجو منكم تسوية الوضع في أقرب وقت ممكن.\n— مركز أوسكار'
@@ -486,12 +486,7 @@ export default function Settings() {
 
   return (
     <div className="settings-page">
-      <header className="topbar settings-topbar">
-        <label className="searchbar"><span className="searchbar__icon"><Icon name="search" /></span><input placeholder="Rechercher un élève, professeur..." /></label>
-        <button className="branch-select">Toutes les succursales　⌄</button>
-        <button className="notifications"><Icon name="bell" /><span className="notifications__badge">40</span></button>
-        <div className="profile"><div className="profile__avatar">DA</div><div><strong>Directeur Oskar</strong><span>Administrateur</span></div></div>
-      </header>
+      <Header />
 
       <main className="settings-content">
         <h1>Paramètres</h1>
@@ -677,3 +672,4 @@ export default function Settings() {
     </div>
   )
 }
+

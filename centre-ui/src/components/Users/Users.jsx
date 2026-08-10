@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../../supabaseClient'
 import Icon from '../Icon'
+import Header from '../shared/Header'
 import './Users.css'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -211,7 +212,7 @@ export default function Users() {
 
   if (loading) return <div className="users-page"><main className="users-content" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}><p>Chargement des utilisateurs...</p></main></div>
 
-  return <div className="users-page"><header className="topbar users-topbar"><label className="searchbar"><span className="searchbar__icon"><Icon name="search" /></span><input placeholder="Rechercher un élève, professeur..." /></label><button className="branch-select">Toutes les succursales <span>⌄</span></button><button className="notifications"><Icon name="bell" /><span className="notifications__badge">40</span></button><div className="profile"><div className="profile__avatar">DA</div><div><strong>Directeur Oskar</strong><span>Administrateur</span></div></div></header>
+  return <div className="users-page"><Header />
     <main className="users-content"><div className="users-heading"><div><h1>Utilisateurs</h1><p>Administrateurs et secrétaires ayant accès à la plateforme.</p></div><button className="user-add" onClick={create}>＋ &nbsp; Ajouter un utilisateur</button></div><label className="user-search"><Icon name="search" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher par nom ou email..." /></label>
     <div className="users-table-wrap"><table className="users-table"><colgroup><col className="users-col-name" /><col className="users-col-email" /><col className="users-col-role" /><col className="users-col-branches" /><col className="users-col-permissions" /><col className="users-col-status" /><col className="users-col-actions" /></colgroup><thead><tr><th>Nom</th><th>Email</th><th>Rôle</th><th>Succursale(s)</th><th>Permissions</th><th>Statut</th><th>Actions</th></tr></thead><tbody>{results.length === 0 ? <tr><td colSpan={7} style={{ textAlign: 'center', padding: '2rem', color: '#888' }}>{query ? 'Aucun utilisateur trouvé' : 'Aucun utilisateur'}</td></tr> : results.map((u) => <tr key={u.id}><td><strong>{u.lastName} {u.firstName}</strong></td><td>{u.email}</td><td><span className={`role ${u.role === 'Super Admin' ? 'super' : ''}`}>{u.role}</span></td><td>{u.assigned.length > 0 ? u.assigned.map((x) => <span key={x} className="assigned">{x}</span>) : <span style={{ color: '#999' }}>—</span>}</td><td><span className="permission">{u.role === 'Super Admin' ? 'Toutes' : `${u.permissions.length}/${allPermissions.length}`}</span></td><td><span className={`user-pill ${u.active ? 'on' : ''}`}>{u.active ? 'Actif' : 'Inactif'}</span></td><td><div className="user-actions"><button onClick={() => edit(u)} aria-label="Modifier"><Pencil /></button><button onClick={() => toggleStatus(u.id)} aria-label="Activer ou désactiver"><Power /></button></div></td></tr>)}</tbody></table></div></main>{open && <UserModal user={selected} branchList={branchList} onClose={() => setOpen(false)} onSave={saveUser} />}</div>
 }

@@ -1,5 +1,4 @@
-.branches-page { min-width: 0; background: #fbfcfe; }
-.branches-topbar { margin: 0; padding: 24px 36px 18px; border-bottom: 1px solid #dfe5ee; background: #fff; }
+.branches-page { min-width: 0; padding-top: 26px; background: #fbfcfe; }
 .branches-content { width: 100%; max-width: 1440px; margin: 0 auto; padding: 54px 24px; }
 .branches-heading { display: flex; align-items: start; justify-content: space-between; gap: 24px; margin-bottom: 36px; }
 .branches-heading h1 { color: #172033; font-size: 2rem; line-height: 1.1; letter-spacing: -0.045em; }

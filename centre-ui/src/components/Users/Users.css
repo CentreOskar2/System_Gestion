@@ -1,17 +1,7 @@
 .users-page {
   min-width: 0;
+  padding-top: 26px;
   background: #fbfcfe;
-}
-
-/* =======================
-   Topbar
-======================= */
-
-.users-topbar {
-  margin: 0;
-  padding: 24px 36px 18px;
-  background: #fff;
-  border-bottom: 1px solid #dfe5ee;
 }
 
 .users-content {
