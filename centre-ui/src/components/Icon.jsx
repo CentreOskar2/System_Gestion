@@ -8,6 +8,65 @@ export default function Icon({ name }) {
   }
 
   switch (name) {
+    case 'whatsapp':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="11.5" r="8" {...common} />
+          <path d="M8 18.5 4.5 20l1.3-3.6" {...common} />
+          <path
+            d="M8.6 8.3c.2-.4.4-.4.6-.4.15 0 .3 0 .45.35.18.45.6 1.5.66 1.6.06.12.1.25.02.4-.08.15-.12.22-.24.35-.12.13-.25.24-.36.33-.12.1-.24.2-.1.45.14.25.6 1 1.3 1.6.9.78 1.6 1.02 1.85 1.15.25.12.4.1.55-.06.14-.16.6-.68.76-.9.16-.24.32-.2.53-.12.22.08 1.35.63 1.58.75.24.12.4.18.45.28.06.1.06.55-.13 1.1-.2.53-1.1 1.02-1.55 1.08-.4.06-.86.08-1.4-.1a11.6 11.6 0 0 1-1.24-.46c-2.05-.9-3.4-2.98-3.5-3.12-.1-.14-.86-1.13-.86-2.15 0-1.02.55-1.5.75-1.72Z"
+            fill="currentColor"
+            stroke="none"
+          />
+        </svg>
+      )
+    case 'check':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="m4.5 12.5 5 5 10-11" {...common} />
+        </svg>
+      )
+    case 'coins':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="9.5" cy="9.5" r="6" {...common} />
+          <path d="M13.8 6.3a6 6 0 1 1 0 11.4" {...common} />
+        </svg>
+      )
+    case 'robot':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 4v2.5" {...common} />
+          <circle cx="12" cy="3.2" r="1" fill="currentColor" stroke="none" />
+          <rect x="4.5" y="6.5" width="15" height="12" rx="3" {...common} />
+          <path d="M9 12v1.5M15 12v1.5" {...common} />
+          <path d="M2.5 11v4M21.5 11v4" {...common} />
+        </svg>
+      )
+    case 'hand':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M8 12.5V5a1.5 1.5 0 0 1 3 0v6" {...common} />
+          <path d="M11 10.5V4a1.5 1.5 0 0 1 3 0v6.5" {...common} />
+          <path d="M14 10.5V5.5a1.5 1.5 0 0 1 3 0V13" {...common} />
+          <path d="M8 12.5 6.4 11a1.5 1.5 0 0 0-2.3 1.9L7 17.5A5 5 0 0 0 11 20h1.5a5.5 5.5 0 0 0 5.5-5.5V13" {...common} />
+        </svg>
+      )
+    case 'percent':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M18 6 6 18" {...common} />
+          <circle cx="7.5" cy="7.5" r="2.5" {...common} />
+          <circle cx="16.5" cy="16.5" r="2.5" {...common} />
+        </svg>
+      )
+    case 'clock':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5" {...common} />
+          <path d="M12 7.5V12l3.2 2" {...common} />
+        </svg>
+      )
     case 'chevron-down':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">

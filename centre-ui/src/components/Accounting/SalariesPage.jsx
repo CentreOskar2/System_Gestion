@@ -1,6 +1,7 @@
 import { useRef, useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
+import Icon from '../Icon'
 import { initials } from '../Students/utils/studentHelpers'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { initialTeachers, mockGroups } from '../Teachers/data/mockTeachers'
@@ -191,17 +192,17 @@ export default function SalariesPage() {
           <article>
             <span>Masse salariale du mois</span>
             <strong>{teachers.reduce((sum, t) => sum + t.amount, 0).toLocaleString('fr-FR')} DH</strong>
-            <i>▣</i>
+            <i><Icon name="wallet" /></i>
           </article>
           <article>
             <span>Profs — salaire fixe</span>
             <strong>{teachers.filter(t => t.paymentType === 'fixe').length}</strong>
-            <i>↗</i>
+            <i><Icon name="trending-up" /></i>
           </article>
           <article>
             <span>Profs — pourcentage</span>
             <strong>{teachers.filter(t => t.paymentType === 'pourcentage').length}</strong>
-            <i>%</i>
+            <i><Icon name="percent" /></i>
           </article>
         </section>
         <label className="salary-month">
@@ -217,7 +218,7 @@ export default function SalariesPage() {
               <tr>
                 <th>Professeur</th>
                 <th>Type</th>
-                <th>Cycle(s) / Niveau(x)</th>
+                <th>Matière(s)</th>
                 <th>Montant calculé</th>
                 <th>Statut</th>
                 <th>Action</th>
@@ -239,11 +240,7 @@ export default function SalariesPage() {
                         {teacher.type}
                       </span>
                     </td>
-                    <td>
-                      <small>{teacher.cycles.join(', ')}</small>
-                      <br />
-                      <small style={{ color: '#647088' }}>{teacher.levels.join(', ')}</small>
-                    </td>
+                    <td>{teacher.subjects}</td>
                     <td>
                       <b>{teacher.amount.toLocaleString('fr-FR')} DH</b>
                     </td>
@@ -256,14 +253,14 @@ export default function SalariesPage() {
                       <div className="salary-actions">
                         {teacher.paymentType === 'pourcentage' && (
                           <button className="journal-button" onClick={() => openJournal(teacher, false)}>
-                            ▣  Imprimer journal
+                            <Icon name="printer" /> Imprimer journal
                           </button>
                         )}
                         <button
                           className={isValidated ? 'validate-salary done' : 'validate-salary'}
                           onClick={() => openJournal(teacher, true)}
                         >
-                          {isValidated ? '✓ Validé' : '✓  Valider'}
+                          <Icon name="check" /> {isValidated ? 'Validé' : 'Valider'}
                         </button>
                       </div>
                     </td>

@@ -73,9 +73,18 @@
 }
 
 .teacher-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
   height: 54px;
   padding: 0 25px;
   font-size: 1rem;
+}
+
+.teacher-add svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
 }
 
 /* =======================

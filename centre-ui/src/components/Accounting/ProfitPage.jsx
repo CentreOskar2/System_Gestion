@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
+import Icon from '../Icon'
 import './ProfitPage.css'
 
 const monthlyProfit = [12000, 15000, 14000, 18000, 22000, -61000, 0, 0, 0, 0]
@@ -52,9 +53,9 @@ export default function ProfitPage() {
 
       <section className="profit-formula"><span>FORMULE</span><p><b>CA encaissé</b> − <em>Charges</em> − <em>Salaires Profs (validés)</em> = <strong>Bénéfice net</strong></p></section>
       <section className="profit-stats">
-        <article><span>CA encaissé du mois</span><strong className="positive">{format(revenue)}</strong><i>↗</i></article>
-        <article><span>Total charges + salaires</span><strong className="negative">{format(costs)}</strong><i>⊘</i></article>
-        <article><span>Bénéfice net</span><strong className={profit < 0 ? 'negative' : 'positive'}>{profit < 0 ? '-' : ''}{format(profit)}</strong><i>▣</i></article>
+        <article><span>CA encaissé du mois</span><strong className="positive">{format(revenue)}</strong><i><Icon name="trending-up" /></i></article>
+        <article><span>Total charges + salaires</span><strong className="negative">{format(costs)}</strong><i><Icon name="coins" /></i></article>
+        <article><span>Bénéfice net</span><strong className={profit < 0 ? 'negative' : 'positive'}>{profit < 0 ? '-' : ''}{format(profit)}</strong><i><Icon name="wallet" /></i></article>
       </section>
       <ProfitChart />
       <section className="profit-comparison">

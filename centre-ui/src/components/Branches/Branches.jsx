@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import Icon from '../Icon'
+import Header from '../shared/Header'
 import './Branches.css'
 
 const initialBranches = [
@@ -83,12 +83,7 @@ export default function Branches() {
 
   return (
     <div className="branches-page">
-      <header className="topbar branches-topbar">
-        <label className="searchbar"><span className="searchbar__icon"><Icon name="search" /></span><input type="search" placeholder="Rechercher un élève, professeur..." /></label>
-        <button type="button" className="branch-select"><span>Toutes les succursales</span><span aria-hidden="true">⌄</span></button>
-        <button type="button" className="notifications" aria-label="Notifications"><Icon name="bell" /><span className="notifications__badge">40</span></button>
-        <div className="profile"><div className="profile__avatar">DA</div><div><strong>Directeur Atlas</strong><span>Administrateur</span></div></div>
-      </header>
+      <Header />
 
       <main className="branches-content">
         <div className="branches-heading">
