@@ -6,11 +6,10 @@ import Step3SubjectsGroups from './steps/Step3SubjectsGroups'
 import Step4Billing from './steps/Step4Billing'
 import EnrollmentReceipt from '../EnrollmentReceipt'
 import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment, teacherForGroupSubject } from './enrollmentApi'
+import { today } from '../utils/studentHelpers'
 import '../Enrollment.css'
 
 const STEPS = ['Détails personnels', 'Classification', 'Matières & groupes', 'Facturation']
-
-const today = () => new Date().toISOString().slice(0, 10)
 
 const createInitialForm = (student) => {
   if (!student) {

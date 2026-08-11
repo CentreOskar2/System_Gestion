@@ -23,8 +23,8 @@ function FieldIcon({ type }) {
 export default function Login() {
   const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
-  const [email, setEmail] = useState('admin@centreatlas.com')
-  const [password, setPassword] = useState('password')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
@@ -49,16 +49,16 @@ export default function Login() {
       <section className="login-showcase" aria-label="Présentation Centre Oskar">
         <div className="login-brand">
           <GraduationCap />
-          <span>Centre Oscar</span>
+          <span>Centre Oskar</span>
         </div>
 
         <div className="login-showcase__content">
-          <img src="/image-login.png" alt="Plateforme Centre Oscar" className="login-showcase__image" />
+          <img src="/image-login.png" alt="Plateforme Centre Oskar" className="login-showcase__image" />
           <h1>Plateforme de Gestion<br />Administrative</h1>
           <p>Centralisez vos dossiers étudiants, professeurs et<br />comptabilité en un seul endroit sécurisé.</p>
         </div>
 
-        <small>© 2024 Centre Oscar. Tous droits réservés.</small>
+        <small>© 2024 Centre Oskar. Tous droits réservés.</small>
       </section>
 
       <section className="login-panel" aria-labelledby="login-title">

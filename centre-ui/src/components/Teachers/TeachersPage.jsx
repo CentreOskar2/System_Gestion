@@ -8,6 +8,7 @@ import TeacherProfile from './TeacherProfile'
 import { supabase } from '../../supabaseClient'
 import { uploadImage } from '../../utils/storage'
 import { fetchCurrentUserBranchId } from '../../utils/currentUserBranch'
+import { useBranch } from '../../context/BranchContext'
 import './Teachers.css'
 
 function Toast({ notice }) {
@@ -20,7 +21,90 @@ function Toast({ notice }) {
   )
 }
 
+async function fetchTeachersData(branchId) {
+  let teachersQuery = supabase.from('teachers').select('*').order('created_at', { ascending: false })
+  if (branchId && branchId !== 'all') teachersQuery = teachersQuery.eq('branch_id', branchId)
+  const [teachersRes, subjectsRes, levelsRes, branchesRes, cyclesRes, tsRes, tbRes, tlRes, tgRes, groupsRes] = await Promise.all([
+    teachersQuery,
+    supabase.from('subjects').select('id, name'),
+    supabase.from('levels').select('id, name, cycle_id'),
+    supabase.from('branches').select('id, name'),
+    supabase.from('cycles').select('id, name'),
+    supabase.from('teacher_subjects').select('teacher_id, subject_id'),
+    supabase.from('teacher_branches').select('teacher_id, branch_id'),
+    supabase.from('teacher_levels').select('teacher_id, level_id'),
+    supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
+    supabase.from('groups').select('id, name').order('name'),
+  ])
+  if (!teachersRes.data) return []
+  const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
+  const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
+  const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
+  const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
+  const groupMap = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g.name]))
+  const subjectsByTeacher = {}
+  for (const row of tsRes.data || []) {
+    subjectsByTeacher[row.teacher_id] = [...(subjectsByTeacher[row.teacher_id] || []), row.subject_id]
+  }
+  const branchesByTeacher = {}
+  for (const row of tbRes.data || []) {
+    branchesByTeacher[row.teacher_id] = [...(branchesByTeacher[row.teacher_id] || []), row.branch_id]
+  }
+  const levelsByTeacher = {}
+  for (const row of tlRes.data || []) {
+    levelsByTeacher[row.teacher_id] = [...(levelsByTeacher[row.teacher_id] || []), row.level_id]
+  }
+  const assignmentsByTeacher = {}
+  for (const row of tgRes.data || []) {
+    if (!assignmentsByTeacher[row.teacher_id]) assignmentsByTeacher[row.teacher_id] = {}
+    if (!assignmentsByTeacher[row.teacher_id][row.group_id]) {
+      assignmentsByTeacher[row.teacher_id][row.group_id] = { group_id: row.group_id, subject_ids: [] }
+    }
+    assignmentsByTeacher[row.teacher_id][row.group_id].subject_ids.push(row.subject_id)
+  }
+  return teachersRes.data.map((t) => {
+    const subjectIds = subjectsByTeacher[t.id] || []
+    const branchIds = branchesByTeacher[t.id] || []
+    const levelIds = levelsByTeacher[t.id] || []
+    const groupAssignments = Object.values(assignmentsByTeacher[t.id] || {})
+    const cycleIds = t.cycle_ids || []
+    const cycleRates = t.cycle_rates || {}
+    return {
+      id: t.id,
+      firstName: t.first_name,
+      lastName: t.last_name,
+      cin: t.cin || '',
+      phone: t.phone || '',
+      address: t.address || '',
+      hiredAt: t.hire_date || '',
+      photoUrl: t.photo_url || '',
+      status: t.status,
+      active: t.status === 'active',
+      paymentType: t.remuneration_type,
+      salary: t.remuneration_type === 'fixe' ? String(t.remuneration_amount ?? '') : '',
+      remuneration_amount: t.remuneration_amount,
+      fixed_salary: t.fixed_salary ?? (t.remuneration_type === 'fixe' ? t.remuneration_amount : ''),
+      cycle_ids: cycleIds,
+      cycle_rates: cycleRates,
+      rates: cycleRates,
+      subject_ids: subjectIds,
+      branch_ids: branchIds,
+      level_ids: levelIds,
+      group_assignments: groupAssignments,
+      groups: groupAssignments.map((a) => a.group_id),
+      assigned_groups: groupAssignments.map((a) => a.group_id),
+      group_names: groupAssignments.map((a) => groupMap[a.group_id]).filter(Boolean),
+      branch_id: t.branch_id,
+      subjects: subjectIds.map((id) => subjectMap[id]).filter(Boolean),
+      branches: branchIds.map((id) => branchMap[id]).filter(Boolean),
+      levels: levelIds.map((id) => levelMap[id]).filter(Boolean),
+      cycles: cycleIds.map((id) => ({ id, name: cycleMap[id] })).filter((c) => c.name),
+    }
+  })
+}
+
 export default function TeachersPage() {
+  const { selectedBranch } = useBranch()
   const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
@@ -28,90 +112,17 @@ export default function TeachersPage() {
   const [selectedTeacher, setSelectedTeacher] = useState(null)
   const [notice, setNotice] = useState(null)
 
-  useEffect(() => { fetchTeachers() }, [])
+  useEffect(() => {
+    let cancelled = false
+    fetchTeachersData(selectedBranch)
+      .then((mapped) => { if (!cancelled) setTeachers(mapped) })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
+  }, [selectedBranch])
 
-  async function fetchTeachers() {
+  const refreshTeachers = async () => {
     setLoading(true)
-    const [teachersRes, subjectsRes, levelsRes, branchesRes, cyclesRes, tsRes, tbRes, tlRes, tgRes, groupsRes] = await Promise.all([
-      supabase.from('teachers').select('*').order('created_at', { ascending: false }),
-      supabase.from('subjects').select('id, name'),
-      supabase.from('levels').select('id, name, cycle_id'),
-      supabase.from('branches').select('id, name'),
-      supabase.from('cycles').select('id, name'),
-      supabase.from('teacher_subjects').select('teacher_id, subject_id'),
-      supabase.from('teacher_branches').select('teacher_id, branch_id'),
-      supabase.from('teacher_levels').select('teacher_id, level_id'),
-      supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
-      supabase.from('groups').select('id, name').order('name'),
-    ])
-    if (teachersRes.data) {
-      const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
-      const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
-      const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
-      const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
-      const groupMap = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g.name]))
-      const subjectsByTeacher = {}
-      for (const row of tsRes.data || []) {
-        subjectsByTeacher[row.teacher_id] = [...(subjectsByTeacher[row.teacher_id] || []), row.subject_id]
-      }
-      const branchesByTeacher = {}
-      for (const row of tbRes.data || []) {
-        branchesByTeacher[row.teacher_id] = [...(branchesByTeacher[row.teacher_id] || []), row.branch_id]
-      }
-      const levelsByTeacher = {}
-      for (const row of tlRes.data || []) {
-        levelsByTeacher[row.teacher_id] = [...(levelsByTeacher[row.teacher_id] || []), row.level_id]
-      }
-      const assignmentsByTeacher = {}
-      for (const row of tgRes.data || []) {
-        if (!assignmentsByTeacher[row.teacher_id]) assignmentsByTeacher[row.teacher_id] = {}
-        if (!assignmentsByTeacher[row.teacher_id][row.group_id]) {
-          assignmentsByTeacher[row.teacher_id][row.group_id] = { group_id: row.group_id, subject_ids: [] }
-        }
-        assignmentsByTeacher[row.teacher_id][row.group_id].subject_ids.push(row.subject_id)
-      }
-      setTeachers(
-        teachersRes.data.map((t) => {
-          const subjectIds = subjectsByTeacher[t.id] || []
-          const branchIds = branchesByTeacher[t.id] || []
-          const levelIds = levelsByTeacher[t.id] || []
-          const groupAssignments = Object.values(assignmentsByTeacher[t.id] || {})
-          const cycleIds = t.cycle_ids || []
-          const cycleRates = t.cycle_rates || {}
-          return {
-            id: t.id,
-            firstName: t.first_name,
-            lastName: t.last_name,
-            cin: t.cin || '',
-            phone: t.phone || '',
-            address: t.address || '',
-            hiredAt: t.hire_date || '',
-            photoUrl: t.photo_url || '',
-            status: t.status,
-            active: t.status === 'active',
-            paymentType: t.remuneration_type,
-            salary: t.remuneration_type === 'fixe' ? String(t.remuneration_amount ?? '') : '',
-            remuneration_amount: t.remuneration_amount,
-            fixed_salary: t.fixed_salary ?? (t.remuneration_type === 'fixe' ? t.remuneration_amount : ''),
-            cycle_ids: cycleIds,
-            cycle_rates: cycleRates,
-            rates: cycleRates,
-            subject_ids: subjectIds,
-            branch_ids: branchIds,
-            level_ids: levelIds,
-            group_assignments: groupAssignments,
-            groups: groupAssignments.map((a) => a.group_id),
-            assigned_groups: groupAssignments.map((a) => a.group_id),
-            group_names: groupAssignments.map((a) => groupMap[a.group_id]).filter(Boolean),
-            branch_id: t.branch_id,
-            subjects: subjectIds.map((id) => subjectMap[id]).filter(Boolean),
-            branches: branchIds.map((id) => branchMap[id]).filter(Boolean),
-            levels: levelIds.map((id) => levelMap[id]).filter(Boolean),
-            cycles: cycleIds.map((id) => ({ id, name: cycleMap[id] })).filter((c) => c.name),
-          }
-        })
-      )
-    }
+    setTeachers(await fetchTeachersData(selectedBranch))
     setLoading(false)
   }
 
@@ -200,8 +211,9 @@ export default function TeachersPage() {
       fixed_salary: form.remuneration_type === 'fixe' ? fixedSalary : null,
       cycle_ids: form.cycles || [],
       cycle_rates: form.cycle_rates || {},
-      branch_id: branchId,
     }
+
+    if (!editing) payload.branch_id = branchId
 
     const subjects = form.subjects || []
     const levels = form.levels || []
@@ -291,7 +303,7 @@ export default function TeachersPage() {
       }
     }
 
-    await fetchTeachers()
+    await refreshTeachers()
     setFormTeacher(undefined)
     setNotice({
       type: 'success',

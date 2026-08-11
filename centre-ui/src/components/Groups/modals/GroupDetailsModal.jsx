@@ -18,24 +18,33 @@ export default function GroupDetailsModal({ group, close }) {
     let cancelled = false
     async function load() {
       setLoading(true)
-      const [studentsRes, teachersRes] = await Promise.all([
-        group && (group.studentIds || []).length > 0
-          ? supabase
-              .from('students')
-              .select('id, first_name, last_name, registration_number, phone1, registration_date')
-              .in('id', group.studentIds)
-          : Promise.resolve({ data: [], error: null }),
-        group
-          ? supabase
-              .from('teacher_group_subjects')
-              .select('teacher_id, subject_id, teachers(first_name, last_name), subjects(name)')
-              .eq('group_id', group.id)
-          : Promise.resolve({ data: [], error: null }),
-      ])
-      if (cancelled) return
-      setStudents(studentsRes.data || [])
-      setTeachers(teachersRes.data || [])
-      setLoading(false)
+      try {
+        const [studentsRes, teachersRes] = await Promise.all([
+          group && (group.studentIds || []).length > 0
+            ? supabase
+                .from('students')
+                .select('id, first_name, last_name, registration_number, phone1, registration_date')
+                .in('id', group.studentIds)
+            : Promise.resolve({ data: [], error: null }),
+          group
+            ? supabase
+                .from('teacher_group_subjects')
+                .select('teacher_id, subject_id, teachers(first_name, last_name), subjects(name)')
+                .eq('group_id', group.id)
+            : Promise.resolve({ data: [], error: null }),
+        ])
+        if (cancelled) return
+        setStudents(studentsRes.data || [])
+        setTeachers(teachersRes.data || [])
+      } catch (err) {
+        if (cancelled) {
+          console.error(err)
+          setStudents([])
+          setTeachers([])
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
     }
     load()
     return () => { cancelled = true }

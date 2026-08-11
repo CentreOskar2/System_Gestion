@@ -74,25 +74,26 @@ export default function TeacherProfile({ teacher, onBack }) {
       }
 
       const groupById = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g]))
-      const subjectByGroup = {}
+      const subjectsByGroup = {}
       for (const row of tgRes.data || []) {
-        subjectByGroup[row.group_id] = row.subject_id
+        if (!subjectsByGroup[row.group_id]) subjectsByGroup[row.group_id] = []
+        if (!subjectsByGroup[row.group_id].includes(row.subject_id)) subjectsByGroup[row.group_id].push(row.subject_id)
       }
 
       const grouped = {}
       for (const groupId of groupIds) {
         const group = groupById[groupId]
         if (!group || grouped[group.id]) continue
-        const junctionSubject = subjectByGroup[group.id]
+        const subjects = (subjectsByGroup[group.id] || []).map((id) => subjectMap[id]).filter(Boolean)
         grouped[group.id] = {
           id: group.id,
           name: group.name,
-          subject: subjectMap[group.subject_id] || subjectMap[junctionSubject] || '—',
+          subject: subjectMap[group.subject_id] || subjects[0] || '—',
           level: levelMap[group.level_id] || '—',
           capacity: group.capacity,
           status: group.status,
           studentCount: countByGroup[group.id] || 0,
-          subjects: [subjectMap[junctionSubject]].filter(Boolean),
+          subjects,
         }
       }
 

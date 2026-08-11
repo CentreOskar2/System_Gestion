@@ -3,6 +3,7 @@ import Icon from '../../Icon'
 import { supabase } from '../../../supabaseClient'
 import { attendanceItems } from '../data/mockStudents'
 import { whatsappLink } from '../../Accounting/delinquenciesApi'
+import { today } from '../utils/studentHelpers'
 
 const formatDate = (value) => {
   const [year, month, day] = String(value || '').split('-')
@@ -29,8 +30,7 @@ const buildWhatsAppMessage = (student, date, lines) => {
 }
 
 export default function AttendanceModal({ student, close }) {
-  const today = new Date().toISOString().slice(0, 10)
-  const [date, setDate] = useState(today)
+  const [date, setDate] = useState(today())
   const [selected, setSelected] = useState([])
   const [details, setDetails] = useState({})
   const [saving, setSaving] = useState(false)

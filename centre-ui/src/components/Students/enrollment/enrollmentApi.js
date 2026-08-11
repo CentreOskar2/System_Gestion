@@ -195,13 +195,18 @@ export async function nextRegistrationNumber() {
   return `${prefix}${max + 1}`
 }
 
-async function ensureFiliere(name) {
-  const { data, error } = await supabase.from('filieres').select('id').eq('name', name).maybeSingle()
+async function ensureFiliere(levelId, name) {
+  const { data, error } = await supabase
+    .from('study_branches')
+    .select('id')
+    .eq('level_id', levelId)
+    .eq('name', name)
+    .maybeSingle()
   if (error) throw new Error(error.message)
   if (data) return data.id
   const { data: inserted, error: insertError } = await supabase
-    .from('filieres')
-    .insert({ name })
+    .from('study_branches')
+    .insert({ level_id: levelId, name })
     .select('id')
     .single()
   if (insertError) throw new Error(insertError.message)
@@ -410,7 +415,8 @@ function studentPayload(form, catalog, filiereId, cycleId, status = 'active') {
 
 export async function createEnrollment(form, catalog) {
   let filiereId = null
-  if (form.track) filiereId = await ensureFiliere(form.track)
+  const level = catalog.levelByName[form.level]
+  if (form.track && level?.id) filiereId = await ensureFiliere(level.id, form.track)
   const cycleId = await resolveCycleId(form, catalog)
 
   const { data, error } = await supabase
@@ -439,7 +445,8 @@ export async function createEnrollment(form, catalog) {
 
 export async function updateEnrollment(studentId, form, catalog, status = 'active') {
   let filiereId = null
-  if (form.track) filiereId = await ensureFiliere(form.track)
+  const level = catalog.levelByName[form.level]
+  if (form.track && level?.id) filiereId = await ensureFiliere(level.id, form.track)
   const cycleId = await resolveCycleId(form, catalog)
 
   const { error } = await supabase
@@ -469,15 +476,17 @@ export async function setStudentStatus(studentId, status) {
   if (error) throw new Error(error.message)
 }
 
-export async function deactivateAllStudents() {
-  const { error } = await supabase.from('students').update({ status: 'inactive' }).neq('status', 'inactive')
+export async function deactivateAllStudents(branchId = null) {
+  let query = supabase.from('students').update({ status: 'inactive' }).neq('status', 'inactive')
+  if (branchId && branchId !== 'all') query = query.eq('branch_id', branchId)
+  const { error } = await query
   if (error) throw new Error(error.message)
 }
 
 export async function fetchStudents(branchId = null) {
   let query = supabase
     .from('students')
-    .select('*, branches(name), levels(name, cycle_id, cycles(name)), cycles(name), filieres(name)')
+    .select('*, branches(name), levels(name, cycle_id, cycles(name)), cycles(name), study_branches(name)')
     .order('created_at', { ascending: false })
   if (branchId && branchId !== 'all') query = query.eq('branch_id', branchId)
 
@@ -534,7 +543,7 @@ export async function fetchStudents(branchId = null) {
       photoUrl: s.photo_url || '',
       cycle: s.cycles?.name || s.levels?.cycles?.name || '',
       level: s.levels?.name || '',
-      track: s.filieres?.name || '',
+      track: s.study_branches?.name || '',
       branch: s.branches?.name || '',
       subjects: list.length,
       payment: 'N/A',

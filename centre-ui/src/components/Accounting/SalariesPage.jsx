@@ -9,8 +9,6 @@ import { waPhoneNumber } from './delinquenciesApi'
 import { academicMonths, currentMonthKey, monthLabelOf } from './monthUtils'
 import './SalariesPage.css'
 
-const SUBJECT_PRICE = 500
-
 function calculateSalary(teacher, groups) {
   if (teacher.paymentType === 'fixe') {
     return Number(teacher.fixed_salary) || Number(teacher.remuneration_amount) || 0
@@ -18,7 +16,7 @@ function calculateSalary(teacher, groups) {
   let total = 0
   for (const group of groups) {
     const rate = teacher.cycle_rates?.[group.cycleId] || 0
-    total += group.studentsCount * SUBJECT_PRICE * (rate / 100)
+    total += group.studentsCount * group.price * (rate / 100)
   }
   return Math.round(total)
 }
@@ -33,7 +31,7 @@ function buildSalaryMessage(teacher, monthLabel) {
   if (teacher.groups.length > 0) {
     lines.push('*تفاصيل المجموعات:*')
     teacher.groups.forEach((group) => {
-      const groupTotal = group.studentsCount * SUBJECT_PRICE
+      const groupTotal = group.studentsCount * group.price
       const net = percentage ? Math.round((groupTotal * group.rate) / 100) : groupTotal
       lines.push('')
       lines.push(`▪️ *${group.name}* (${group.subject} · ${group.level})`)
@@ -70,10 +68,10 @@ function Journal({ teacher, monthLabel, close }) {
   const [isExporting, setIsExporting] = useState(false)
   const percentage = teacher.type === 'Pourcentage'
 
-  const groupTotals = teacher.groups.map((group) => group.studentsCount * SUBJECT_PRICE)
+  const groupTotals = teacher.groups.map((group) => group.studentsCount * group.price)
   const totalSalary = percentage
     ? teacher.amount
-    : teacher.groups.reduce((sum, group) => sum + group.studentsCount * SUBJECT_PRICE, 0)
+    : teacher.groups.reduce((sum, group) => sum + group.studentsCount * group.price, 0)
 
   const downloadPdf = async () => { setIsExporting(true); try { await exportToPdf(journalRef.current, `journal-salaire-${safeFilename(teacher.name)}.pdf`) } finally { setIsExporting(false) } }
 
@@ -112,7 +110,7 @@ function Journal({ teacher, monthLabel, close }) {
                   {(group.students.length > 0 ? group.students : Array.from({ length: group.studentsCount }, (_, i) => `Élève ${i + 1}`)).map((student, i) => (
                     <tr key={`${student}-${i}`}>
                       <td>{student}</td>
-                      <td>{SUBJECT_PRICE} DH</td>
+                      <td>{group.price} DH</td>
                     </tr>
                   ))}
                 </tbody>
@@ -170,6 +168,7 @@ export default function SalariesPage() {
   const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(true)
   const [month, setMonth] = useState(currentMonthKey())
+  const [notice, setNotice] = useState(null)
   const months = useMemo(() => academicMonths(), [])
 
   const branchFilter = selectedBranch && selectedBranch !== 'all' ? selectedBranch : null
@@ -184,9 +183,9 @@ export default function SalariesPage() {
         teachersQuery = teachersQuery.eq('branch_id', branchFilter)
         groupsQuery = groupsQuery.eq('branch_id', branchFilter)
       }
-      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes] = await Promise.all([
+      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
         teachersQuery,
-        supabase.from('cycles').select('id, name'),
+        supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
         supabase.from('levels').select('id, name, cycle_id'),
         supabase.from('branches').select('id, name'),
         supabase.from('subjects').select('id, name'),
@@ -195,6 +194,7 @@ export default function SalariesPage() {
         supabase.from('group_students').select('group_id, student_id'),
         supabase.from('students').select('id, first_name, last_name'),
         supabase.from('teacher_salaries').select('teacher_id').eq('month', month).eq('status', 'paid'),
+        supabase.from('tariffs').select('level_id, subject_id, price'),
       ])
       if (cancelled) return
       setLoading(false)
@@ -203,10 +203,25 @@ export default function SalariesPage() {
       const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
       const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
       const levelById = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l]))
+      const cycleById = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c]))
       const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
       const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
       const groupById = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g]))
       const studentMap = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, `${s.first_name} ${s.last_name}`.trim()]))
+      const tariffsByLevelSubject = {}
+      for (const row of tariffsRes.data || []) {
+        if (!tariffsByLevelSubject[row.level_id]) tariffsByLevelSubject[row.level_id] = {}
+        tariffsByLevelSubject[row.level_id][row.subject_id] = Number(row.price)
+      }
+      const priceForGroup = (groupId) => {
+        const group = groupById[groupId]
+        if (!group) return 0
+        const tariff = tariffsByLevelSubject[group.level_id]?.[group.subject_id]
+        if (tariff != null) return tariff
+        const cycle = cycleById[levelById[group.level_id]?.cycle_id]
+        if (cycle?.has_fixed_price && cycle.fixed_price != null) return Number(cycle.fixed_price)
+        return 0
+      }
 
       const groupIdsByTeacher = {}
       for (const row of tgRes.data || []) {
@@ -237,6 +252,7 @@ export default function SalariesPage() {
                 branch: branchMap[group.branch_id] || '—',
                 cycleId,
                 rate,
+                price: priceForGroup(groupId),
                 students,
                 studentsCount: students.length,
               }
@@ -279,24 +295,44 @@ export default function SalariesPage() {
     const key = `${teacher.id}:${month}`
     if (validated.includes(key) || pendingSalaries.includes(teacher.id)) return
     setPendingSalaries((items) => [...items, teacher.id])
+    setNotice(null)
     const monthLabel = monthLabelOf(month)
-    await Promise.all([
-      supabase.from('expenses').insert({
-        title: `Salaire - ${teacher.name} (${monthLabel})`,
-        amount: teacher.amount,
-        month,
-        branch_id: teacher.branch_id || null,
-        type: 'Auto',
-        teacher_id: teacher.id,
-      }),
-      supabase.from('teacher_salaries').upsert(
+    let insertedExpenseId
+    try {
+      const expenseRes = await supabase
+        .from('expenses')
+        .insert({
+          title: `Salaire - ${teacher.name} (${monthLabel})`,
+          amount: teacher.amount,
+          month,
+          branch_id: teacher.branch_id || null,
+          type: 'Auto',
+          teacher_id: teacher.id,
+        })
+        .select('id')
+        .single()
+      if (expenseRes.error) throw new Error(expenseRes.error.message)
+      insertedExpenseId = expenseRes.data?.id
+
+      const salaryRes = await supabase.from('teacher_salaries').upsert(
         { teacher_id: teacher.id, month, amount: teacher.amount, status: 'paid' },
         { onConflict: 'teacher_id,month' }
-      ),
-    ])
-    setPendingSalaries((items) => items.filter((id) => id !== teacher.id))
-    setValidated((items) => (items.includes(key) ? items : [...items, key]))
-    setSelected(teacher)
+      )
+      if (salaryRes.error) {
+        if (insertedExpenseId) {
+          await supabase.from('expenses').delete().eq('id', insertedExpenseId)
+        }
+        throw new Error(salaryRes.error.message)
+      }
+
+      setValidated((items) => (items.includes(key) ? items : [...items, key]))
+      setSelected(teacher)
+    } catch (err) {
+      console.error(err)
+      setNotice(err.message || "Erreur lors de l'enregistrement du salaire")
+    } finally {
+      setPendingSalaries((items) => items.filter((id) => id !== teacher.id))
+    }
   }
 
   const openJournal = (teacher, validate) => {
@@ -345,6 +381,11 @@ export default function SalariesPage() {
             ))}
           </select>
         </label>
+        {notice && (
+          <p style={{ margin: '0 0 16px', padding: '10px 14px', background: '#fdecea', color: '#c0392b', borderRadius: 8 }}>
+            {notice}
+          </p>
+        )}
         <section className="salary-table-wrap">
           <table className="salary-table">
             <thead>

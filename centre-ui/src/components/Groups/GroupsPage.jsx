@@ -6,6 +6,8 @@ import GroupsTable from './GroupsTable'
 import GroupModal from './modals/GroupModal'
 import GroupDetailsModal from './modals/GroupDetailsModal'
 import { supabase } from '../../supabaseClient'
+import { useBranch } from '../../context/BranchContext'
+import { fetchCurrentUserBranchId } from '../../utils/currentUserBranch'
 import './Groups.css'
 
 function Toast({ notice }) {
@@ -19,6 +21,7 @@ function Toast({ notice }) {
 }
 
 export default function GroupsPage() {
+  const { selectedBranch } = useBranch()
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedGroup, setSelectedGroup] = useState(undefined) // undefined: modal closed, null: new group, object: edit group
@@ -51,6 +54,9 @@ export default function GroupsPage() {
           name: g.name,
           level_id: g.level_id,
           filiere_id: g.filiere_id,
+          subject_id: g.subject_id,
+          teacher_id: g.teacher_id,
+          branch_id: g.branch_id,
           level: levelMap[g.level_id] || '',
           filiere: filiereMap[g.filiere_id] || '',
           student_ids: studentsByGroup[g.id] || [],
@@ -81,10 +87,18 @@ export default function GroupsPage() {
   )
 
   async function saveGroup(form, editing) {
+    const branchId =
+      form.branch_id ||
+      (selectedBranch && selectedBranch !== 'all' ? selectedBranch : null) ||
+      (await fetchCurrentUserBranchId())
     const payload = {
       name: form.name,
       level_id: form.level_id || null,
       filiere_id: form.filiere_id || null,
+      subject_id: form.subject_id || null,
+      teacher_id: form.teacher_id || null,
+      capacity: form.capacity != null && form.capacity !== '' ? Number(form.capacity) : null,
+      branch_id: branchId,
     }
     if (editing) {
       const { error } = await supabase.from('groups').update(payload).eq('id', form.id)

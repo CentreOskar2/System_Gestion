@@ -97,7 +97,7 @@ export default function StudentsPage() {
 
   const handleDeactivateAll = async () => {
     try {
-      await deactivateAllStudents()
+      await deactivateAllStudents(selectedBranch)
       await refresh()
     } catch (err) {
       console.error(err)

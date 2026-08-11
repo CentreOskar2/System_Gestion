@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import Icon from '../../Icon'
-import { initials } from '../utils/studentHelpers'
+import { initials, today } from '../utils/studentHelpers'
 import { supabase } from '../../../supabaseClient'
 import { academicMonths } from '../../Accounting/monthUtils'
 import { exportToPdf, safeFilename } from '../../../utils/exportToPdf'
@@ -42,25 +42,34 @@ export default function StudentSheetModal({ student, close }) {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [subsRes, paymentsRes, gradesRes] = await Promise.all([
-        supabase
-          .from('student_subscriptions')
-          .select('subject_id, group_id, teacher_id, pricing_type, monthly_price, subjects(name), groups(name)')
-          .eq('student_id', student.id),
-        supabase
-          .from('student_payments')
-          .select('month, amount')
-          .eq('student_id', student.id),
-        supabase
-          .from('student_grades')
-          .select('id, value, exam, session, grade_date, subjects(name)')
-          .eq('student_id', student.id)
-          .order('grade_date', { ascending: false }),
-      ])
-      if (cancelled) return
-      setSubscriptions(subsRes.data || [])
-      setPayments(paymentsRes.data || [])
-      setGrades(gradesRes.data || [])
+      try {
+        const [subsRes, paymentsRes, gradesRes] = await Promise.all([
+          supabase
+            .from('student_subscriptions')
+            .select('subject_id, group_id, teacher_id, pricing_type, monthly_price, subjects(name), groups(name)')
+            .eq('student_id', student.id),
+          supabase
+            .from('student_payments')
+            .select('month, amount')
+            .eq('student_id', student.id),
+          supabase
+            .from('student_grades')
+            .select('id, value, exam, session, grade_date, subjects(name)')
+            .eq('student_id', student.id)
+            .order('grade_date', { ascending: false }),
+        ])
+        if (cancelled) return
+        setSubscriptions(subsRes.data || [])
+        setPayments(paymentsRes.data || [])
+        setGrades(gradesRes.data || [])
+      } catch (err) {
+        if (cancelled) {
+          console.error(err)
+          setSubscriptions([])
+          setPayments([])
+          setGrades([])
+        }
+      }
     }
     load()
     return () => { cancelled = true }
@@ -77,9 +86,16 @@ export default function StudentSheetModal({ student, close }) {
       if (selectedMonth !== 'all') {
         query = query.like('event_date', `${selectedMonth.slice(0, 7)}-%`)
       }
-      const { data } = await query
-      if (cancelled) return
-      setEvents(data || [])
+      try {
+        const { data } = await query
+        if (cancelled) return
+        setEvents(data || [])
+      } catch (err) {
+        if (cancelled) {
+          console.error(err)
+          setEvents([])
+        }
+      }
     }
     loadEvents()
     return () => { cancelled = true }
@@ -425,7 +441,7 @@ export default function StudentSheetModal({ student, close }) {
           </section>
 
           <footer className="pdf-footer">
-            Centre Oskar · Fiche élève générée le {formatDate(new Date().toISOString().slice(0, 10))}
+            Centre Oskar · Fiche élève générée le {formatDate(today())}
           </footer>
         </div>
       </div>

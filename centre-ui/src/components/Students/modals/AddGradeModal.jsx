@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Icon from '../../Icon'
 import { supabase } from '../../../supabaseClient'
+import { today } from '../utils/studentHelpers'
 
 export default function AddGradeModal({ student, onSaved, close }) {
   const [subjectOptions, setSubjectOptions] = useState(null)
@@ -11,7 +12,7 @@ export default function AddGradeModal({ student, onSaved, close }) {
     value: '',
     exam: '',
     session: 'S1',
-    date: new Date().toISOString().slice(0, 10),
+    date: today(),
   })
 
   useEffect(() => {
@@ -34,6 +35,13 @@ export default function AddGradeModal({ student, onSaved, close }) {
           if (!seen.has(sub.subject_id)) seen.set(sub.subject_id, sub.subjects.name)
         }
         setSubjectOptions([...seen.entries()].map(([id, name]) => ({ id, name })))
+      })
+      .catch((err) => {
+        if (cancelled) {
+          console.error(err)
+          setError(err.message || 'Erreur lors du chargement des matières')
+          setSubjectOptions([])
+        }
       })
     return () => { cancelled = true }
   }, [student.id])
