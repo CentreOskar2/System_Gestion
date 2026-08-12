@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Bot, Coins, Hand } from 'lucide-react'
 import Header from '../shared/Header'
 import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
@@ -162,17 +163,17 @@ export default function ExpensesPage() {
           <article>
             <span>Total des charges</span>
             <strong>{formatAmount(totals.auto + totals.manual)}</strong>
-            <i className="red">⊘</i>
+            <i className="red"><Coins size={22} /></i>
           </article>
           <article>
             <span>Charges automatiques</span>
             <strong>{formatAmount(totals.auto)}</strong>
-            <i>▣</i>
+            <i><Bot size={22} /></i>
           </article>
           <article>
             <span>Charges manuelles</span>
             <strong>{formatAmount(totals.manual)}</strong>
-            <i>☝</i>
+            <i><Hand size={22} /></i>
           </article>
         </section>
         <div className="expenses-actions">

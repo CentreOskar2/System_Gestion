@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
-import Icon from '../Icon'
+import { CalendarPlus, Check, Pencil, Printer, Search, TrendingUp, Users, Wallet } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { useBranch } from '../../context/BranchContext'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { syncSubscriptions } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
-import { normalizeMonthKey } from './monthUtils'
+import { normalizeMonthKey, isEnrolledInMonth } from './monthUtils'
 import {
   MONTHS,
   academicYearStart,
@@ -28,7 +28,7 @@ function AdvanceModal({ student, close, onValidate }) {
 
   const payableMonths = student.payments
     .map((status, index) => ({ month: MONTHS[index], index, status }))
-    .filter((item) => item.status !== 'paid')
+    .filter((item) => item.status !== 'paid' && item.status !== 'inactive' && item.status !== 'disabled')
 
   const paidMonths = student.payments
     .map((status, index) => ({ month: MONTHS[index], index, status }))
@@ -169,11 +169,11 @@ function Receipt({ receipts, close, catalog }) {
         <button onClick={close}>← Retour</button>
         {allReceipts.length > 1 ? (
           <button className="fee-print" disabled={isExporting} onClick={handleDownloadAll}>
-            {isExporting ? 'Génération des PDF…' : '▣  Télécharger tous les reçus'}
+            {isExporting ? 'Génération des PDF…' : <><Printer size={18} /> Télécharger tous les reçus</>}
           </button>
         ) : (
           <button className="fee-print" disabled={isExporting} onClick={() => downloadPdf()}>
-            {isExporting ? 'Génération du PDF…' : '▣  Télécharger le reçu'}
+            {isExporting ? 'Génération du PDF…' : <><Printer size={18} /> Télécharger le reçu</>}
           </button>
         )}
       </div>
@@ -259,18 +259,18 @@ function AdvanceReceiptsModal({ receipts, close, onPrint }) {
           <span><b>{student.name}</b><small>{student.code}</small></span>
           <strong className="advance-monthly-amount"><small>Dû / mois</small>{student.du_mois} DH</strong>
         </div>
-        <div className="validated">✓ Avance validée — {receipts.length} reçu{receipts.length > 1 ? 's générés' : ' généré'}</div>
+        <div className="validated"><Check size={18} /> Avance validée — {receipts.length} reçu{receipts.length > 1 ? 's générés' : ' généré'}</div>
         <div className="advance-receipt-list">
           {receipts.map((item) => (
             <div className="advance-receipt-item" key={item.month}>
               <span>Reçu — {item.month} · {item.student.du_mois} DH</span>
-              <button onClick={() => onPrint(item)}>▣ <b>Imprimer</b></button>
+              <button onClick={() => onPrint(item)}><Printer size={18} /> <b>Imprimer</b></button>
             </div>
           ))}
         </div>
         <footer className="advance-receipts-actions">
           <button className="advance-cancel" onClick={close}>Fermer</button>
-          <button className="fee-print" onClick={() => onPrint(receipts)}>▣ &nbsp; Imprimer tous les reçus</button>
+          <button className="fee-print" onClick={() => onPrint(receipts)}><Printer size={18} /> &nbsp; Imprimer tous les reçus</button>
         </footer>
       </section>
     </div>
@@ -357,17 +357,19 @@ export default function FeesPage() {
 
   const stateOf = (student, index) => {
     const key = monthDate(index)
+    if (!isEnrolledInMonth(student, key)) return 'disabled'
     const payment = (paymentsByStudent[student.id] || []).find((p) => normalizeMonthKey(p.month) === key)
     if (payment && (payment.status === 'paid' || payment.status === 'validé')) return 'paid'
     if (!student.active) return 'inactive'
-    if (isFutureMonth(index) && key !== `${academicYearStart()}-09-01`) return 'inactive'
+    if (isFutureMonth(index) && key !== `${academicYearStart()}-09-01`) return 'pending'
     return 'unpaid'
   }
 
   const paymentsOf = (student) => MONTHS.map((_, index) => stateOf(student, index))
 
   const openPayment = (student, index) => {
-    if (stateOf(student, index) !== 'inactive') setSelected({ student, index })
+    const status = stateOf(student, index)
+    if (status !== 'inactive' && status !== 'disabled') setSelected({ student, index })
   }
 
   const handleValidate = async () => {
@@ -534,13 +536,25 @@ export default function FeesPage() {
           <Link to="/accounting/profit">Bénéfice net</Link>
         </nav>
         <section className="fee-stats">
-          <article><span>Total encaissé</span><strong>{stats.totalCollected.toLocaleString('fr-FR')} DH</strong></article>
-          <article><span>Élèves facturés</span><strong>{stats.billed}</strong></article>
-          <article><span>Dû mensuel total</span><strong>{stats.dueTotal.toLocaleString('fr-FR')} DH</strong></article>
+          <article>
+            <span>Total encaissé</span>
+            <strong>{stats.totalCollected.toLocaleString('fr-FR')} DH</strong>
+            <i className="fee-stat-icon fee-stat-icon--green"><TrendingUp size={20} /></i>
+          </article>
+          <article>
+            <span>Élèves facturés</span>
+            <strong>{stats.billed}</strong>
+            <i className="fee-stat-icon"><Users size={20} /></i>
+          </article>
+          <article>
+            <span>Dû mensuel total</span>
+            <strong>{stats.dueTotal.toLocaleString('fr-FR')} DH</strong>
+            <i className="fee-stat-icon"><Wallet size={20} /></i>
+          </article>
         </section>
         {error && <div className="fees-error">Erreur : {error}</div>}
         <label className="fees-search">
-          <Icon name="search" />
+          <Search size={22} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un élève..." />
         </label>
         {loading ? (
@@ -570,20 +584,23 @@ export default function FeesPage() {
                     <td>{student.level}</td>
                     <td>{student.chosen.length}</td>
                     <td><b>{student.du_mois.toLocaleString('fr-FR')} DH</b></td>
-                    {MONTHS.map((_, index) => (
-                      <td key={index}>
-                        <button
-                          aria-label={`${MONTHS[index]} : ${stateOf(student, index)}`}
-                          className={`payment-dot ${stateOf(student, index)}`}
-                          disabled={stateOf(student, index) === 'inactive'}
-                          onClick={() => openPayment(student, index)}
-                        />
-                      </td>
-                    ))}
+                    {MONTHS.map((_, index) => {
+                      const status = stateOf(student, index)
+                      return (
+                        <td key={index}>
+                          <button
+                            aria-label={`${MONTHS[index]} : ${status}`}
+                            className={`payment-dot ${status}`}
+                            disabled={status === 'inactive' || status === 'disabled'}
+                            onClick={() => openPayment(student, index)}
+                          />
+                        </td>
+                      )
+                    })}
                     <td>
                       <div className="fee-actions">
-                        <button className="fee-edit" onClick={() => openEdit(student)}><Icon name="pencil" /></button>
-                        <button className="fee-advance" onClick={() => setAdvance(student)} disabled={!student.active} title="Paiement d'avance"><Icon name="advance" /></button>
+                        <button className="fee-edit" onClick={() => openEdit(student)}><Pencil size={23} /></button>
+                        <button className="fee-advance" onClick={() => setAdvance(student)} disabled={!student.active} title="Paiement d'avance"><CalendarPlus size={23} /></button>
                       </div>
                     </td>
                   </tr>
@@ -609,7 +626,7 @@ export default function FeesPage() {
             </div>
             {stateOf(selected.student, selected.index) === 'paid' ? (
               <>
-                <div className="validated">✓ Paiement validé</div>
+                <div className="validated"><Check size={18} /> Paiement validé</div>
                 <button
                   className="receipt-button"
                   onClick={() => {
@@ -617,7 +634,7 @@ export default function FeesPage() {
                     setSelected(null)
                   }}
                 >
-                  ▣ &nbsp; Imprimer le reçu
+                  <Printer size={18} /> &nbsp; Imprimer le reçu
                 </button>
               </>
             ) : (

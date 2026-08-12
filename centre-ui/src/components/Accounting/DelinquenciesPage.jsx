@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { AlertCircle, Clock, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
 import { initials } from '../Students/utils/studentHelpers'
 import { useAuth } from '../../context/AuthContext'
@@ -127,9 +128,9 @@ export default function DelinquenciesPage() {
           <Link to="/accounting/profit">Bénéfice net</Link>
         </nav>
         <section className="delinquency-stats">
-          <article><div><span>Élèves en retard</span><strong>{stats.count}</strong></div><i className="danger">!</i></article>
-          <article><div><span>Dette totale accumulée</span><strong>{stats.totalDebt.toLocaleString('fr-FR')} DH</strong></div><i className="danger">▣</i></article>
-          <article><div><span>Retard moyen</span><strong>{stats.avgDelay} jours</strong></div><i className="warning">◷</i></article>
+          <article><div><span>Élèves en retard</span><strong>{stats.count}</strong></div><i className="danger"><AlertCircle size={24} /></i></article>
+          <article><div><span>Dette totale accumulée</span><strong>{stats.totalDebt.toLocaleString('fr-FR')} DH</strong></div><i className="danger"><Wallet size={24} /></i></article>
+          <article><div><span>Retard moyen</span><strong>{stats.avgDelay} jours</strong></div><i className="warning"><Clock size={24} /></i></article>
         </section>
         {error && <div className="fees-error">Erreur : {error}</div>}
         {loading ? (

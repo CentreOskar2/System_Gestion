@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Coins, TrendingUp, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
@@ -239,17 +240,17 @@ export default function NetProfitPage() {
               <article>
                 <span>CA encaissé du mois</span>
                 <strong className="positive">{format(current.ca)}</strong>
-                <i>↗</i>
+                <i><TrendingUp size={22} /></i>
               </article>
               <article>
                 <span>Total charges + salaires</span>
                 <strong className="negative">{format(current.charges + current.salaries)}</strong>
-                <i>⊘</i>
+                <i><Coins size={22} /></i>
               </article>
               <article>
                 <span>Bénéfice net</span>
                 <strong className={current.net < 0 ? 'negative' : 'positive'}>{signed(current.net)}</strong>
-                <i>▣</i>
+                <i><Wallet size={22} /></i>
               </article>
             </section>
             <ProfitChart points={data.points} />

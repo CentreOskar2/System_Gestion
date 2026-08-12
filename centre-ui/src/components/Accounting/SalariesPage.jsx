@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Percent, TrendingUp, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
 import { initials } from '../Students/utils/studentHelpers'
 import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
-import { academicMonths, currentMonthKey, monthLabelOf } from './monthUtils'
+import { academicMonths, currentMonthKey, isEnrolledInMonth, monthLabelOf } from './monthUtils'
 import './SalariesPage.css'
 
 function calculateSalary(teacher, groups) {
@@ -183,7 +184,7 @@ export default function SalariesPage() {
         teachersQuery = teachersQuery.eq('branch_id', branchFilter)
         groupsQuery = groupsQuery.eq('branch_id', branchFilter)
       }
-      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
+      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes, tariffsRes, paymentsRes] = await Promise.all([
         teachersQuery,
         supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
         supabase.from('levels').select('id, name, cycle_id'),
@@ -192,9 +193,10 @@ export default function SalariesPage() {
         groupsQuery,
         supabase.from('teacher_group_subjects').select('teacher_id, group_id'),
         supabase.from('group_students').select('group_id, student_id'),
-        supabase.from('students').select('id, first_name, last_name'),
+        supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id'),
         supabase.from('teacher_salaries').select('teacher_id').eq('month', month).eq('status', 'paid'),
         supabase.from('tariffs').select('level_id, subject_id, price'),
+        supabase.from('student_payments').select('student_id, status').eq('month', month),
       ])
       if (cancelled) return
       setLoading(false)
@@ -208,6 +210,12 @@ export default function SalariesPage() {
       const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
       const groupById = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g]))
       const studentMap = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, `${s.first_name} ${s.last_name}`.trim()]))
+      const studentRowById = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s]))
+      const paidStudentIds = new Set(
+        (paymentsRes.data || [])
+          .filter((p) => p.status && (p.status === 'paid' || p.status === 'validé'))
+          .map((p) => p.student_id)
+      )
       const tariffsByLevelSubject = {}
       for (const row of tariffsRes.data || []) {
         if (!tariffsByLevelSubject[row.level_id]) tariffsByLevelSubject[row.level_id] = {}
@@ -230,8 +238,17 @@ export default function SalariesPage() {
       }
       const studentsByGroup = {}
       for (const row of gsRes.data || []) {
+        const group = groupById[row.group_id]
+        const student = studentRowById[row.student_id]
+        if (!group || !student) continue
+        const name = studentMap[row.student_id]
+        if (!name) continue
+        if (student.status !== 'active') continue
+        if (!isEnrolledInMonth({ registrationDate: student.registration_date, createdAt: student.created_at }, month)) continue
+        if (!paidStudentIds.has(row.student_id)) continue
+        if (group.branch_id && student.branch_id && group.branch_id !== student.branch_id) continue
         if (!studentsByGroup[row.group_id]) studentsByGroup[row.group_id] = []
-        if (studentMap[row.student_id]) studentsByGroup[row.group_id].push(studentMap[row.student_id])
+        studentsByGroup[row.group_id].push(name)
       }
 
       setTeachers(
@@ -361,17 +378,17 @@ export default function SalariesPage() {
           <article>
             <span>Masse salariale du mois</span>
             <strong>{massSalariale.toLocaleString('fr-FR')} DH</strong>
-            <i>▣</i>
+            <i><Wallet size={22} /></i>
           </article>
           <article>
             <span>Profs — salaire fixe</span>
             <strong>{teachers.filter((t) => t.paymentType === 'fixe').length}</strong>
-            <i>↗</i>
+            <i><TrendingUp size={22} /></i>
           </article>
           <article>
             <span>Profs — pourcentage</span>
             <strong>{teachers.filter((t) => t.paymentType === 'pourcentage').length}</strong>
-            <i>%</i>
+            <i><Percent size={22} /></i>
           </article>
         </section>
         <label className="salary-month">

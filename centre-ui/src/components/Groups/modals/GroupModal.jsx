@@ -10,9 +10,6 @@ const toForm = (group) =>
         cycle_id: '',
         level_id: group.level_id || '',
         filiere_id: group.filiere_id || '',
-        subject_id: group.subject_id || '',
-        teacher_id: group.teacher_id || '',
-        capacity: group.capacity != null ? String(group.capacity) : '',
         branch_id: group.branch_id || '',
       }
     : {
@@ -20,9 +17,6 @@ const toForm = (group) =>
         cycle_id: '',
         level_id: '',
         filiere_id: '',
-        subject_id: '',
-        teacher_id: '',
-        capacity: '',
         branch_id: '',
       }
 
@@ -41,8 +35,6 @@ export default function GroupModal({ group, close, save }) {
   const [cycles, setCycles] = useState([])
   const [levels, setLevels] = useState([])
   const [filieres, setFilieres] = useState([])
-  const [subjects, setSubjects] = useState([])
-  const [teachers, setTeachers] = useState([])
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState(null)
 
@@ -51,19 +43,15 @@ export default function GroupModal({ group, close, save }) {
   useEffect(() => {
     let cancelled = false
     async function load() {
-      const [cyclesRes, levelsRes, filieresRes, subjectsRes, teachersRes] = await Promise.all([
+      const [cyclesRes, levelsRes, filieresRes] = await Promise.all([
         supabase.from('cycles').select('id, name').order('name'),
         supabase.from('levels').select('id, name, cycle_id').order('name'),
         supabase.from('study_branches').select('id, name, level_id').order('name'),
-        supabase.from('subjects').select('id, name').order('name'),
-        supabase.from('teachers').select('id, first_name, last_name').order('last_name'),
       ])
       if (cancelled) return
       if (cyclesRes.data) setCycles(cyclesRes.data)
       if (levelsRes.data) setLevels(levelsRes.data)
       if (filieresRes.data) setFilieres(filieresRes.data)
-      if (subjectsRes.data) setSubjects(subjectsRes.data)
-      if (teachersRes.data) setTeachers(teachersRes.data)
 
       if (group?.level_id) {
         const level = levelsRes.data?.find((l) => l.id === group.level_id)
@@ -152,32 +140,6 @@ export default function GroupModal({ group, close, save }) {
                 <option value="">— Aucune —</option>
                 {availableFilieres.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select>
-            </label>
-            <label>
-              Matière (principale)
-              <select value={form.subject_id} onChange={(e) => update('subject_id', e.target.value)}>
-                <option value="">— Aucune —</option>
-                {subjects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </label>
-            <label>
-              Professeur
-              <select value={form.teacher_id} onChange={(e) => update('teacher_id', e.target.value)}>
-                <option value="">— Aucun —</option>
-                {teachers.map((item) => (
-                  <option key={item.id} value={item.id}>{`${item.first_name} ${item.last_name}`.trim()}</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Capacité (nombre de places)
-              <input
-                type="number"
-                min="1"
-                value={form.capacity}
-                onChange={(e) => update('capacity', e.target.value)}
-                placeholder="Ex. 20"
-              />
             </label>
           </div>
           <footer>

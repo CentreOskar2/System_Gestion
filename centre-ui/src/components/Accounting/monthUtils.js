@@ -39,3 +39,21 @@ export function normalizeMonthKey(value) {
   const match = /^(\d{4})-(\d{2})/.exec(String(value || ''))
   return match ? `${match[1]}-${match[2]}-01` : String(value || '')
 }
+
+export function enrollmentDateOf(student) {
+  const value =
+    student?.registrationDate ||
+    student?.enrolledAt ||
+    (student?.createdAt ? String(student.createdAt).slice(0, 10) : '')
+  return value ? String(value).slice(0, 10) : ''
+}
+
+export function enrollmentMonthKeyOf(student) {
+  const match = /^(\d{4})-(\d{2})/.exec(enrollmentDateOf(student))
+  return match ? `${match[1]}-${match[2]}-01` : ''
+}
+
+export function isEnrolledInMonth(student, monthKey) {
+  const enrolled = enrollmentMonthKeyOf(student)
+  return !enrolled || enrolled <= String(monthKey || '').slice(0, 10)
+}

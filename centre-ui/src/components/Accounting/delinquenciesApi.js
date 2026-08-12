@@ -1,5 +1,6 @@
 import { supabase } from '../../supabaseClient'
 import { fetchFeesData } from './feesApi'
+import { academicYearStart, currentMonthKey, enrollmentDateOf } from './monthUtils'
 
 export const GRACE_DAYS = 5
 export const SUBSEQUENT_DUE_DAY = 5
@@ -24,7 +25,7 @@ function dueDateFor(monthDate, regDate, isEnrollmentMonth) {
 }
 
 export function computeOverdueMonths(student, paymentsByStudent, today = new Date()) {
-  const regDate = toDate(student.registrationDate)
+  const regDate = toDate(enrollmentDateOf(student))
   if (!regDate) return []
 
   const settledMonths = new Set(
@@ -33,19 +34,20 @@ export function computeOverdueMonths(student, paymentsByStudent, today = new Dat
       .map((payment) => String(payment.month).slice(0, 7))
   )
 
+  const fiscalStart = new Date(academicYearStart(), 8, 1)
   const firstMonth = new Date(regDate.getFullYear(), regDate.getMonth(), 1)
-  const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const todayDay = startOfDay(today)
+  const firstDueMonth = firstMonth < fiscalStart ? fiscalStart : firstMonth
+  const currentMonth = toDate(currentMonthKey(today))
   const overdue = []
 
   for (
-    let cursor = new Date(firstMonth);
+    let cursor = new Date(firstDueMonth);
     cursor <= currentMonth;
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
   ) {
     const isEnrollmentMonth = cursor.getTime() === firstMonth.getTime()
     const dueDate = dueDateFor(cursor, regDate, isEnrollmentMonth)
-    if (!settledMonths.has(monthKeyOf(cursor)) && todayDay > dueDate) {
+    if (!settledMonths.has(monthKeyOf(cursor))) {
       overdue.push({ month: monthKeyOf(cursor), dueDate })
     }
   }
@@ -71,7 +73,7 @@ export function buildDebtors(students, paymentsByStudent, today = new Date()) {
       phone: student.phone,
       phone2: student.phone2,
       months: overdue.length,
-      days: diffDays(startOfDay(today), overdue[0].dueDate),
+      days: Math.max(0, diffDays(startOfDay(today), overdue[0].dueDate)),
       debt: overdue.length * duMois,
       duMois,
       overdueMonths: overdue,

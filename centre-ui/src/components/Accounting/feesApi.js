@@ -67,7 +67,7 @@ export async function fetchFeesData(branchId = null) {
 
   let studentsQuery = supabase
     .from('students')
-    .select('id, first_name, last_name, registration_number, registration_date, phone1, phone2, status, level_id, cycle_id, du_mois, branch_id, levels(name, cycle_id, cycles(name)), study_branches(name)')
+    .select('id, first_name, last_name, registration_number, registration_date, created_at, phone1, phone2, status, level_id, cycle_id, du_mois, branch_id, levels(name, cycle_id, cycles(name)), study_branches(name)')
     .order('created_at', { ascending: false })
   if (branchId && branchId !== 'all') studentsQuery = studentsQuery.eq('branch_id', branchId)
 
@@ -119,7 +119,8 @@ export async function fetchFeesData(branchId = null) {
       level_id: s.level_id,
       cycle_id: s.cycle_id,
       active: s.status === 'active',
-      registrationDate: s.registration_date || '',
+      registrationDate: s.registration_date || (s.created_at || '').slice(0, 10),
+      createdAt: s.created_at || '',
       phone: s.phone1 || '',
       phone2: s.phone2 || '',
       filiere: s.study_branches?.name || '',

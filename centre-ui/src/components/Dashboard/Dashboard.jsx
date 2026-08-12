@@ -8,7 +8,7 @@ import { useBranch } from '../../context/BranchContext'
 import { supabase } from '../../supabaseClient'
 import { buildDebtors } from '../Accounting/delinquenciesApi'
 import { subscribeFeesCache } from '../Accounting/feesApi'
-import { academicYearStart, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
+import { academicYearStart, currentMonthKey, isEnrolledInMonth, monthLabelOf } from '../Accounting/monthUtils'
 import './Dashboard.css'
 
 const MONTHS_SHORT = ['Sept', 'Oct', 'Nov', 'Déc', 'Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
@@ -241,7 +241,7 @@ export default function Dashboard() {
       setLoading(true)
       setError('')
 
-      let studentsQuery = supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date')
+      let studentsQuery = supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date, created_at')
       let paymentsQuery = supabase.from('student_payments').select('student_id, month, amount, status')
       let salariesQuery = supabase.from('teacher_salaries').select('teacher_id, month, amount, status')
       let expensesQuery = supabase.from('expenses').select('id, title, amount, month, branch_id, type')
@@ -366,7 +366,11 @@ export default function Dashboard() {
       if (branchId && studentBranch[payment.student_id] !== branchId) continue
       paidIds.add(payment.student_id)
     }
-    return activeStudents.filter((s) => (Number(s.du_mois) || 0) > 0 && !paidIds.has(s.id)).length
+    return activeStudents.filter((s) => {
+      if ((Number(s.du_mois) || 0) <= 0) return false
+      if (paidIds.has(s.id)) return false
+      return isEnrolledInMonth({ registrationDate: s.registration_date, createdAt: s.created_at }, `${monthPrefix}-01`)
+    }).length
   }, [payments, activeStudents, monthPrefix, branchId, studentBranch])
 
   const branchTeachers = useMemo(
@@ -444,7 +448,8 @@ export default function Dashboard() {
       name: `${s.first_name} ${s.last_name}`.trim(),
       active: s.status === 'active',
       du_mois: s.du_mois,
-      registrationDate: s.registration_date,
+      registrationDate: s.registration_date || (s.created_at || '').slice(0, 10),
+      createdAt: s.created_at || '',
     }))
     const byStudent = {}
     for (const payment of payments) {
@@ -454,28 +459,8 @@ export default function Dashboard() {
     return buildDebtors(debtorStudents, byStudent).length
   }, [data, students, payments])
 
-  const cycleName = useMemo(() => {
-    const cycleMap = Object.fromEntries((data?.cycles || []).map((c) => [c.id, c.name]))
-    const counts = {}
-    for (const student of activeStudents) {
-      if (!student.cycle_id) continue
-      const name = cycleMap[student.cycle_id]
-      if (!name) continue
-      counts[name] = (counts[name] || 0) + 1
-    }
-    let best = ''
-    let max = 0
-    for (const [name, count] of Object.entries(counts)) {
-      if (count > max) {
-        max = count
-        best = name
-      }
-    }
-    return best
-  }, [data, activeStudents])
-
   const greetingName = `${profile?.first_name || ''}`.trim() || 'Directeur'
-  const subtitle = `${cycleName ? `Cycle ${cycleName} · ` : ''}${monthLabel} — Année scolaire ${year}`
+  const subtitle = `${monthLabel} — Année scolaire ${year}`
 
   const goEnroll = () => navigate('/students', { state: { quick: 'enroll' } })
   const changeMonth = (label) => {
