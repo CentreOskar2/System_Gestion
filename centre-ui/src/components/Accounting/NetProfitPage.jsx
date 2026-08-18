@@ -125,20 +125,34 @@ export default function NetProfitPage() {
         expensesQuery = expensesQuery.eq('branch_id', branchFilter)
         teachersQuery = teachersQuery.eq('branch_id', branchFilter)
       }
-      const [paymentsRes, studentsRes, expensesRes, salariesRes, teachersRes, branchesRes] = await Promise.all([
+      const [paymentsRes, studentsRes, expensesRes, salariesRes, teachersRes, branchesRes, feesRes] = await Promise.all([
         supabase.from('student_payments').select('student_id, month, amount, status'),
         studentsQuery,
         expensesQuery,
         supabase.from('teacher_salaries').select('teacher_id, month, amount, status'),
         teachersQuery,
         supabase.from('branches').select('id, name, status'),
+        supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid'),
       ])
       if (cancelled) return
 
       const studentBranch = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s.branch_id]))
       const teacherBranch = Object.fromEntries((teachersRes.data || []).map((t) => [t.id, t.branch_id]))
 
-      let paidPayments = (paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status))
+      // Registration fees count toward the month they were actually cashed in.
+      const paidRegistrationFees = (feesRes.data || [])
+        .filter((fee) => fee.paid_at)
+        .map((fee) => ({
+          student_id: fee.student_id,
+          amount: fee.amount,
+          status: 'paid',
+          month: `${String(fee.paid_at).slice(0, 7)}-01`,
+        }))
+
+      let paidPayments = [
+        ...(paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status)),
+        ...paidRegistrationFees,
+      ]
       let manualExpenses = (expensesRes.data || []).filter((e) => e.type === 'Manuel')
       let validatedSalaries = (salariesRes.data || []).filter((s) => s.status === 'paid' || s.status === 'validated')
       if (branchFilter) {

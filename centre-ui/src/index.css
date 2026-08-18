@@ -49,3 +49,11 @@ p {
 svg {
   display: block;
 }
+
+.phone-error {
+  display: block;
+  margin-top: 6px;
+  color: #c0392b;
+  font-size: 0.82rem;
+  font-weight: 600;
+}

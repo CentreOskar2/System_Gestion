@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../../supabaseClient'
 import Header from '../shared/Header'
+import { normalizePhoneInput, phoneValidationMessage } from '../../utils/validators'
 import './Branches.css'
 
 function PencilIcon() {
@@ -20,10 +21,25 @@ function BranchModal({ branch, onClose, onSave }) {
   const [form, setForm] = useState(branch || emptyBranch)
   const [saving, setSaving] = useState(false)
   const isEditing = Boolean(branch?.id)
+  const [phoneError, setPhoneError] = useState('')
 
   const change = (field, value) => setForm((current) => ({ ...current, [field]: value }))
+
+  const setPhone = (value) => {
+    const nextValue = normalizePhoneInput(value)
+    change('phone', nextValue)
+    if (phoneError) setPhoneError(phoneValidationMessage(nextValue))
+  }
+
+  const validatePhone = () => {
+    const message = phoneValidationMessage(form.phone)
+    setPhoneError(message)
+    return !message
+  }
+
   const submit = async (event) => {
     event.preventDefault()
+    if (!validatePhone()) return
     setSaving(true)
     try {
       await onSave(form, isEditing)
@@ -49,7 +65,15 @@ function BranchModal({ branch, onClose, onSave }) {
           </label>
           <label>
             <span>Téléphone *</span>
-            <input type="tel" value={form.phone} onChange={(event) => change('phone', event.target.value)} required />
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={form.phone}
+              onChange={(event) => setPhone(event.target.value)}
+              onBlur={validatePhone}
+              required
+            />
+            {phoneError && <small className="phone-error">{phoneError}</small>}
           </label>
 
           <div className="branch-status-field">

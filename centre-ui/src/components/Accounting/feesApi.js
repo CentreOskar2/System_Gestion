@@ -62,6 +62,14 @@ export function studentLineItems(student, catalog) {
   return student.chosen.map((name) => ({ name, amount: priceFor(catalog, student, name) }))
 }
 
+export async function recordFirstMonthPayment({ studentId, month, amount, userId = null }) {
+  const { error } = await supabase.from('student_payments').upsert(
+    { student_id: studentId, month, amount, status: 'paid', paid_at: new Date().toISOString(), paid_by: userId },
+    { onConflict: 'student_id,month' }
+  )
+  if (error) throw new Error(error.message)
+}
+
 export async function fetchFeesData(branchId = null) {
   const catalog = await fetchCatalog()
 
@@ -142,5 +150,5 @@ export async function fetchFeesData(branchId = null) {
     })
   }
 
-  return { students, paymentsByStudent, catalog }
+  return { students, paymentsByStudent, payments: paymentsRes.data || [], catalog }
 }

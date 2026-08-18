@@ -81,6 +81,30 @@ export default function Icon({ name }) {
           <path d="M7 14h10v5.5H7Z" {...common} />
         </svg>
       )
+    case 'download':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 3.5v11" {...common} />
+          <path d="m7 10 5 4.5 5-4.5" {...common} />
+          <path d="M4.5 17.5v1.8a1.7 1.7 0 0 0 1.7 1.7h11.6a1.7 1.7 0 0 0 1.7-1.7v-1.8" {...common} />
+        </svg>
+      )
+    case 'upload':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 15.5v-11" {...common} />
+          <path d="m7 8.5 5-4.5 5 4.5" {...common} />
+          <path d="M4.5 17.5v1.8a1.7 1.7 0 0 0 1.7 1.7h11.6a1.7 1.7 0 0 0 1.7-1.7v-1.8" {...common} />
+        </svg>
+      )
+    case 'save':
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M5.8 4h10.7L19 6.5v12.7a1 1 0 0 1-1 1H5.8a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" {...common} />
+          <path d="M8 4v4.8h6V4" {...common} />
+          <path d="M8 14h8v5.2H8Z" {...common} />
+        </svg>
+      )
     case 'ban':
       return (
         <svg viewBox="0 0 24 24" aria-hidden="true">

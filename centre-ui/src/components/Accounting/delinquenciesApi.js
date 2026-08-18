@@ -24,7 +24,7 @@ function dueDateFor(monthDate, regDate, isEnrollmentMonth) {
   return new Date(monthDate.getFullYear(), monthDate.getMonth(), SUBSEQUENT_DUE_DAY)
 }
 
-export function computeOverdueMonths(student, paymentsByStudent, today = new Date()) {
+export function computeOverdueMonths(student, paymentsByStudent, today = new Date(), schoolYearStart = academicYearStart()) {
   const regDate = toDate(enrollmentDateOf(student))
   if (!regDate) return []
 
@@ -34,15 +34,22 @@ export function computeOverdueMonths(student, paymentsByStudent, today = new Dat
       .map((payment) => String(payment.month).slice(0, 7))
   )
 
-  const fiscalStart = new Date(academicYearStart(), 8, 1)
+  const yearStart = Number(schoolYearStart) || academicYearStart()
+  const fiscalStart = new Date(yearStart, 8, 1)
+  const fiscalEnd = new Date(yearStart + 1, 7, 1)
   const firstMonth = new Date(regDate.getFullYear(), regDate.getMonth(), 1)
+  if (firstMonth > fiscalEnd) return [] // student wasn't enrolled yet during this school year
+
   const firstDueMonth = firstMonth < fiscalStart ? fiscalStart : firstMonth
   const currentMonth = toDate(currentMonthKey(today))
+  const lastMonth = fiscalEnd < currentMonth ? fiscalEnd : currentMonth
+  if (firstDueMonth > lastMonth) return [] // this school year hasn't started yet, or is entirely before enrollment
+
   const overdue = []
 
   for (
     let cursor = new Date(firstDueMonth);
-    cursor <= currentMonth;
+    cursor <= lastMonth;
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
   ) {
     const isEnrollmentMonth = cursor.getTime() === firstMonth.getTime()
@@ -55,12 +62,12 @@ export function computeOverdueMonths(student, paymentsByStudent, today = new Dat
   return overdue
 }
 
-export function buildDebtors(students, paymentsByStudent, today = new Date()) {
+export function buildDebtors(students, paymentsByStudent, today = new Date(), schoolYearStart = academicYearStart()) {
   const debtors = []
   for (const student of students || []) {
     if (!student.active) continue
     const duMois = Number(student.du_mois) || 0
-    const overdue = computeOverdueMonths(student, paymentsByStudent, today)
+    const overdue = computeOverdueMonths(student, paymentsByStudent, today, schoolYearStart)
     if (overdue.length === 0 || duMois <= 0) continue
 
     overdue.sort((a, b) => a.month.localeCompare(b.month))
@@ -137,7 +144,7 @@ export async function logPaymentReminder(studentId, { months, amount, message, c
   return data
 }
 
-export async function fetchDelinquenciesData(branchId = null) {
+export async function fetchDelinquenciesData(branchId = null, schoolYearStart = academicYearStart()) {
   const [fees, templatesRes, settingsRes] = await Promise.all([
     fetchFeesData(branchId),
     supabase.from('whatsapp_templates').select('type, content').eq('type', 'payment_reminder').maybeSingle(),
@@ -146,7 +153,7 @@ export async function fetchDelinquenciesData(branchId = null) {
   if (templatesRes.error) throw new Error(templatesRes.error.message)
   if (settingsRes.error) throw new Error(settingsRes.error.message)
 
-  const debtors = buildDebtors(fees.students, fees.paymentsByStudent)
+  const debtors = buildDebtors(fees.students, fees.paymentsByStudent, new Date(), schoolYearStart)
   return {
     debtors,
     stats: summarizeDebtors(debtors),

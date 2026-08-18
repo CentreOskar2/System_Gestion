@@ -1,8 +1,33 @@
 /* eslint-disable no-irregular-whitespace */
+import { createClient } from '@supabase/supabase-js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../supabaseClient'
+import { useAuth } from '../../context/AuthContext'
 import Header from '../shared/Header'
+import Icon from '../Icon'
+import { deactivateAllStudents, reactivateAllStudents } from '../Students/enrollment/enrollmentApi'
+import { normalizePhoneInput, phoneValidationMessage } from '../../utils/validators'
+import { fetchAppSettings, saveAppSettings } from '../../appSettings'
+import { schoolYearLabel, academicYearStart } from '../Accounting/monthUtils'
 import './Settings.css'
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+const confirmationTexts = {
+  deactivate: 'DÉSACTIVER TOUS LES ÉLÈVES',
+  reactivate: 'RÉACTIVER TOUS LES ÉLÈVES',
+}
+
+const authCheckClient = SUPABASE_URL && SUPABASE_ANON_KEY
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      persistSession: false,
+    },
+  })
+  : null
 
 const textDefault = 'مرحباً، هذا تذكير من مركز أوسكار بخصوص مصاريف الدراسة للتلميذ(ة) {nom_eleve} لشهر {mois}.\n\nالمبلغ المستحق: {montant_du}.\n\nنرجو منكم تسوية الوضع في أقرب وقت ممكن.\n— مركز أوسكار'
 const salaryDefault = 'مرحباً {nom_prof},\n\nإليك كشف راتبك لشهر {mois}: {montant} درهم.\n\nشكراً على التزامك.\n— مركز أوسكار'
@@ -161,7 +186,7 @@ function TemplateEditor({ label, value, placeholders, onChange, saving, onSave, 
     <div className="template-editor">
       <header>
         <strong>{label}</strong>
-        <button className="settings-save" onClick={onSave} disabled={saving}>{saving ? 'Enregistrement...' : '▣　Enregistrer'}</button>
+        <button className="settings-save" onClick={onSave} disabled={saving}>{saving ? 'Enregistrement...' : (<><Icon name="save" /> Enregistrer</>)}</button>
       </header>
       <div className="template-vars"><span>Variables disponibles :</span>{placeholders.map((p) => <button type="button" key={p} onClick={() => insertPlaceholder(p)}>{p}</button>)}</div>
       <textarea ref={ref} value={value} onChange={(e) => onChange(e.target.value)} />
@@ -170,7 +195,151 @@ function TemplateEditor({ label, value, placeholders, onChange, saving, onSave, 
   )
 }
 
+function SchoolYearChangeModal({ year, onClose, onConfirm }) {
+  const [saving, setSaving] = useState(false)
+
+  const confirm = async () => {
+    setSaving(true)
+    try {
+      await onConfirm()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="settings-dialog-bg" onMouseDown={onClose}>
+      <section className="settings-dialog" onMouseDown={(e) => e.stopPropagation()}>
+        <button className="settings-close" onClick={onClose}>×</button>
+        <h2>Passer à l'année scolaire {year} ?</h2>
+        <p style={{ margin: '10px 0 0', color: '#647088', lineHeight: 1.5 }}>
+          Tous les élèves actifs devront repayer les frais d'inscription pour cette nouvelle année.
+          Aucune donnée existante n'est supprimée : les frais déjà réglés restent rattachés à leur année scolaire.
+        </p>
+        <footer style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 24 }}>
+          <button type="button" className="settings-outline" onClick={onClose}>Annuler</button>
+          <button type="button" className="settings-save" onClick={confirm} disabled={saving}>
+            {saving ? 'Enregistrement...' : 'Confirmer le changement'}
+          </button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+function GlobalStudentsActionModal({ mode, email, onClose, onConfirm }) {
+  const targetText = confirmationTexts[mode]
+  const warningText = mode === 'reactivate'
+    ? 'Cette action va réactiver tous les élèves désactivés de la plateforme.'
+    : 'Cette action va désactiver tous les élèves actifs de la plateforme.'
+  const [confirmText, setConfirmText] = useState('')
+  const [password, setPassword] = useState('')
+  const [passwordStatus, setPasswordStatus] = useState('idle')
+  const [passwordMessage, setPasswordMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const validatePassword = async (value) => {
+    if (!authCheckClient || !email || !value) {
+      setPasswordStatus('invalid')
+      setPasswordMessage('Veuillez saisir le mot de passe de votre compte.')
+      return false
+    }
+
+    setPasswordStatus('checking')
+    setPasswordMessage('')
+
+    const { error } = await authCheckClient.auth.signInWithPassword({ email, password: value })
+    if (error) {
+      setPasswordStatus('invalid')
+      setPasswordMessage('Mot de passe incorrect.')
+      return false
+    }
+
+    await authCheckClient.auth.signOut()
+    setPasswordStatus('valid')
+    setPasswordMessage('Mot de passe validé.')
+    return true
+  }
+
+  const confirmTextValid = confirmText === targetText
+  const passwordValid = passwordStatus === 'valid'
+  const canConfirm = confirmTextValid && passwordValid && !saving
+
+  const handlePasswordBlur = async () => {
+    if (!password.trim()) {
+      setPasswordStatus('idle')
+      setPasswordMessage('')
+      return
+    }
+    await validatePassword(password)
+  }
+
+  const submit = async (event) => {
+    event.preventDefault()
+    if (!canConfirm) return
+    setSaving(true)
+    try {
+      await onConfirm()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="settings-dialog-bg" onMouseDown={onClose}>
+      <section className="settings-dialog settings-dialog--wide" onMouseDown={(e) => e.stopPropagation()}>
+        <button className="settings-close" onClick={onClose}>×</button>
+        <h2>{mode === 'reactivate' ? 'Réactiver tous les élèves' : 'Désactiver tous les élèves'}</h2>
+        <form className="global-students-action-form" onSubmit={submit}>
+          <p className="global-students-action-warning">{warningText}</p>
+          <p className="global-students-action-helper">
+            Copiez et collez exactement : <strong>{targetText}</strong>
+          </p>
+          <label>
+            Saisissez exactement ce texte pour confirmer
+            <input
+              value={confirmText}
+              onChange={(event) => setConfirmText(event.target.value)}
+              placeholder={targetText}
+              autoComplete="off"
+              spellCheck="false"
+              required
+            />
+          </label>
+          <label>
+            Mot de passe
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => {
+                setPassword(event.target.value)
+                setPasswordStatus('idle')
+                setPasswordMessage('')
+              }}
+              onBlur={handlePasswordBlur}
+              autoComplete="current-password"
+              required
+            />
+          </label>
+          {passwordMessage && (
+            <div className={`settings-hint ${passwordStatus === 'invalid' ? 'is-error' : 'is-ok'}`}>
+              {passwordMessage}
+            </div>
+          )}
+          <footer>
+            <button type="button" className="settings-outline" onClick={onClose}>Annuler</button>
+            <button type="submit" className="settings-save" disabled={!canConfirm}>
+              {saving ? 'Confirmation...' : 'Confirmer'}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 export default function Settings() {
+  const { user, profile } = useAuth()
   const [tab, setTab] = useState('general')
   const [cycles, setCycles] = useState([])
   const [levels, setLevels] = useState([])
@@ -179,6 +348,9 @@ export default function Settings() {
   const [tariffs, setTariffs] = useState([])
   const [tariffDrafts, setTariffDrafts] = useState({})
   const [tariffSaving, setTariffSaving] = useState(false)
+  const [appSettings, setAppSettings] = useState(null)
+  const [registrationFeeDraft, setRegistrationFeeDraft] = useState('')
+  const [schoolYearDraft, setSchoolYearDraft] = useState('')
   const [centerSettings, setCenterSettings] = useState(null)
   const [centerForm, setCenterForm] = useState({ center_name: '', logo_url: '', address: '', phone: '', contact_info: '' })
   const [templates, setTemplates] = useState({})
@@ -189,12 +361,26 @@ export default function Settings() {
   const [modal, setModal] = useState(null)
   const [notice, setNotice] = useState(null)
   const [branchDrafts, setBranchDrafts] = useState({})
+  const [studentSummary, setStudentSummary] = useState({ active: 0, total: 0, loading: true })
+  const [centerPhoneError, setCenterPhoneError] = useState('')
   const noticeTimer = useRef(null)
 
   const notify = (text, type = 'success') => {
     setNotice({ text, type })
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current)
     noticeTimer.current = window.setTimeout(() => setNotice(null), 4000)
+  }
+
+  const setCenterPhone = (value) => {
+    const nextValue = normalizePhoneInput(value)
+    setCenterForm((current) => ({ ...current, phone: nextValue }))
+    if (centerPhoneError) setCenterPhoneError(phoneValidationMessage(nextValue))
+  }
+
+  const validateCenterPhone = () => {
+    const message = phoneValidationMessage(centerForm.phone)
+    setCenterPhoneError(message)
+    return !message
   }
 
   async function loadAcademicData() {
@@ -273,6 +459,37 @@ export default function Settings() {
     }
   }
 
+  async function getStudentSummary() {
+    const [activeRes, totalRes] = await Promise.all([
+      supabase.from('students').select('id', { count: 'exact', head: true }).eq('status', 'active'),
+      supabase.from('students').select('id', { count: 'exact', head: true }),
+    ])
+    const firstError = [activeRes, totalRes].find((r) => r.error)
+    if (firstError) throw new Error(firstError.error.message)
+
+    return {
+      active: activeRes.count || 0,
+      total: totalRes.count || 0,
+    }
+  }
+
+  async function loadStudentSummary() {
+    const summary = await getStudentSummary()
+    setStudentSummary({
+      active: summary.active,
+      total: summary.total,
+      loading: false,
+    })
+  }
+
+  const refreshStudentSummary = async () => {
+    try {
+      await loadStudentSummary()
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+    }
+  }
+
   useEffect(() => {
     let ignore = false
     loadAcademicData().then((data) => {
@@ -284,6 +501,40 @@ export default function Settings() {
       }
     })
     return () => { ignore = true }
+  }, [])
+
+  useEffect(() => {
+    let ignore = false
+    ;(async () => {
+      try {
+        const summary = await getStudentSummary()
+        if (!ignore) {
+          setStudentSummary({ ...summary, loading: false })
+        }
+      } catch (err) {
+        if (!ignore) notify(err.message || 'Une erreur est survenue', 'error')
+      }
+    })()
+    return () => {
+      ignore = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let ignore = false
+    fetchAppSettings()
+      .then((settings) => {
+        if (ignore) return
+        setAppSettings(settings)
+        setRegistrationFeeDraft(String(settings.registrationFee))
+        setSchoolYearDraft(settings.activeSchoolYear)
+      })
+      .catch((err) => {
+        if (!ignore) notify(err.message || 'Une erreur est survenue', 'error')
+      })
+    return () => {
+      ignore = true
+    }
   }, [])
 
   const cycleMap = useMemo(() => Object.fromEntries(cycles.map((c) => [c.id, c])), [cycles])
@@ -315,6 +566,21 @@ export default function Settings() {
     return map
   }, [levels, branchesByLevel])
 
+  const isSuperAdmin = profile?.role === 'super_admin'
+  const feeChanged = appSettings != null && String(appSettings.registrationFee) !== String(registrationFeeDraft).trim()
+  const schoolYearChanged = appSettings != null && appSettings.activeSchoolYear !== schoolYearDraft
+
+  const schoolYearChoices = useMemo(() => {
+    const start = academicYearStart()
+    const years = []
+    for (let year = start - 4; year <= start + 2; year += 1) years.push(schoolYearLabel(year))
+    if (appSettings?.activeSchoolYear && !years.includes(appSettings.activeSchoolYear)) {
+      years.push(appSettings.activeSchoolYear)
+      years.sort()
+    }
+    return years
+  }, [appSettings])
+
   const templatePreview = (text) => text
     .replace('{nom_eleve}', 'Yasmine Alaoui')
     .replace('{nom_prof}', 'M. Karimi')
@@ -328,6 +594,7 @@ export default function Settings() {
 
   const saveCenterSettings = async (e) => {
     e.preventDefault()
+    if (!validateCenterPhone()) return
     setGeneralSaving(true)
     try {
       const { error } = await supabase.from('center_settings').upsert({
@@ -474,6 +741,64 @@ export default function Settings() {
     }
   }
 
+  const saveRegistrationFee = async () => {
+    const amount = Number(registrationFeeDraft)
+    if (!Number.isFinite(amount) || amount < 0) {
+      notify('Le montant des frais d’inscription est invalide', 'error')
+      return
+    }
+    try {
+      await saveAppSettings({ registrationFee: amount })
+      setAppSettings((current) => ({ ...current, registrationFee: amount }))
+      notify('Frais d’inscription enregistrés')
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+    }
+  }
+
+  const applySchoolYearChange = async () => {
+    try {
+      await saveAppSettings({ activeSchoolYear: schoolYearDraft })
+      setAppSettings((current) => ({ ...current, activeSchoolYear: schoolYearDraft }))
+      setModal(null)
+      notify(`Année scolaire active : ${schoolYearDraft}`)
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+    }
+  }
+
+  const handleGlobalStudentsAction = async () => {
+    const mode = studentSummary.active > 0 ? 'deactivate' : 'reactivate'
+    const confirmationText = confirmationTexts[mode]
+
+    try {
+      if (mode === 'deactivate') {
+        await deactivateAllStudents()
+      } else {
+        await reactivateAllStudents()
+      }
+
+      const { error } = await supabase.from('activity_logs').insert({
+        user_id: user?.id,
+        action: mode === 'deactivate' ? 'students_deactivated_all' : 'students_reactivated_all',
+        message: mode === 'deactivate'
+          ? 'Tous les élèves actifs ont été désactivés.'
+          : 'Tous les élèves ont été réactivés.',
+        confirmation_text: confirmationText,
+        created_at: new Date().toISOString(),
+      })
+
+      if (error) throw new Error(error.message)
+
+      setModal(null)
+      await refreshStudentSummary()
+      notify(mode === 'deactivate' ? 'Tous les élèves ont été désactivés.' : 'Tous les élèves ont été réactivés.')
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+      throw err
+    }
+  }
+
   if (loading) {
     return (
       <div className="settings-page">
@@ -499,21 +824,62 @@ export default function Settings() {
         </nav>
 
         {tab === 'general' && (
-          <form className="settings-card settings-general" onSubmit={saveCenterSettings}>
-            <div>
-              <label>Nom du centre<input value={centerForm.center_name} onChange={(e) => setCenterForm((f) => ({ ...f, center_name: e.target.value }))} /></label>
-              <label>Adresse principale<input value={centerForm.address} onChange={(e) => setCenterForm((f) => ({ ...f, address: e.target.value }))} /></label>
-              <div className="settings-two">
-                <label>Téléphone<input value={centerForm.phone} onChange={(e) => setCenterForm((f) => ({ ...f, phone: e.target.value }))} /></label>
-                <label>Email<input value={centerForm.contact_info} onChange={(e) => setCenterForm((f) => ({ ...f, contact_info: e.target.value }))} /></label>
+          <>
+            <form className="settings-card settings-general" onSubmit={saveCenterSettings}>
+              <div>
+                <label>Nom du centre<input value={centerForm.center_name} onChange={(e) => setCenterForm((f) => ({ ...f, center_name: e.target.value }))} /></label>
+                <label>Adresse principale<input value={centerForm.address} onChange={(e) => setCenterForm((f) => ({ ...f, address: e.target.value }))} /></label>
+                <div className="settings-two">
+                  <label>
+                    Téléphone
+                    <input
+                      type="tel"
+                      inputMode="numeric"
+                      value={centerForm.phone}
+                      onChange={(e) => setCenterPhone(e.target.value)}
+                      onBlur={validateCenterPhone}
+                    />
+                    {centerPhoneError && <small className="phone-error">{centerPhoneError}</small>}
+                  </label>
+                  <label>Email<input value={centerForm.contact_info} onChange={(e) => setCenterForm((f) => ({ ...f, contact_info: e.target.value }))} /></label>
+                </div>
               </div>
-            </div>
-            <div className="settings-logo-col">
-              <label className="settings-logo">⇧<span>Importer un logo</span><input type="file" hidden /></label>
-              <label>URL du logo<input value={centerForm.logo_url} onChange={(e) => setCenterForm((f) => ({ ...f, logo_url: e.target.value }))} placeholder="https://..." /></label>
-            </div>
-            <button className="settings-save" disabled={generalSaving}>{generalSaving ? 'Enregistrement...' : '▣　Enregistrer'}</button>
-          </form>
+              <div className="settings-logo-col">
+                <label className="settings-logo"><Icon name="upload" /><span>Importer un logo</span><input type="file" hidden /></label>
+                <label>URL du logo<input value={centerForm.logo_url} onChange={(e) => setCenterForm((f) => ({ ...f, logo_url: e.target.value }))} placeholder="https://..." /></label>
+              </div>
+              <button className="settings-save" disabled={generalSaving}>{generalSaving ? 'Enregistrement...' : (<><Icon name="save" /> Enregistrer</>)}</button>
+            </form>
+
+            <section className="settings-card settings-global-actions">
+              <header className="settings-card-head">
+                <div>
+                  <strong>Actions globales</strong>
+                  <p>Opérations critiques sur l'ensemble des élèves de la plateforme.</p>
+                </div>
+              </header>
+
+              <div className="settings-global-actions__body">
+                <div>
+                  <p>
+                    {studentSummary.loading
+                      ? 'Chargement de l’état des élèves...'
+                      : studentSummary.active > 0
+                        ? `${studentSummary.active} élève(s) actif(s) sur ${studentSummary.total}.`
+                        : `${studentSummary.total} élève(s) actuellement désactivé(s).`}
+                  </p>
+                  <small>La confirmation exigera une saisie exacte et la validation du mot de passe de votre compte.</small>
+                </div>
+                <button
+                  className="settings-outline settings-danger-action"
+                  onClick={() => setModal({ kind: 'studentsAction', mode: studentSummary.active > 0 ? 'deactivate' : 'reactivate' })}
+                  disabled={studentSummary.loading || studentSummary.total === 0}
+                >
+                  {studentSummary.active > 0 ? 'Désactiver tous les élèves' : 'Réactiver tous les élèves'}
+                </button>
+              </div>
+            </section>
+          </>
         )}
 
         {tab === 'academic' && (
@@ -573,6 +939,58 @@ export default function Settings() {
         )}
 
         {tab === 'pricing' && (
+          <>
+          <section className="settings-card settings-registration-fee">
+            <header className="settings-card-head">
+              <div>
+                <strong>Frais d'inscription</strong>
+                <p>Montant unique payé une fois par élève et par année scolaire, distinct des frais mensuels.</p>
+              </div>
+            </header>
+            {!isSuperAdmin && (
+              <p className="registration-fee-locked">Seul un Super Admin peut modifier ces réglages.</p>
+            )}
+            <div className="registration-fee-fields">
+              <label>
+                Frais d'inscription (DH)
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={registrationFeeDraft}
+                  disabled={!isSuperAdmin}
+                  onChange={(e) => setRegistrationFeeDraft(e.target.value)}
+                />
+              </label>
+              <label>
+                Année scolaire active
+                <select
+                  value={schoolYearDraft}
+                  disabled={!isSuperAdmin}
+                  onChange={(e) => setSchoolYearDraft(e.target.value)}
+                >
+                  {schoolYearChoices.map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+              </label>
+            </div>
+            <footer className="registration-fee-footer">
+              <button
+                className="settings-save"
+                disabled={!isSuperAdmin || !feeChanged}
+                onClick={saveRegistrationFee}
+              >
+                <Icon name="save" /> Enregistrer le montant
+              </button>
+              <button
+                className="settings-save"
+                disabled={!isSuperAdmin || !schoolYearChanged}
+                onClick={() => setModal({ kind: 'schoolYear' })}
+              >
+                Changer l'année active
+              </button>
+            </footer>
+          </section>
+
           <section className="settings-card settings-pricing">
             <header className="settings-card-head">
               <div><strong>Grille tarifaire (DH / mois)</strong><p>Prix par matière et par niveau. Modifiez les tarifs puis enregistrez.</p></div>
@@ -634,9 +1052,10 @@ export default function Settings() {
               )}
 
             <footer className="pricing-footer">
-              <button className="settings-save" onClick={saveAllTariffs} disabled={tariffSaving}>{tariffSaving ? 'Enregistrement...' : '▣　Enregistrer'}</button>
+              <button className="settings-save" onClick={saveAllTariffs} disabled={tariffSaving}>{tariffSaving ? 'Enregistrement...' : (<><Icon name="save" /> Enregistrer</>)}</button>
             </footer>
           </section>
+          </>
         )}
 
         {tab === 'whatsapp' && (
@@ -667,6 +1086,22 @@ export default function Settings() {
       {modal?.kind === 'academicLevel' && <NameModal title="Ajouter un niveau" label="Nom du niveau" placeholder="ex : 1ère année" onClose={() => setModal(null)} onSave={(name) => saveLevel(name, modal.cycleId)} />}
       {modal?.kind === 'level' && <LevelModal cycles={cycles} onClose={() => setModal(null)} onSave={saveLevel} />}
       {modal?.kind === 'subject' && <NameModal title="Ajouter une matière" label="Nom de la matière" placeholder="ex : Philosophie" onClose={() => setModal(null)} onSave={saveSubject} />}
+      {modal?.kind === 'schoolYear' && (
+        <SchoolYearChangeModal
+          year={schoolYearDraft}
+          onClose={() => setModal(null)}
+          onConfirm={applySchoolYearChange}
+        />
+      )}
+      {modal?.kind === 'studentsAction' && (
+        <GlobalStudentsActionModal
+          key={modal.mode}
+          mode={modal.mode}
+          email={user?.email || profile?.email || ''}
+          onClose={() => setModal(null)}
+          onConfirm={handleGlobalStudentsAction}
+        />
+      )}
 
       <Toast notice={notice} />
     </div>

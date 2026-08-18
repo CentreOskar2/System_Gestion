@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Percent, TrendingUp, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
+import Icon from '../Icon'
 import { initials } from '../Students/utils/studentHelpers'
-import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
+import { safeFilename } from '../../utils/exportToPdf'
+import { downloadPdfDocument } from '../pdf/downloadPdf'
+import SalaryJournalPdf from '../pdf/SalaryJournalPdf'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
@@ -65,7 +68,6 @@ function openWhatsApp(teacher, monthLabel) {
 }
 
 function Journal({ teacher, monthLabel, close }) {
-  const journalRef = useRef(null)
   const [isExporting, setIsExporting] = useState(false)
   const percentage = teacher.type === 'Pourcentage'
 
@@ -74,11 +76,21 @@ function Journal({ teacher, monthLabel, close }) {
     ? teacher.amount
     : teacher.groups.reduce((sum, group) => sum + group.studentsCount * group.price, 0)
 
-  const downloadPdf = async () => { setIsExporting(true); try { await exportToPdf(journalRef.current, `journal-salaire-${safeFilename(teacher.name)}.pdf`) } finally { setIsExporting(false) } }
+  const downloadPdf = async () => {
+    setIsExporting(true)
+    try {
+      await downloadPdfDocument(
+        <SalaryJournalPdf teacher={teacher} monthLabel={monthLabel} />,
+        `journal-salaire-${safeFilename(teacher.name)}.pdf`
+      )
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   return (
     <div className="salary-overlay" onMouseDown={close}>
-      <section ref={journalRef} className="salary-journal" onMouseDown={(event) => event.stopPropagation()}>
+      <section className="salary-journal" onMouseDown={(event) => event.stopPropagation()}>
         <button className="salary-close" onClick={close}>×</button>
         <h2>Journal de salaire</h2>
         <div className="journal-teacher">
@@ -150,10 +162,9 @@ function Journal({ teacher, monthLabel, close }) {
           </div>
         </section>
         <footer>
-          <button disabled={isExporting} onClick={downloadPdf}>
-            {isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}
+          <button className="journal-download" disabled={isExporting} onClick={downloadPdf}>
+            {isExporting ? 'Génération du PDF…' : (<><Icon name="download" /> Télécharger le PDF</>)}
           </button>
-          <button className="journal-whatsapp" onClick={() => openWhatsApp(teacher, monthLabel)}>💬 Envoyer via WhatsApp</button>
           <button onClick={close}>Fermer</button>
         </footer>
       </section>
@@ -343,7 +354,10 @@ export default function SalariesPage() {
       }
 
       setValidated((items) => (items.includes(key) ? items : [...items, key]))
-      setSelected(teacher)
+      openWhatsApp(teacher, monthLabel)
+      if (teacher.paymentType !== 'fixe') {
+        setSelected(teacher)
+      }
     } catch (err) {
       console.error(err)
       setNotice(err.message || "Erreur lors de l'enregistrement du salaire")
@@ -458,15 +472,9 @@ export default function SalariesPage() {
                         <div className="salary-actions">
                           {teacher.paymentType === 'pourcentage' && (
                             <button className="journal-button" onClick={() => openJournal(teacher, false)}>
-                              ▣  Imprimer journal
+                              <Icon name="printer" /> Imprimer journal
                             </button>
                           )}
-                          <button
-                            className="whatsapp-button"
-                            onClick={() => openWhatsApp(teacher, monthLabelOf(month))}
-                          >
-                            💬 WhatsApp
-                          </button>
                           <button
                             className={isValidated ? 'validate-salary done' : 'validate-salary'}
                             disabled={isPending}

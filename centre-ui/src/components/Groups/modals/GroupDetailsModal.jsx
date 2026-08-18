@@ -9,67 +9,92 @@ const formatDate = (date) => {
 }
 
 export default function GroupDetailsModal({ group, close }) {
-  const [students, setStudents] = useState([])
-  const [teachers, setTeachers] = useState([])
+  const [teacherAssignments, setTeacherAssignments] = useState([])
   const [loading, setLoading] = useState(true)
-  const [query, setQuery] = useState('')
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
       try {
-        const [studentsRes, teachersRes] = await Promise.all([
-          group && (group.studentIds || []).length > 0
-            ? supabase
-                .from('students')
-                .select('id, first_name, last_name, registration_number, phone1, registration_date')
-                .in('id', group.studentIds)
-            : Promise.resolve({ data: [], error: null }),
+        const [teachersRes, studentSubjectsRes] = await Promise.all([
           group
             ? supabase
                 .from('teacher_group_subjects')
                 .select('teacher_id, subject_id, teachers(first_name, last_name), subjects(name)')
                 .eq('group_id', group.id)
             : Promise.resolve({ data: [], error: null }),
+          group
+            ? supabase
+                .from('student_group_subjects')
+                .select('student_id, subject_id, students(first_name, last_name, registration_number)')
+                .eq('group_id', group.id)
+            : Promise.resolve({ data: [], error: null }),
         ])
+
         if (cancelled) return
-        setStudents(studentsRes.data || [])
-        setTeachers(teachersRes.data || [])
+
+        const teacherMap = new Map()
+        for (const row of teachersRes.data || []) {
+          const teacherId = row.teacher_id
+          if (!teacherId) continue
+          const teacherName = row.teachers ? `${row.teachers.first_name} ${row.teachers.last_name}`.trim() : 'Professeur'
+          if (!teacherMap.has(teacherId)) {
+            teacherMap.set(teacherId, {
+              id: teacherId,
+              name: teacherName,
+              subjects: [],
+            })
+          }
+
+          const teacher = teacherMap.get(teacherId)
+          const subjectId = row.subject_id
+          const subjectName = row.subjects?.name || '—'
+          const existingSubject = teacher.subjects.find((subject) => subject.id === subjectId)
+          if (!existingSubject) {
+            teacher.subjects.push({
+              id: subjectId,
+              name: subjectName,
+              students: [],
+            })
+          }
+        }
+
+        const studentRows = studentSubjectsRes.data || []
+        for (const row of studentRows) {
+          for (const teacher of teacherMap.values()) {
+            const subject = teacher.subjects.find((entry) => entry.id === row.subject_id)
+            if (!subject) continue
+            const student = row.students
+            if (!student) continue
+            const studentEntry = {
+              id: row.student_id,
+              first_name: student.first_name,
+              last_name: student.last_name,
+              registration_number: student.registration_number,
+            }
+            const existingStudent = subject.students.find((item) => item.id === row.student_id)
+            if (!existingStudent) subject.students.push(studentEntry)
+          }
+        }
+
+        setTeacherAssignments([...teacherMap.values()].sort((a, b) => a.name.localeCompare(b.name)))
       } catch (err) {
         if (cancelled) {
           console.error(err)
-          setStudents([])
-          setTeachers([])
+          setTeacherAssignments([])
         }
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
+
     load()
     return () => { cancelled = true }
   }, [group])
 
   const occupied = (group.studentIds || []).length
   const free = group.capacity != null ? Math.max(0, group.capacity - occupied) : null
-
-  const filtered = students.filter((student) =>
-    `${student.first_name} ${student.last_name}`.toLowerCase().includes(query.toLowerCase())
-  )
-
-  const teachersList = []
-  for (const row of teachers) {
-    let entry = teachersList.find((t) => t.id === row.teacher_id)
-    if (!entry) {
-      entry = {
-        id: row.teacher_id,
-        name: row.teachers ? `${row.teachers.first_name} ${row.teachers.last_name}`.trim() : 'Professeur',
-        subjects: [],
-      }
-      teachersList.push(entry)
-    }
-    if (row.subjects?.name && !entry.subjects.includes(row.subjects.name)) entry.subjects.push(row.subjects.name)
-  }
 
   const meta = [
     { label: 'Niveau', value: group.level || '—' },
@@ -121,71 +146,55 @@ export default function GroupDetailsModal({ group, close }) {
 
         <div className="group-details-teachers">
           <div className="group-details-students-head">
-            <strong>Professeurs ({teachersList.length})</strong>
+            <strong>Professeurs ({teacherAssignments.length})</strong>
           </div>
           {loading ? (
             <p className="group-students-loading">Chargement des professeurs...</p>
-          ) : teachersList.length === 0 ? (
+          ) : teacherAssignments.length === 0 ? (
             <p className="group-students-empty">Aucun professeur assigné à ce groupe.</p>
           ) : (
-            <div className="group-details-teachers-list">
-              <div className="group-details-teacher-row group-details-teacher-row--head">
-                <span>Professeur</span>
-                <span>Matières enseignées</span>
-              </div>
-              {teachersList.map((teacher) => (
-                <div className="group-details-teacher-row" key={teacher.id}>
-                  <span className="group-details-teacher-name">
-                    <i>{initials(teacher.name)}</i>
-                    <b>{teacher.name}</b>
-                  </span>
-                  <span className="group-details-teacher-subjects">
-                    {teacher.subjects.length > 0 ? teacher.subjects.join(', ') : '—'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+            <div className="group-teacher-cards">
+              {teacherAssignments.map((teacher) => (
+                <article className="group-teacher-card" key={teacher.id}>
+                  <header className="group-teacher-card-header">
+                    <div className="group-details-teacher-name">
+                      <i>{initials(teacher.name)}</i>
+                    </div>
+                    <div className="group-teacher-card-meta">
+                      <b>{teacher.name}</b>
+                    </div>
+                  </header>
 
-        <div className="group-details-students">
-          <div className="group-details-students-head">
-            <strong>Élèves ({filtered.length})</strong>
-          </div>
-          {!loading && students.length > 0 && (
-            <label className="group-details-search">
-              <Icon name="search" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Rechercher un élève par nom..."
-              />
-            </label>
-          )}
-          {loading ? (
-            <p className="group-students-loading">Chargement des élèves...</p>
-          ) : students.length === 0 ? (
-            <p className="group-students-empty">Aucun élève inscrit dans ce groupe.</p>
-          ) : filtered.length === 0 ? (
-            <p className="group-students-empty">Aucun élève trouvé pour « {query} ».</p>
-          ) : (
-            <div className="group-details-students-list">
-              <div className="group-details-student-row group-details-student-row--head">
-                <span>Élève</span>
-                <span>Matricule</span>
-                <span>Téléphone</span>
-                <span>Inscription</span>
-              </div>
-              {filtered.map((student) => (
-                <div className="group-details-student-row" key={student.id}>
-                  <span className="group-details-student-name">
-                    <i>{initials(`${student.first_name} ${student.last_name}`)}</i>
-                    <b>{`${student.first_name} ${student.last_name}`}</b>
-                  </span>
-                  <span>{student.registration_number || '—'}</span>
-                  <span>{student.phone1 || '—'}</span>
-                  <span>{formatDate(student.registration_date)}</span>
-                </div>
+                  {teacher.subjects.length === 0 ? (
+                    <p className="group-students-empty">Aucune matière assignée.</p>
+                  ) : (
+                    teacher.subjects.map((subject) => (
+                      <div className="group-teacher-subject-block" key={`${teacher.id}-${subject.id}`}>
+                        <div className="group-teacher-subject-title">
+                          <span>Matière : {subject.name}</span>
+                        </div>
+                        <div className="group-teacher-subject-header">
+                          <strong>Élèves ({subject.students.length})</strong>
+                        </div>
+                        {subject.students.length === 0 ? (
+                          <p className="group-students-empty">Aucun élève associé à cette matière.</p>
+                        ) : (
+                          <div className="group-details-students-list group-details-subject-students">
+                            {subject.students.map((student) => (
+                              <div className="group-details-student-row" key={`${teacher.id}-${subject.id}-${student.id}`}>
+                                <span className="group-details-student-name">
+                                  <i>{initials(`${student.first_name} ${student.last_name}`)}</i>
+                                  <b>{`${student.first_name} ${student.last_name}`}</b>
+                                </span>
+                                <span>{student.registration_number || '—'}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </article>
               ))}
             </div>
           )}

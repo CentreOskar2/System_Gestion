@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import Header from '../shared/Header'
+import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
-import UploadIcon from './ui/UploadIcon'
 import Toggle from './ui/Toggle'
+import { normalizePhoneInput, phoneValidationMessage } from '../../utils/validators'
 
 const toForm = (teacher) =>
   teacher
@@ -64,6 +65,7 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
   const [loadingOptions, setLoadingOptions] = useState(true)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState(null)
+  const [phoneError, setPhoneError] = useState('')
 
   const cycleName = useMemo(() => {
     const map = {}
@@ -90,6 +92,18 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
   }, [])
 
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }))
+
+  const setPhone = (value) => {
+    const nextValue = normalizePhoneInput(value)
+    set('phone', nextValue)
+    if (phoneError) setPhoneError(phoneValidationMessage(nextValue))
+  }
+
+  const validatePhone = () => {
+    const message = phoneValidationMessage(form.phone)
+    setPhoneError(message)
+    return !message
+  }
 
   const toggle = (field, value) =>
     setForm((current) => {
@@ -161,6 +175,7 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
 
   const handleSubmit = async (event) => {
     event.preventDefault()
+    if (!validatePhone()) return
     setSaving(true)
     setNotice(null)
     try {
@@ -194,7 +209,7 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
                 />
               ) : (
                 <>
-                  <UploadIcon />
+                  <Icon name="upload" />
                   <span>Photo (drag & drop)</span>
                 </>
               )}
@@ -208,7 +223,18 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
               <label>Prénom<input value={form.first_name} onChange={(e) => set('first_name', e.target.value)} required /></label>
               <label>Nom<input value={form.last_name} onChange={(e) => set('last_name', e.target.value)} required /></label>
               <label>CIN<input value={form.cin} onChange={(e) => set('cin', e.target.value)} required /></label>
-              <label>Téléphone<input type="tel" value={form.phone} onChange={(e) => set('phone', e.target.value)} required /></label>
+              <label>
+                Téléphone
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  value={form.phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  onBlur={validatePhone}
+                  required
+                />
+                {phoneError && <small className="phone-error">{phoneError}</small>}
+              </label>
             </div>
             <label>Adresse<input value={form.address} onChange={(e) => set('address', e.target.value)} /></label>
             <div className="teacher-date-status">

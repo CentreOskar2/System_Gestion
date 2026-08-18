@@ -1,19 +1,33 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
 import { CalendarPlus, Check, Pencil, Printer, Search, TrendingUp, Users, Wallet } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { useBranch } from '../../context/BranchContext'
-import { exportToPdf, safeFilename } from '../../utils/exportToPdf'
+import { safeFilename } from '../../utils/exportToPdf'
+import { downloadPdfDocument } from '../pdf/downloadPdf'
+import FeeReceiptPdf from '../pdf/FeeReceiptPdf'
 import { syncSubscriptions } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
-import { normalizeMonthKey, isEnrolledInMonth } from './monthUtils'
 import {
-  MONTHS,
-  academicYearStart,
+  accountingDayBucket,
+  formatAccountingDay,
+  formatFrenchDate,
+  monthLabelOf,
+  normalizeMonthKey,
+  isEnrolledInMonth,
+  receiptDateFromRegistration,
+  schoolYearOptions,
+  schoolYearLabel,
+  currentMonthKey,
+} from './monthUtils'
+import { fetchAppSettings } from '../../appSettings'
+import { fetchRegistrationFees, payRegistrationFee } from './registrationFeesApi'
+import RegistrationFeeReceiptPdf from '../pdf/RegistrationFeeReceiptPdf'
+import {
   monthDate,
-  isFutureMonth,
   priceFor,
   studentLineItems,
   fetchFeesData,
@@ -23,15 +37,99 @@ import './FeesPage.css'
 import './FeesEditModal.css'
 import './Receipt.css'
 
-function AdvanceModal({ student, close, onValidate }) {
+const DAILY_HISTORY_STORAGE_KEY = 'fees_daily_history_v1'
+
+function buildSchoolMonths(startYear) {
+  const year = Number(startYear)
+  if (!Number.isFinite(year)) return []
+  return Array.from({ length: 12 }, (_, index) => {
+    const monthNumber = ((index + 8) % 12) + 1
+    const monthYear = index >= 4 ? year + 1 : year
+    const monthKey = `${monthYear}-${String(monthNumber).padStart(2, '0')}-01`
+    return { key: monthKey, label: monthLabelOf(monthKey) }
+  })
+}
+
+function toNumber(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
+function normalizeDateKey(value) {
+  return accountingDayBucket(value)
+}
+
+function loadDailyArchive(branchId, schoolYearStart) {
+  const key = `${DAILY_HISTORY_STORAGE_KEY}:${branchId || 'all'}:${schoolYearStart}`
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? JSON.parse(raw) : []
+  } catch {
+    return []
+  }
+}
+
+function saveDailyArchive(branchId, schoolYearStart, rows) {
+  const key = `${DAILY_HISTORY_STORAGE_KEY}:${branchId || 'all'}:${schoolYearStart}`
+  try {
+    localStorage.setItem(key, JSON.stringify(rows))
+  } catch {
+    /* storage can be unavailable */
+  }
+}
+
+function aggregateDailyRows(payments, studentsById, schoolYearStart) {
+  const start = Number(schoolYearStart) || 0
+  if (!start) return []
+  const schoolStart = `${start}-09-01`
+  const schoolEnd = `${start + 1}-08-31`
+  const byDay = new Map()
+  for (const payment of payments || []) {
+    const paidAt = payment.paid_at || payment.created_at || payment.month
+    const dayKey = normalizeDateKey(paidAt)
+    if (!dayKey) continue
+    if (dayKey < schoolStart.slice(0, 10) || dayKey > schoolEnd.slice(0, 10)) continue
+    const student = studentsById[payment.student_id]
+    if (!student) continue
+    const current = byDay.get(dayKey) || { date: dayKey, total: 0, studentIds: new Set(), paymentIds: [] }
+    current.total += toNumber(payment.amount)
+    current.studentIds.add(payment.student_id)
+    current.paymentIds.push(payment.id || `${payment.student_id}:${payment.month}:${dayKey}`)
+    byDay.set(dayKey, current)
+  }
+  return [...byDay.values()]
+    .map((row) => ({
+      date: row.date,
+      total: row.total,
+      count: row.studentIds.size,
+      paymentIds: row.paymentIds,
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+}
+
+function exportDailyHistoryToExcel(rows, schoolYearStart, branchId) {
+  const workbook = XLSX.utils.book_new()
+  const worksheet = XLSX.utils.json_to_sheet(
+    rows.map((row) => ({
+      Date: formatAccountingDay(row.date),
+      'Montant total encaissé': Number(row.total || 0),
+      'Élèves facturés / payés': Number(row.count || 0),
+    }))
+  )
+  XLSX.utils.book_append_sheet(workbook, worksheet, 'Historique journalier')
+  const fileName = `historique-journalier-${schoolYearStart}-${branchId || 'toutes-succursales'}.xlsx`
+  XLSX.writeFile(workbook, fileName)
+}
+
+function AdvanceModal({ student, close, onValidate, months }) {
   const [selectedMonths, setSelectedMonths] = useState([])
 
   const payableMonths = student.payments
-    .map((status, index) => ({ month: MONTHS[index], index, status }))
+    .map((status, index) => ({ month: months[index]?.label || '', index, status }))
     .filter((item) => item.status !== 'paid' && item.status !== 'inactive' && item.status !== 'disabled')
 
   const paidMonths = student.payments
-    .map((status, index) => ({ month: MONTHS[index], index, status }))
+    .map((status, index) => ({ month: months[index]?.label || '', index, status }))
     .filter((item) => item.status === 'paid')
 
   const toggleMonth = (index) => {
@@ -120,24 +218,26 @@ function AdvanceModal({ student, close, onValidate }) {
 }
 
 function Receipt({ receipts, close, catalog }) {
-  const receiptRefs = useRef([])
   const [isExporting, setIsExporting] = useState(false)
 
   const allReceipts = useMemo(() => {
     const list = Array.isArray(receipts) ? receipts : [receipts]
     return list.map((r) => ({
       month: r.month,
+      monthKey: r.monthKey || '',
       student: r.student,
       lines: studentLineItems(r.student, catalog),
       total: r.student.du_mois || 0,
     }))
   }, [receipts, catalog])
 
-  const downloadPdf = async (receipt = allReceipts[0], receiptIndex = 0) => {
+  const dateLabelFor = (receipt) => formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey))
+
+  const downloadPdf = async (receipt = allReceipts[0]) => {
     setIsExporting(true)
     try {
-      await exportToPdf(
-        receiptRefs.current[receiptIndex],
+      await downloadPdfDocument(
+        <FeeReceiptPdf receipt={receipt} dateLabel={dateLabelFor(receipt)} />,
         `recu-paiement-${safeFilename(receipt.student.name)}-${safeFilename(receipt.month)}.pdf`
       )
     } catch (err) {
@@ -150,9 +250,9 @@ function Receipt({ receipts, close, catalog }) {
   const handleDownloadAll = async () => {
     setIsExporting(true)
     try {
-      for (const [index, receipt] of allReceipts.entries()) {
-        await exportToPdf(
-          receiptRefs.current[index],
+      for (const receipt of allReceipts) {
+        await downloadPdfDocument(
+          <FeeReceiptPdf receipt={receipt} dateLabel={dateLabelFor(receipt)} />,
           `recu-paiement-${safeFilename(receipt.student.name)}-${safeFilename(receipt.month)}.pdf`
         )
       }
@@ -180,13 +280,7 @@ function Receipt({ receipts, close, catalog }) {
 
       <div className="fee-receipts">
         {allReceipts.map((receipt, index) => (
-          <article
-            key={index}
-            ref={(element) => {
-              receiptRefs.current[index] = element
-            }}
-            className="fee-document"
-          >
+          <article key={index} className="fee-document">
             <header>
               <div className="fee-brand">
                 <img src="/oskar-logo.png" alt="Logo Centre Oskar" />
@@ -198,7 +292,7 @@ function Receipt({ receipts, close, catalog }) {
               <div className="fee-ref">
                 <span>REÇU DE PAIEMENT MENSUEL</span>
                 <b>{receipt.student.code}</b>
-                <small>Date : {new Intl.DateTimeFormat('fr-MA').format(new Date())}</small>
+                <small>Date : {formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey))}</small>
               </div>
             </header>
 
@@ -230,7 +324,7 @@ function Receipt({ receipts, close, catalog }) {
             </section>
 
             <div className="fee-confirmation">
-              ✓ Paiement reçu en espèces — Le {new Intl.DateTimeFormat('fr-MA').format(new Date())}
+              ✓ Paiement reçu en espèces — Le {formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey))}
             </div>
 
             <footer>
@@ -239,6 +333,91 @@ function Receipt({ receipts, close, catalog }) {
             </footer>
           </article>
         ))}
+      </div>
+    </main>
+  )
+}
+
+function RegistrationFeeReceipt({ student, amount, schoolYear, paidAt, close }) {
+  const [isExporting, setIsExporting] = useState(false)
+  const dateLabel = formatFrenchDate(String(paidAt || new Date().toISOString()).slice(0, 10))
+
+  const downloadPdf = async () => {
+    setIsExporting(true)
+    try {
+      await downloadPdfDocument(
+        <RegistrationFeeReceiptPdf student={student} amount={amount} schoolYear={schoolYear} dateLabel={dateLabel} />,
+        `recu-inscription-${safeFilename(student.name)}-${safeFilename(schoolYear)}.pdf`
+      )
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
+  return (
+    <main className="fee-receipt">
+      <div className="fee-receipt-actions">
+        <button onClick={close}>← Retour</button>
+        <button className="fee-print" disabled={isExporting} onClick={downloadPdf}>
+          {isExporting ? 'Génération du PDF…' : <><Printer size={18} /> Télécharger le reçu</>}
+        </button>
+      </div>
+
+      <div className="fee-receipts">
+        <article className="fee-document">
+          <header>
+            <div className="fee-brand">
+              <img src="/oskar-logo.png" alt="Logo Centre Oskar" />
+              <div>
+                <strong>Centre Oskar</strong>
+                <span>Cours particuliers — Casablanca</span>
+              </div>
+            </div>
+            <div className="fee-ref">
+              <span>REÇU DE FRAIS D'INSCRIPTION</span>
+              <b>{student.code}</b>
+              <small>Date : {dateLabel}</small>
+            </div>
+          </header>
+
+          <section className="fee-receipt-student">
+            {student.photoUrl
+              ? <img className="fee-receipt-photo" src={student.photoUrl} alt="" />
+              : <div>{initials(student.name)}</div>}
+            <p>
+              <strong>{student.name}</strong>
+              <small>Niveau : {student.level || '—'}</small>
+              <small>Année scolaire : {schoolYear}</small>
+            </p>
+          </section>
+
+          <section className="fee-lines">
+            <h2>Détail</h2>
+            <div className="fee-line fee-line-head">
+              <span>Désignation</span>
+              <span>Montant</span>
+            </div>
+            <div className="fee-line">
+              <span>Frais d'inscription — {schoolYear}</span>
+              <span>{Number(amount).toLocaleString('fr-FR')} DH</span>
+            </div>
+            <div className="fee-total">
+              <b>Montant total payé</b>
+              <strong>{Number(amount).toLocaleString('fr-FR')} DH</strong>
+            </div>
+          </section>
+
+          <div className="fee-confirmation">
+            ✓ Paiement reçu en espèces — Le {dateLabel}
+          </div>
+
+          <footer>
+            <span>Signature parent/tuteur</span>
+            <span>Signature administration</span>
+          </footer>
+        </article>
       </div>
     </main>
   )
@@ -282,16 +461,31 @@ export default function FeesPage() {
   const { selectedBranch } = useBranch()
   const [students, setStudents] = useState([])
   const [paymentsByStudent, setPaymentsByStudent] = useState({})
+  const [payments, setPayments] = useState([])
   const [catalog, setCatalog] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
+  const [schoolYearStart, setSchoolYearStart] = useState(String(currentMonthKey().slice(0, 4)))
+  const [activeView, setActiveView] = useState('calendar')
+  const [historyMode, setHistoryMode] = useState('month')
+  const [historyMonth, setHistoryMonth] = useState('')
+  const [historyFrom, setHistoryFrom] = useState('')
+  const [historyTo, setHistoryTo] = useState('')
+  const [dailyHistory, setDailyHistory] = useState([])
   const [selected, setSelected] = useState(null)
   const [editing, setEditing] = useState(null)
   const [receipt, setReceipt] = useState(null)
   const [advance, setAdvance] = useState(null)
   const [advanceReceipts, setAdvanceReceipts] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [nowTick, setNowTick] = useState(Date.now())
+  const [appSettings, setAppSettings] = useState(null)
+  const [registrationFees, setRegistrationFees] = useState({})
+  const [feeModal, setFeeModal] = useState(null)
+  const [feeReceipt, setFeeReceipt] = useState(null)
+
+  const schoolYearKeyLabel = schoolYearLabel(schoolYearStart)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -300,6 +494,7 @@ export default function FeesPage() {
       const data = await fetchFeesData(selectedBranch)
       setStudents(data.students)
       setPaymentsByStudent(data.paymentsByStudent)
+      setPayments(data.payments || [])
       setCatalog(data.catalog)
     } catch (err) {
       console.error(err)
@@ -316,6 +511,7 @@ export default function FeesPage() {
         if (!active) return
         setStudents(data.students)
         setPaymentsByStudent(data.paymentsByStudent)
+        setPayments(data.payments || [])
         setCatalog(data.catalog)
       })
       .catch((err) => {
@@ -332,40 +528,157 @@ export default function FeesPage() {
     }
   }, [selectedBranch])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowTick(Date.now()), 60000)
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetchAppSettings()
+      .then((settings) => {
+        if (active) setAppSettings(settings)
+      })
+      .catch((err) => console.error(err))
+    return () => {
+      active = false
+    }
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetchRegistrationFees(schoolYearKeyLabel)
+      .then((rows) => {
+        if (active) setRegistrationFees(rows)
+      })
+      .catch((err) => console.error(err))
+    return () => {
+      active = false
+    }
+  }, [schoolYearKeyLabel])
+
+  // Paid registration fees are cash-ins like any other: they feed the day's totals
+  // and the daily archive alongside monthly tuition payments.
+  const allPayments = useMemo(() => {
+    const feePayments = Object.values(registrationFees)
+      .filter((fee) => fee.status === 'paid' && fee.paid_at)
+      .map((fee) => ({
+        id: `registration-${fee.id}`,
+        student_id: fee.student_id,
+        amount: fee.amount,
+        paid_at: fee.paid_at,
+        status: 'paid',
+      }))
+    return [...payments, ...feePayments]
+  }, [payments, registrationFees])
+
+  useEffect(() => {
+    // Note backend: configure pg_cron with the schedule '0 3 * * *' to archive the completed day
+    // before the counters reset for the new accounting day.
+    const archiveSeed = aggregateDailyRows(allPayments, Object.fromEntries(students.map((student) => [student.id, student])), schoolYearStart)
+    const currentDayKey = normalizeDateKey(new Date(nowTick))
+    const merged = loadDailyArchive(selectedBranch, schoolYearStart)
+    const next = [...merged]
+    for (const row of archiveSeed) {
+      if (row.date >= currentDayKey) continue
+      if (!next.some((item) => item.date === row.date)) next.push(row)
+    }
+    next.sort((a, b) => b.date.localeCompare(a.date))
+    if (JSON.stringify(next) !== JSON.stringify(merged)) {
+      saveDailyArchive(selectedBranch, schoolYearStart, next)
+    }
+    setDailyHistory(next)
+  }, [allPayments, students, selectedBranch, schoolYearStart, nowTick])
+
   const shown = useMemo(
     () => students.filter((s) => `${s.name} ${s.code}`.toLowerCase().includes(query.toLowerCase())),
     [students, query]
   )
 
+  const schoolMonths = useMemo(() => buildSchoolMonths(schoolYearStart), [schoolYearStart])
+  const schoolYearKey = `${schoolYearStart}-09-01`
+  const schoolYearEndKey = `${Number(schoolYearStart) + 1}-08-31`
+  const selectedYearPayments = useMemo(
+    () => allPayments.filter((payment) => {
+      const dayKey = normalizeDateKey(payment.paid_at || payment.month)
+      return !dayKey || (dayKey >= schoolYearKey && dayKey <= schoolYearEndKey)
+    }),
+    [allPayments, schoolYearKey, schoolYearEndKey]
+  )
+  const currentDayKey = normalizeDateKey(new Date(nowTick))
+  const currentDayPayments = useMemo(
+    () => selectedYearPayments.filter((payment) => normalizeDateKey(payment.paid_at || payment.month) === currentDayKey),
+    [selectedYearPayments, currentDayKey]
+  )
+  const currentDayStudentIds = useMemo(
+    () => [...new Set(currentDayPayments.map((payment) => payment.student_id))],
+    [currentDayPayments]
+  )
+  const filteredDailyHistory = useMemo(() => {
+    const rows = [...dailyHistory]
+    if (historyMode === 'month' && historyMonth) {
+      return rows.filter((row) => row.date.startsWith(historyMonth))
+    }
+    if (historyMode === 'range') {
+      return rows.filter((row) => {
+        if (historyFrom && row.date < historyFrom) return false
+        if (historyTo && row.date > historyTo) return false
+        return true
+      })
+    }
+    return rows
+  }, [dailyHistory, historyMode, historyMonth, historyFrom, historyTo])
+
   const stats = useMemo(() => {
-    const yearStart = academicYearStart()
-    const active = students.filter((s) => s.active)
-    const totalCollected = Object.values(paymentsByStudent)
-      .flat()
-      .reduce((sum, p) => {
-        if (p.month >= `${yearStart}-09-01` && p.month <= `${yearStart + 1}-08-31`) {
-          return sum + (p.amount || 0)
-        }
-        return sum
-      }, 0)
+    const totalCollected = currentDayPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
+    const currentDayDue = currentDayStudentIds.reduce((sum, studentId) => sum + toNumber(students.find((student) => student.id === studentId)?.du_mois), 0)
     return {
       totalCollected,
-      billed: active.length,
-      dueTotal: active.reduce((sum, s) => sum + (s.du_mois || 0), 0),
+      billed: currentDayStudentIds.length,
+      dueTotal: currentDayDue,
     }
-  }, [students, paymentsByStudent])
+  }, [students, currentDayPayments, currentDayStudentIds])
 
   const stateOf = (student, index) => {
-    const key = monthDate(index)
+    const key = monthDate(index, Number(schoolYearStart))
     if (!isEnrolledInMonth(student, key)) return 'disabled'
     const payment = (paymentsByStudent[student.id] || []).find((p) => normalizeMonthKey(p.month) === key)
     if (payment && (payment.status === 'paid' || payment.status === 'validé')) return 'paid'
     if (!student.active) return 'inactive'
-    if (isFutureMonth(index) && key !== `${academicYearStart()}-09-01`) return 'pending'
+    if (key > currentMonthKey()) return 'pending'
     return 'unpaid'
   }
 
-  const paymentsOf = (student) => MONTHS.map((_, index) => stateOf(student, index))
+  const paymentsOf = (student) => schoolMonths.map((_, index) => stateOf(student, index))
+
+  const registrationFeeOf = (student) => registrationFees[student.id] || null
+  const registrationFeeAmountFor = (student) =>
+    toNumber(registrationFeeOf(student)?.amount) || toNumber(appSettings?.registrationFee)
+
+  const validateRegistrationFee = async () => {
+    if (!feeModal || saving) return
+    setSaving(true)
+    setError('')
+    try {
+      const student = feeModal.student
+      const amount = registrationFeeAmountFor(student)
+      const saved = await payRegistrationFee({
+        studentId: student.id,
+        schoolYear: schoolYearKeyLabel,
+        amount,
+        userId: user?.id || null,
+      })
+      setRegistrationFees((prev) => ({ ...prev, [student.id]: saved }))
+      invalidateFeesCache()
+      setFeeModal(null)
+      setFeeReceipt({ student, amount, paidAt: saved.paid_at })
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const openPayment = (student, index) => {
     const status = stateOf(student, index)
@@ -378,7 +691,7 @@ export default function FeesPage() {
     setError('')
     try {
       const { student, index } = selected
-      const month = monthDate(index)
+      const month = monthDate(index, Number(schoolYearStart))
       const amount = student.du_mois || 0
       const { error: err } = await supabase
         .from('student_payments')
@@ -402,7 +715,7 @@ export default function FeesPage() {
         ],
       }))
       invalidateFeesCache()
-      setReceipt({ student: { ...student, du_mois: amount }, month: MONTHS[index], catalog })
+      setReceipt({ student: { ...student, du_mois: amount }, month: schoolMonths[index]?.label || '', monthKey: month, catalog })
       setSelected(null)
     } catch (err) {
       console.error(err)
@@ -420,7 +733,7 @@ export default function FeesPage() {
       const student = advance
       const rows = selectedMonths.map((index) => ({
         student_id: student.id,
-        month: monthDate(index),
+        month: monthDate(index, Number(schoolYearStart)),
         amount: student.du_mois || 0,
         status: 'paid',
         paid_at: new Date().toISOString(),
@@ -443,7 +756,8 @@ export default function FeesPage() {
       invalidateFeesCache()
       const generatedReceipts = selectedMonths.map((index) => ({
         student: { ...student, du_mois: student.du_mois || 0 },
-        month: MONTHS[index],
+        month: schoolMonths[index]?.label || '',
+        monthKey: monthDate(index, Number(schoolYearStart)),
       }))
       setAdvance(null)
       setAdvanceReceipts(generatedReceipts)
@@ -519,6 +833,17 @@ export default function FeesPage() {
   }
 
   if (receipt) return <Receipt receipts={receipt} close={() => setReceipt(null)} catalog={catalog} />
+  if (feeReceipt) {
+    return (
+      <RegistrationFeeReceipt
+        student={feeReceipt.student}
+        amount={feeReceipt.amount}
+        paidAt={feeReceipt.paidAt}
+        schoolYear={schoolYearKeyLabel}
+        close={() => setFeeReceipt(null)}
+      />
+    )
+  }
 
   return (
     <div className="fees-page">
@@ -535,19 +860,33 @@ export default function FeesPage() {
           <Link to="/accounting/expenses">Charges</Link>
           <Link to="/accounting/profit">Bénéfice net</Link>
         </nav>
+        <div className="fees-toolbar">
+          <label className="fees-year-select">
+            <span>Année scolaire</span>
+            <select value={schoolYearStart} onChange={(e) => setSchoolYearStart(e.target.value)}>
+              {schoolYearOptions().map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <div className="fees-view-switch">
+            <button className={activeView === 'calendar' ? 'active' : ''} onClick={() => setActiveView('calendar')}>Calendrier</button>
+            <button className={activeView === 'history' ? 'active' : ''} onClick={() => setActiveView('history')}>Historique journalier</button>
+          </div>
+        </div>
         <section className="fee-stats">
           <article>
-            <span>Total encaissé</span>
+            <span>Total encaissé aujourd'hui</span>
             <strong>{stats.totalCollected.toLocaleString('fr-FR')} DH</strong>
             <i className="fee-stat-icon fee-stat-icon--green"><TrendingUp size={20} /></i>
           </article>
           <article>
-            <span>Élèves facturés</span>
+            <span>Élèves facturés aujourd'hui</span>
             <strong>{stats.billed}</strong>
             <i className="fee-stat-icon"><Users size={20} /></i>
           </article>
           <article>
-            <span>Dû mensuel total</span>
+            <span>Dû mensuel aujourd'hui</span>
             <strong>{stats.dueTotal.toLocaleString('fr-FR')} DH</strong>
             <i className="fee-stat-icon"><Wallet size={20} /></i>
           </article>
@@ -557,7 +896,58 @@ export default function FeesPage() {
           <Search size={22} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un élève..." />
         </label>
-        {loading ? (
+        {activeView === 'history' ? (
+          <section className="daily-history-panel">
+            <div className="daily-history-toolbar">
+              <div className="daily-history-filters">
+                <button className={historyMode === 'month' ? 'active' : ''} onClick={() => setHistoryMode('month')}>Par mois</button>
+                <button className={historyMode === 'range' ? 'active' : ''} onClick={() => setHistoryMode('range')}>Par plage</button>
+              </div>
+              <button className="history-export" onClick={() => exportDailyHistoryToExcel(filteredDailyHistory, schoolYearStart, selectedBranch)}>Exporter</button>
+            </div>
+            {historyMode === 'month' ? (
+              <label className="daily-history-month">
+                <span>Mois</span>
+                <select value={historyMonth} onChange={(e) => setHistoryMonth(e.target.value)}>
+                  <option value="">Tous les mois</option>
+                  {schoolMonths.map((month) => (
+                    <option key={month.key} value={month.key.slice(0, 7)}>{month.label}</option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="daily-history-range">
+                <label><span>Du</span><input type="date" value={historyFrom} onChange={(e) => setHistoryFrom(e.target.value)} /></label>
+                <label><span>Au</span><input type="date" value={historyTo} onChange={(e) => setHistoryTo(e.target.value)} /></label>
+              </div>
+            )}
+            <div className="daily-history-summary">
+              <span>{filteredDailyHistory.length} jour{filteredDailyHistory.length > 1 ? 's' : ''} affiché{filteredDailyHistory.length > 1 ? 's' : ''}</span>
+            </div>
+            <div className="daily-history-table-wrap">
+              <table className="daily-history-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Montant total encaissé</th>
+                    <th>Élèves facturés / payés</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredDailyHistory.length === 0 ? (
+                    <tr><td colSpan={3} className="daily-history-empty">Aucune donnée pour ce filtre.</td></tr>
+                  ) : filteredDailyHistory.map((row) => (
+                    <tr key={row.date} className={row.date === currentDayKey ? 'current-day' : ''}>
+                      <td>{formatAccountingDay(row.date)}</td>
+                      <td>{Number(row.total || 0).toLocaleString('fr-FR')} DH</td>
+                      <td>{row.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : loading ? (
           <div className="fees-loading">Chargement des frais de scolarité...</div>
         ) : (
           <div className="fees-table-wrap">
@@ -568,7 +958,8 @@ export default function FeesPage() {
                   <th>Niveau</th>
                   <th>Matières</th>
                   <th>Dû/mois</th>
-                  {MONTHS.map((m) => <th key={m}>{m}</th>)}
+                  <th>Frais d'inscription</th>
+                  {schoolMonths.map((m) => <th key={m.key}>{m.label}</th>)}
                   <th aria-label="Actions" />
                 </tr>
               </thead>
@@ -584,12 +975,25 @@ export default function FeesPage() {
                     <td>{student.level}</td>
                     <td>{student.chosen.length}</td>
                     <td><b>{student.du_mois.toLocaleString('fr-FR')} DH</b></td>
-                    {MONTHS.map((_, index) => {
+                    <td>
+                      {registrationFeeOf(student)?.status === 'paid' ? (
+                        <span className="registration-badge paid">Payé</span>
+                      ) : (
+                        <button
+                          className="registration-badge unpaid"
+                          onClick={() => setFeeModal({ student })}
+                          title="Valider le paiement des frais d'inscription"
+                        >
+                          Impayé
+                        </button>
+                      )}
+                    </td>
+                    {schoolMonths.map((month, index) => {
                       const status = stateOf(student, index)
                       return (
                         <td key={index}>
                           <button
-                            aria-label={`${MONTHS[index]} : ${status}`}
+                            aria-label={`${month.label} : ${status}`}
                             className={`payment-dot ${status}`}
                             disabled={status === 'inactive' || status === 'disabled'}
                             onClick={() => openPayment(student, index)}
@@ -615,7 +1019,7 @@ export default function FeesPage() {
         <div className="fee-overlay">
           <section className="payment-modal">
             <button className="modal-close" onClick={() => setSelected(null)}>×</button>
-            <h2>Paiement — {MONTHS[selected.index]}</h2>
+            <h2>Paiement — {schoolMonths[selected.index]?.label || ''}</h2>
             <div className="payment-person">
               <i>{initials(selected.student.name)}</i>
               <span><b>{selected.student.name}</b><small>{selected.student.code}</small></span>
@@ -630,7 +1034,7 @@ export default function FeesPage() {
                 <button
                   className="receipt-button"
                   onClick={() => {
-                    setReceipt({ student: selected.student, month: MONTHS[selected.index], catalog })
+                    setReceipt({ student: selected.student, month: schoolMonths[selected.index]?.label || '', monthKey: monthDate(selected.index, Number(schoolYearStart)), catalog })
                     setSelected(null)
                   }}
                 >
@@ -642,6 +1046,26 @@ export default function FeesPage() {
                 {saving ? 'Enregistrement...' : 'Valider le paiement'}
               </button>
             )}
+          </section>
+        </div>
+      )}
+
+      {feeModal && (
+        <div className="fee-overlay">
+          <section className="payment-modal">
+            <button className="modal-close" onClick={() => setFeeModal(null)}>×</button>
+            <h2>Frais d'inscription — {schoolYearKeyLabel}</h2>
+            <div className="payment-person">
+              <i>{initials(feeModal.student.name)}</i>
+              <span><b>{feeModal.student.name}</b><small>{feeModal.student.code}</small></span>
+            </div>
+            <div className="payment-amount">
+              <span>Montant dû</span>
+              <strong>{registrationFeeAmountFor(feeModal.student).toLocaleString('fr-FR')} DH</strong>
+            </div>
+            <button className="validate-button" disabled={saving} onClick={validateRegistrationFee}>
+              {saving ? 'Enregistrement...' : 'Valider le paiement'}
+            </button>
           </section>
         </div>
       )}
@@ -741,6 +1165,7 @@ export default function FeesPage() {
           student={{ ...advance, payments: paymentsOf(advance), monthly: advance.du_mois }}
           close={() => setAdvance(null)}
           onValidate={validateAdvance}
+          months={schoolMonths}
         />
       )}
       {advanceReceipts && (

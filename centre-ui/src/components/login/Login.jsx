@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../supabaseClient'
+import { useAuth } from '../../context/AuthContext'
+import { firstAllowedPath } from '../../permissionRoutes'
 import './Login.css'
 
 function GraduationCap() {
@@ -22,26 +24,40 @@ function FieldIcon({ type }) {
 
 export default function Login() {
   const navigate = useNavigate()
+  const { user, permissions, loading: authLoading } = useAuth()
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
+
+  // Already signed in (fresh login or an existing session) — leave the login
+  // page instead of letting it be used again, once we know what the account
+  // is allowed to see.
+  useEffect(() => {
+    if (!authLoading && user) {
+      navigate(firstAllowedPath(permissions), { replace: true })
+    }
+  }, [authLoading, user, permissions, navigate])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
-    setLoading(true)
+    setSubmitting(true)
     setError(null)
 
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
     if (authError) {
       setError(authError.message)
-      setLoading(false)
+      setSubmitting(false)
       return
     }
 
-    navigate('/dashboard')
+    // Redirect happens once AuthContext resolves the account's permissions (see effect above).
+  }
+
+  if (authLoading || user) {
+    return null
   }
 
   return (
@@ -94,7 +110,7 @@ export default function Login() {
             <span>Se souvenir de moi</span>
           </label>
 
-          <button className="login-submit" type="submit" disabled={loading}>{loading ? 'Connexion...' : 'Se connecter'} <span aria-hidden="true">→</span></button>
+          <button className="login-submit" type="submit" disabled={submitting}>{submitting ? 'Connexion...' : 'Se connecter'} <span aria-hidden="true">→</span></button>
         </form>
       </section>
     </main>

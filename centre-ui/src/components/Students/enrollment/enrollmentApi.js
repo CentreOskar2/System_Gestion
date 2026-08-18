@@ -384,7 +384,7 @@ async function resolveCycleId(form, catalog) {
   return data?.cycle_id || null
 }
 
-function computeDuMois(form, catalog) {
+export function computeDuMois(form, catalog) {
   return (form.chosen || []).reduce((sum, name) => {
     const price = subjectDetailsFor(form, catalog, name).monthly_price
     return sum + (Number.isFinite(price) ? price : 0)
@@ -476,11 +476,19 @@ export async function setStudentStatus(studentId, status) {
   if (error) throw new Error(error.message)
 }
 
-export async function deactivateAllStudents(branchId = null) {
-  let query = supabase.from('students').update({ status: 'inactive' }).neq('status', 'inactive')
+async function setAllStudentsStatus(status, branchId = null) {
+  let query = supabase.from('students').update({ status }).neq('status', status)
   if (branchId && branchId !== 'all') query = query.eq('branch_id', branchId)
   const { error } = await query
   if (error) throw new Error(error.message)
+}
+
+export async function deactivateAllStudents(branchId = null) {
+  await setAllStudentsStatus('inactive', branchId)
+}
+
+export async function reactivateAllStudents(branchId = null) {
+  await setAllStudentsStatus('active', branchId)
 }
 
 export async function fetchStudents(branchId = null) {

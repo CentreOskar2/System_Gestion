@@ -6,6 +6,27 @@ export function academicYearStart() {
   return ACADEMIC_YEAR
 }
 
+export function schoolYearLabel(startYear) {
+  const year = Number(startYear)
+  if (!Number.isFinite(year)) return String(startYear || '')
+  return `${year}-${year + 1}`
+}
+
+// "2026-2027" -> 2026. Accepts a bare start year ("2026" / 2026) too.
+export function schoolYearStartOf(label) {
+  const match = /^(\d{4})/.exec(String(label || '').trim())
+  return match ? Number(match[1]) : null
+}
+
+export function schoolYearOptions(referenceStart = academicYearStart(), span = 4) {
+  const current = Number(referenceStart) || academicYearStart()
+  const years = []
+  for (let year = current - span; year <= current + 1; year += 1) {
+    years.push({ value: String(year), label: schoolYearLabel(year) })
+  }
+  return years
+}
+
 export function currentMonthKey(now = new Date()) {
   const start = academicYearStart()
   if (now.getFullYear() === start && now.getMonth() < 8) return `${start}-09-01`
@@ -51,6 +72,48 @@ export function enrollmentDateOf(student) {
 export function enrollmentMonthKeyOf(student) {
   const match = /^(\d{4})-(\d{2})/.exec(enrollmentDateOf(student))
   return match ? `${match[1]}-${match[2]}-01` : ''
+}
+
+export function parseLocalDate(value) {
+  const text = String(value || '').trim()
+  if (!text) return null
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text)
+  if (!match) return null
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+export function formatFrenchDate(value) {
+  const date = value instanceof Date ? value : parseLocalDate(value)
+  if (!date) return '—'
+  return new Intl.DateTimeFormat('fr-MA').format(date)
+}
+
+export function receiptDateFromRegistration(registrationDate, monthKey) {
+  const regDate = parseLocalDate(registrationDate)
+  const monthDate = parseLocalDate(monthKey)
+  if (!regDate && !monthDate) return null
+  if (!regDate) return monthDate
+  if (!monthDate) return regDate
+  return new Date(monthDate.getFullYear(), monthDate.getMonth(), regDate.getDate())
+}
+
+export function accountingDayBucket(value = new Date()) {
+  const date = value instanceof Date ? new Date(value) : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  if (date.getHours() < 3) date.setDate(date.getDate() - 1)
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+export function accountingDayStart(value = new Date()) {
+  const bucket = accountingDayBucket(value)
+  return bucket ? new Date(`${bucket}T03:00:00`) : null
+}
+
+export function formatAccountingDay(value) {
+  const date = parseLocalDate(value)
+  if (!date) return '—'
+  return new Intl.DateTimeFormat('fr-MA', { day: '2-digit', month: 'long', year: 'numeric' }).format(date)
 }
 
 export function isEnrolledInMonth(student, monthKey) {

@@ -260,6 +260,104 @@
   font-size: 1.05rem;
 }
 
+.group-teacher-cards {
+  display: grid;
+  gap: 18px;
+}
+
+.group-teacher-card {
+  padding: 16px 18px;
+  border: 1px solid #dce3ed;
+  border-radius: 14px;
+  background: #f9fbff;
+}
+
+.group-teacher-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.group-teacher-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.group-teacher-card-meta b {
+  color: #142033;
+  font-size: 1rem;
+}
+
+.group-teacher-subject-block {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #e3eaf4;
+}
+
+.group-teacher-subject-title {
+  margin-bottom: 10px;
+  color: #47566d;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.group-teacher-subject-header {
+  margin-bottom: 8px;
+}
+
+.group-teacher-subject-header strong {
+  color: #142033;
+  font-size: 0.96rem;
+}
+
+.group-details-subject-students {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e4ebf5;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.group-details-subject-students .group-details-student-row {
+  grid-template-columns: minmax(0, 1.5fr) minmax(90px, 0.7fr);
+}
+
+.group-details-teacher-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.group-details-teacher-name i {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #315fec;
+  color: #fff;
+  font-size: 0.8rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.group-teacher-card .group-students-empty {
+  margin: 8px 0 0;
+  padding: 12px 10px;
+  border-radius: 10px;
+  background: #fff;
+  border: 1px dashed #dfe7f2;
+}
+
+@media (max-width: 600px) {
+  .group-details-subject-students .group-details-student-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .group-details-students-head button {
   display: inline-flex;
   align-items: center;

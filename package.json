@@ -1,0 +1,11 @@
+{
+  "name": "center_oskar_managment_system",
+  "private": true,
+  "scripts": {
+    "start": "npm --prefix centre-ui run start",
+    "dev": "npm --prefix centre-ui run dev",
+    "build": "npm --prefix centre-ui run build",
+    "lint": "npm --prefix centre-ui run lint",
+    "preview": "npm --prefix centre-ui run preview"
+  }
+}

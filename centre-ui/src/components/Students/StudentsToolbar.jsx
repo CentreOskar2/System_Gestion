@@ -1,6 +1,6 @@
 import Icon from '../Icon'
 
-export default function StudentsToolbar({ onAddStudent, onDeactivateAll, onOpenAbsenceSheet }) {
+export default function StudentsToolbar({ onAddStudent, onOpenAbsenceSheet }) {
   return (
     <div className="students-heading">
       <div>
@@ -10,9 +10,6 @@ export default function StudentsToolbar({ onAddStudent, onDeactivateAll, onOpenA
       <div className="actions">
         <button className="print-button" onClick={onOpenAbsenceSheet}>
           <Icon name="printer" /> Imprimer fiche d'absence vierge
-        </button>
-        <button className="deactivate-all" onClick={onDeactivateAll}>
-          <Icon name="ban" /> Désactiver tous les élèves
         </button>
         <button className="student-add" onClick={onAddStudent}>
           <Icon name="user-plus" /> Ajouter un élève

@@ -68,15 +68,6 @@
   background-color: #f9fafb;
 }
 
-.deactivate-all {
-  border: none;
-  background-color: #ef4444;
-  color: #ffffff;
-}
-.deactivate-all:hover {
-  background-color: #dc2626;
-}
-
 .student-add {
   border: none;
   background-color: #3b82f6;
@@ -335,8 +326,11 @@ img.student-table-avatar {
 .attendance-modal, .grade-modal { position: relative; width: min(100%, 560px); padding: 32px; border: 1px solid #e4eaf3; border-radius: 18px; background: #fff; box-shadow: 0 24px 70px rgba(8, 20, 47, .25); }
 .student-close { position: absolute; top: 16px; right: 16px; display: grid; width: 34px; height: 34px; padding: 0; place-items: center; border: 0; border-radius: 9px; background: #f3f6fb; color: #536178; font-size: 1.4rem; cursor: pointer; }.student-close:hover { background: #e7edf8; color: #172033; }
 .attendance-modal h2, .grade-modal h2 { margin: 0 42px 6px 0; color: #172033; font-size: 1.35rem; }.attendance-modal > p { margin: 0 0 24px; color: #647088; }
-.attendance-date, .grade-modal label { display: grid; gap: 8px; color: #34425b; font-size: .9rem; font-weight: 650; }.attendance-modal input, .attendance-modal textarea, .grade-modal input, .grade-modal select { box-sizing: border-box; width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #d9e1ee; border-radius: 9px; background: #fff; color: #172033; font: inherit; }.attendance-modal textarea { min-height: 76px; resize: vertical; }
-.attendance-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; padding: 14px; border: 1px solid #e2e8f2; border-radius: 11px; cursor: pointer; transition: .18s ease; }.attendance-item:hover, .attendance-item.checked { border-color: #a9c0ff; background: #f5f8ff; }.attendance-item > span { display: flex; align-items: center; gap: 10px; font-weight: 600; }.attendance-item input[type=checkbox] { width: 18px; min-height: 18px; accent-color: #315fec; }.attendance-item > label { width: 180px; font-size: .78rem; }
+.attendance-group, .attendance-date, .grade-modal label { display: grid; gap: 8px; color: #34425b; font-size: .9rem; font-weight: 650; }
+.attendance-group { margin-bottom: 18px; }
+.attendance-modal input, .attendance-modal select, .attendance-modal textarea, .grade-modal input, .grade-modal select { box-sizing: border-box; width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #d9e1ee; border-radius: 9px; background: #fff; color: #172033; font: inherit; }.attendance-modal select { cursor: pointer; }.attendance-modal select:disabled { cursor: not-allowed; opacity: .65; }.attendance-modal textarea { min-height: 76px; resize: vertical; }
+.attendance-item { display: grid; gap: 10px; margin-top: 12px; padding: 14px; border: 1px solid #e2e8f2; border-radius: 11px; cursor: pointer; transition: .18s ease; }.attendance-item:hover, .attendance-item.checked { border-color: #a9c0ff; background: #f5f8ff; }.attendance-item > span { display: flex; align-items: center; gap: 10px; font-weight: 600; }.attendance-item input[type=checkbox] { width: 18px; min-height: 18px; accent-color: #315fec; }.attendance-item .attendance-detail-field { display: grid; gap: 8px; width: 100%; font-size: .78rem; }
+.attendance-item .attendance-detail-field span { display: block; color: #51607a; }
 .attendance-modal footer, .grade-modal footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 26px; }.attendance-modal footer button, .grade-modal footer button { min-height: 42px; padding: 0 17px; border: 1px solid #d9e1ee; border-radius: 9px; background: #fff; color: #34425b; font-weight: 700; cursor: pointer; }.attendance-modal footer button:last-child, .grade-modal footer button:last-child { border-color: #315fec; background: #315fec; color: #fff; }.grade-modal form { display: grid; gap: 17px; margin-top: 24px; }.grade-modal form > div { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
 .student-sheet { position: relative; display: grid; grid-template-columns: 280px minmax(0, 1fr); width: min(1100px, 100%); max-height: calc(100vh - 48px); overflow: auto; border-radius: 20px; background: #fff; box-shadow: 0 24px 70px rgba(8, 20, 47, .25); }.student-sheet > aside { padding: 34px 27px; background: #f5f8ff; color: #526078; }.sheet-profile { margin-bottom: 26px; text-align: center; color: #172033; }.sheet-profile > span { display: grid; width: 72px; height: 72px; margin: 0 auto 13px; place-items: center; border-radius: 50%; background: #315fec; color: #fff; font-size: 1.25rem; font-weight: 800; }.sheet-profile-avatar-img { width: 72px; height: 72px; margin: 0 auto 13px; border-radius: 50%; object-fit: cover; }.sheet-profile h2 { margin: 0; font-size: 1.22rem; }.sheet-profile small, .sheet-profile b { display: block; margin-top: 5px; color: #647088; }.sheet-profile b { color: #315fec; font-size: .86rem; }.student-sheet aside > p { margin: 14px 0; font-size: .9rem; line-height: 1.45; }.sheet-contact { display: grid; gap: 9px; margin-top: 23px; }.sheet-contact button { min-height: 39px; border: 1px solid #cedbf7; border-radius: 9px; background: #fff; color: #315fec; font-weight: 700; cursor: pointer; }

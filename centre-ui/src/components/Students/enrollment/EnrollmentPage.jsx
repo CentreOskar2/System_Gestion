@@ -5,8 +5,14 @@ import Step2Classification from './steps/Step2Classification'
 import Step3SubjectsGroups from './steps/Step3SubjectsGroups'
 import Step4Billing from './steps/Step4Billing'
 import EnrollmentReceipt from '../EnrollmentReceipt'
-import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment, teacherForGroupSubject } from './enrollmentApi'
+import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment, teacherForGroupSubject, computeDuMois } from './enrollmentApi'
 import { today } from '../utils/studentHelpers'
+import { isValidPhoneNumber, normalizePhoneInput, phoneValidationMessage } from '../../../utils/validators'
+import { fetchAppSettings } from '../../../appSettings'
+import { recordRegistrationFee } from '../../Accounting/registrationFeesApi'
+import { recordFirstMonthPayment, invalidateFeesCache } from '../../Accounting/feesApi'
+import { normalizeMonthKey } from '../../Accounting/monthUtils'
+import { useAuth } from '../../../context/AuthContext'
 import '../Enrollment.css'
 
 const STEPS = ['Détails personnels', 'Classification', 'Matières & groupes', 'Facturation']
@@ -33,6 +39,8 @@ const createInitialForm = (student) => {
       groupSelections: [],
       photoUrl: '',
       photoFile: null,
+      registrationFeePaidNow: true,
+      firstMonthPaidNow: true,
     }
   }
 
@@ -59,17 +67,22 @@ const createInitialForm = (student) => {
     photoUrl: student.photoUrl || '',
     photoFile: null,
     branch_id: student.branch_id,
+    registrationFeePaidNow: true,
+    firstMonthPaidNow: true,
   }
 }
 
 export default function EnrollmentPage({ close, finish, student, mode = 'create', catalog: providedCatalog }) {
+  const { user } = useAuth()
   const [catalog, setCatalog] = useState(providedCatalog || null)
   const [step, setStep] = useState(1)
   const [form, setForm] = useState(() => createInitialForm(student))
+  const [appSettings, setAppSettings] = useState(null)
   const [receiptOpen, setReceiptOpen] = useState(false)
   const [codeReady, setCodeReady] = useState(!student || Boolean(student?.code))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [fieldErrors, setFieldErrors] = useState({ phone: '', phone2: '' })
 
   useEffect(() => {
     let active = true
@@ -86,6 +99,20 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       active = false
     }
   }, [providedCatalog])
+
+  useEffect(() => {
+    let active = true
+    fetchAppSettings()
+      .then((settings) => {
+        if (active) setAppSettings(settings)
+      })
+      .catch((err) => {
+        if (active) setError(err.message)
+      })
+    return () => {
+      active = false
+    }
+  }, [])
 
   useEffect(() => {
     if (student?.code) return
@@ -105,6 +132,15 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
   }, [student])
 
   const setFormField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+
+  const setPhoneField = (field, value) => setForm((prev) => ({ ...prev, [field]: normalizePhoneInput(value) }))
+
+  const validatePhoneField = (field, value, required = true) => {
+    const hasValue = String(value || '').trim().length > 0
+    const nextError = required || hasValue ? phoneValidationMessage(value) : ''
+    setFieldErrors((prev) => ({ ...prev, [field]: nextError }))
+    return !nextError
+  }
 
   const setSubjectDetails = (subject, details) => {
     setForm((prev) => ({
@@ -191,7 +227,12 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       if (!form.firstName.trim()) errors.push('Le prénom est obligatoire.')
       if (!form.lastName.trim()) errors.push('Le nom est obligatoire.')
       if (!form.registrationDate) errors.push("La date d'inscription est obligatoire.")
-      if (!form.phone.trim()) errors.push('Le téléphone est obligatoire.')
+      if (!isValidPhoneNumber(form.phone)) errors.push('Le numéro doit contenir exactement 10 chiffres.')
+      if (form.phone2.trim() && !isValidPhoneNumber(form.phone2)) errors.push('Le numéro doit contenir exactement 10 chiffres.')
+      setFieldErrors({
+        phone: isValidPhoneNumber(form.phone) ? '' : phoneValidationMessage(form.phone),
+        phone2: form.phone2.trim() && !isValidPhoneNumber(form.phone2) ? phoneValidationMessage(form.phone2) : '',
+      })
     }
     if (currentStep === 2) {
       if (!form.cycle) errors.push('Le cycle est obligatoire.')
@@ -214,6 +255,7 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
 
   const handleFinish = async () => {
     if (saving) return
+    if (validateStep(1).length > 0) return
     setSaving(true)
     setError(null)
     try {
@@ -223,6 +265,24 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
         close()
       } else {
         const result = await createEnrollment(form, catalog)
+        if (appSettings) {
+          await recordRegistrationFee({
+            studentId: result.id,
+            schoolYear: appSettings.activeSchoolYear,
+            amount: appSettings.registrationFee,
+            paid: form.registrationFeePaidNow,
+            userId: user?.id || null,
+          })
+        }
+        if (form.firstMonthPaidNow) {
+          await recordFirstMonthPayment({
+            studentId: result.id,
+            month: normalizeMonthKey(form.registrationDate),
+            amount: computeDuMois(form, catalog),
+            userId: user?.id || null,
+          })
+          invalidateFeesCache()
+        }
         if (result.photoUrl) setForm((f) => ({ ...f, photoUrl: result.photoUrl }))
         setReceiptOpen(true)
       }
@@ -236,20 +296,46 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
   const renderStep = () => {
     switch (step) {
       case 1:
-        return <Step1PersonalDetails form={form} set={setFormField} />
+        return (
+          <Step1PersonalDetails
+            form={form}
+            set={setFormField}
+            setPhoneField={setPhoneField}
+            errors={fieldErrors}
+            onPhoneBlur={(field) => validatePhoneField(field, form[field], field !== 'phone2')}
+          />
+        )
       case 2:
         return <Step2Classification form={form} set={setFormField} catalog={catalog} />
       case 3:
         return <Step3SubjectsGroups form={form} set={setFormField} catalog={catalog} toggleGroup={toggleGroup} toggleGroupSubject={toggleGroupSubject} setSubjectDetails={setSubjectDetails} resetGroups={resetGroups} />
       case 4:
-        return <Step4Billing form={form} catalog={catalog} />
+        return (
+          <Step4Billing
+            form={form}
+            catalog={catalog}
+            set={setFormField}
+            registrationFee={appSettings?.registrationFee}
+            schoolYear={appSettings?.activeSchoolYear}
+            editing={mode === 'edit'}
+          />
+        )
       default:
         return null
     }
   }
 
   if (receiptOpen) {
-    return <EnrollmentReceipt form={form} catalog={catalog} close={() => { finish(form); close() }} />
+    return (
+      <EnrollmentReceipt
+        form={form}
+        catalog={catalog}
+        registrationFee={appSettings?.registrationFee}
+        registrationFeePaid={form.registrationFeePaidNow}
+        firstMonthPaid={form.firstMonthPaidNow}
+        close={() => { finish(form); close() }}
+      />
+    )
   }
 
   if (!catalog || !codeReady) {

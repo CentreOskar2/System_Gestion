@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertCircle, Clock, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
+import Icon from '../Icon'
 import { initials } from '../Students/utils/studentHelpers'
 import { useAuth } from '../../context/AuthContext'
 import { useBranch } from '../../context/BranchContext'
@@ -12,6 +13,7 @@ import {
   whatsappLink,
 } from './delinquenciesApi'
 import { subscribeFeesCache } from './feesApi'
+import { currentMonthKey, schoolYearOptions } from './monthUtils'
 import './DelinquenciesPage.css'
 
 export default function DelinquenciesPage() {
@@ -26,12 +28,13 @@ export default function DelinquenciesPage() {
   const [modalError, setModalError] = useState('')
   const [saving, setSaving] = useState(false)
   const [reload, setReload] = useState(0)
+  const [schoolYearStart, setSchoolYearStart] = useState(String(currentMonthKey().slice(0, 4)))
 
   useEffect(() => {
     let active = true
     const load = async () => {
       try {
-        const next = await fetchDelinquenciesData(selectedBranch)
+        const next = await fetchDelinquenciesData(selectedBranch, Number(schoolYearStart))
         if (!active) return
         setData(next)
         setError('')
@@ -47,7 +50,7 @@ export default function DelinquenciesPage() {
     return () => {
       active = false
     }
-  }, [reload, selectedBranch])
+  }, [reload, selectedBranch, schoolYearStart])
 
   useEffect(() => {
     const bump = () => setReload((count) => count + 1)
@@ -138,8 +141,20 @@ export default function DelinquenciesPage() {
         ) : (
           <section className="delinquency-radar">
             <header>
-              <h2>Radar des défaillants</h2>
-              <p>Trié par dette décroissante</p>
+              <div>
+                <h2>Radar des défaillants</h2>
+                <p>Trié par dette décroissante</p>
+              </div>
+              <div className="delinquency-filters">
+                <label className="delinquency-filter">
+                  <span>Année scolaire</span>
+                  <select value={schoolYearStart} onChange={(e) => setSchoolYearStart(e.target.value)}>
+                    {schoolYearOptions().map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </header>
             <div className="radar-scroll">
               <table>
@@ -179,7 +194,14 @@ export default function DelinquenciesPage() {
                             className={reminded.includes(student.id) ? 'reminder sent' : 'reminder'}
                             onClick={() => openReminder(student)}
                           >
-                            {reminded.includes(student.id) ? '✓ Rappel envoyé' : '◯  Rappel'}
+                            {reminded.includes(student.id) ? (
+                              '✓ Rappel envoyé'
+                            ) : (
+                              <>
+                                <Icon name="whatsapp" />
+                                Rappel
+                              </>
+                            )}
                           </button>
                         </td>
                       </tr>

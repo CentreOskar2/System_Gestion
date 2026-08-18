@@ -1,4 +1,6 @@
-export default function Step1PersonalDetails({ form, set }) {
+import Icon from '../../../Icon'
+
+export default function Step1PersonalDetails({ form, set, setPhoneField, errors = {}, onPhoneBlur }) {
   const previewUrl = form.photoFile ? URL.createObjectURL(form.photoFile) : form.photoUrl
 
   return (
@@ -14,7 +16,8 @@ export default function Step1PersonalDetails({ form, set }) {
           <img className="enrollment-photo-preview" src={previewUrl} alt="Photo de l'élève" />
         ) : (
           <>
-            ⇧<span>Cliquer ou glisser une photo</span>
+            <Icon name="upload" />
+            <span>Cliquer ou glisser une photo</span>
           </>
         )}
         <input
@@ -53,18 +56,24 @@ export default function Step1PersonalDetails({ form, set }) {
           Téléphone 1 (WhatsApp) *
           <input
             type="tel"
+            inputMode="numeric"
             value={form.phone}
-            onChange={(e) => set('phone', e.target.value)}
+            onChange={(e) => (setPhoneField ? setPhoneField('phone', e.target.value) : set('phone', e.target.value.replace(/\D/g, '')))}
+            onBlur={() => onPhoneBlur?.('phone')}
             required
           />
+          {errors.phone && <small className="field-error">{errors.phone}</small>}
         </label>
         <label>
           Téléphone 2 (optionnel)
           <input
             type="tel"
+            inputMode="numeric"
             value={form.phone2}
-            onChange={(e) => set('phone2', e.target.value)}
+            onChange={(e) => (setPhoneField ? setPhoneField('phone2', e.target.value) : set('phone2', e.target.value.replace(/\D/g, '')))}
+            onBlur={() => onPhoneBlur?.('phone2')}
           />
+          {errors.phone2 && <small className="field-error">{errors.phone2}</small>}
         </label>
         <label>
           Adresse

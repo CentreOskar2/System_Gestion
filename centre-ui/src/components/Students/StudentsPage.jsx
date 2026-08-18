@@ -8,7 +8,7 @@ import AttendanceModal from './modals/AttendanceModal'
 import AbsenceSheetModal from './modals/AbsenceSheetModal'
 import StudentSheetModal from './modals/StudentSheetModal'
 import EnrollmentPage from './enrollment/EnrollmentPage'
-import { fetchCatalog, fetchStudents, setStudentStatus, deactivateAllStudents } from './enrollment/enrollmentApi'
+import { fetchCatalog, fetchStudents, setStudentStatus } from './enrollment/enrollmentApi'
 import { useBranch } from '../../context/BranchContext'
 
 import './Students.css'
@@ -95,15 +95,6 @@ export default function StudentsPage() {
     return catalog?.levelsByCycle?.[activeCycle] || []
   }, [catalog, activeCycle])
 
-  const handleDeactivateAll = async () => {
-    try {
-      await deactivateAllStudents(selectedBranch)
-      await refresh()
-    } catch (err) {
-      console.error(err)
-    }
-  }
-
   const handleToggleStatus = async (studentId) => {
     const student = items.find((item) => item.id === studentId)
     if (!student) return
@@ -185,7 +176,6 @@ export default function StudentsPage() {
       <main className="students-content">
         <StudentsToolbar
           onAddStudent={() => setIsEnrolling(true)}
-          onDeactivateAll={handleDeactivateAll}
           onOpenAbsenceSheet={() => setAbsenceSheetOpen(true)}
         />
         <StudentsFilters

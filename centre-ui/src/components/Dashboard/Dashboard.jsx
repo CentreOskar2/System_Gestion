@@ -253,7 +253,7 @@ export default function Dashboard() {
       }
 
       try {
-        const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes] = await Promise.all([
+        const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes, feesRes] = await Promise.all([
           studentsQuery,
           paymentsQuery,
           salariesQuery,
@@ -262,15 +262,26 @@ export default function Dashboard() {
           supabase.from('branches').select('id, name, status').order('name'),
           supabase.from('cycles').select('id, name'),
           supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
+          supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid'),
         ])
         if (cancelled) return
 
         const firstError = [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes].find((result) => result.error)
         if (firstError) throw new Error(firstError.error.message)
 
+        // Registration fees are revenue for the month they were cashed in.
+        const registrationFeePayments = (feesRes.data || [])
+          .filter((fee) => fee.paid_at)
+          .map((fee) => ({
+            student_id: fee.student_id,
+            amount: fee.amount,
+            status: 'paid',
+            month: `${String(fee.paid_at).slice(0, 7)}-01`,
+          }))
+
         setData({
           students: studentsRes.data || [],
-          payments: paymentsRes.data || [],
+          payments: [...(paymentsRes.data || []), ...registrationFeePayments],
           salaries: salariesRes.data || [],
           expenses: expensesRes.data || [],
           teachers: teachersRes.data || [],

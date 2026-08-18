@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Icon from '../../Icon'
 import { initials, today } from '../utils/studentHelpers'
 import { supabase } from '../../../supabaseClient'
 import { academicMonths } from '../../Accounting/monthUtils'
-import { exportToPdf, safeFilename } from '../../../utils/exportToPdf'
+import { safeFilename } from '../../../utils/exportToPdf'
+import { downloadPdfDocument } from '../../pdf/downloadPdf'
+import StudentSheetPdf from '../../pdf/StudentSheetPdf'
 import { waPhoneNumber } from '../../Accounting/delinquenciesApi'
 import AddGradeModal from './AddGradeModal'
 
@@ -37,7 +39,6 @@ export default function StudentSheetModal({ student, close }) {
   const [selectedMonth, setSelectedMonth] = useState('all')
   const [events, setEvents] = useState(null)
   const [exporting, setExporting] = useState(false)
-  const pdfRef = useRef(null)
 
   useEffect(() => {
     let cancelled = false
@@ -130,7 +131,32 @@ export default function StudentSheetModal({ student, close }) {
     if (exporting) return
     setExporting(true)
     try {
-      await exportToPdf(pdfRef.current, `fiche-eleve-${safeFilename(student.name)}.pdf`)
+      const eventStats = EVENT_META.map((meta) => ({
+        id: meta.id,
+        label: meta.label,
+        count: eventCounts[meta.id],
+        note: meta.id === 'retard' && totalRetardMinutes > 0 ? `${totalRetardMinutes} min` : undefined,
+      }))
+      const pdfLogEvents = logEvents.map((event) => ({ ...event, label: labelOf(event.event_type) }))
+      await downloadPdfDocument(
+        <StudentSheetPdf
+          data={{
+            student,
+            subscriptions: subscriptions || [],
+            grades: grades || [],
+            logEvents: pdfLogEvents,
+            eventStats,
+            periodLabel,
+            totalMonths,
+            paidMonths,
+            totalPaid,
+            formatAmount,
+            formatDate,
+            generatedDate: formatDate(today()),
+          }}
+        />,
+        `fiche-eleve-${safeFilename(student.name)}.pdf`
+      )
     } catch (err) {
       console.error(err)
     } finally {
@@ -302,149 +328,6 @@ export default function StudentSheetModal({ student, close }) {
           close={() => setGradeModalOpen(false)}
         />
       )}
-
-      <div className="sheet-pdf-wrap" aria-hidden="true">
-        <div className="sheet-pdf-report" ref={pdfRef}>
-          <header className="pdf-header">
-            <div className="pdf-brand">
-              <img src="/oskar-logo.png" alt="Centre Oskar" />
-              <div>
-                <strong>Centre Oskar</strong>
-                <span>Gestion pédagogique & scolarité</span>
-              </div>
-            </div>
-            <div className="pdf-title">
-              <strong>Fiche Élève</strong>
-              <span>Année scolaire 2026 – 2027</span>
-            </div>
-          </header>
-
-          <section className="pdf-section">
-            <h3>Profil de l'élève</h3>
-            <div className="pdf-grid">
-              <div><small>Nom complet</small><b>{student.name}</b></div>
-              <div><small>Code d'inscription</small><b>{student.code || '—'}</b></div>
-              <div><small>Cycle</small><b>{student.cycle || '—'}</b></div>
-              <div><small>Niveau</small><b>{student.level || '—'}</b></div>
-              <div><small>Succursale</small><b>{student.branch || '—'}</b></div>
-              <div><small>Date d'inscription</small><b>{formatDate(student.registrationDate)}</b></div>
-            </div>
-          </section>
-
-          <section className="pdf-section">
-            <h3>Contact parent / tuteur</h3>
-            <div className="pdf-grid">
-              <div><small>Téléphone 1</small><b>{student.phone || '—'}</b></div>
-              <div><small>Téléphone 2</small><b>{student.phone2 || '—'}</b></div>
-              <div><small>Adresse</small><b>{student.address || '—'}</b></div>
-              <div><small>École d'origine</small><b>{[student.school, student.schoolClass].filter(Boolean).join(' · ') || '—'}</b></div>
-            </div>
-          </section>
-
-          <section className="pdf-section">
-            <h3>Matières inscrites & frais de scolarité</h3>
-            {subscriptions === null ? (
-              <p className="pdf-empty">Chargement des matières...</p>
-            ) : subscriptions.length === 0 ? (
-              <p className="pdf-empty">Aucune matière inscrite.</p>
-            ) : (
-              <div className="pdf-subjects">
-                <table>
-                  <thead>
-                    <tr><th>Matière</th><th>Groupe</th><th>Frais mensuels</th></tr>
-                  </thead>
-                  <tbody>
-                    {subscriptions.map((sub, index) => (
-                      <tr key={sub.subject_id || index}>
-                        <td>{sub.subjects?.name || 'Matière inconnue'}</td>
-                        <td>{sub.groups?.name || 'Non assigné'}</td>
-                        <td>{formatAmount(sub.monthly_price)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          <section className="pdf-section">
-            <h3>Notes scolaires</h3>
-            {grades === null ? (
-              <p className="pdf-empty">Chargement des notes...</p>
-            ) : grades.length === 0 ? (
-              <p className="pdf-empty">Aucune note enregistrée</p>
-            ) : (
-              <div className="pdf-grades">
-                <table>
-                  <thead>
-                    <tr><th>Matière</th><th>Note (/20)</th><th>N° Examen</th><th>Session</th><th>Date</th></tr>
-                  </thead>
-                  <tbody>
-                    {grades.map((grade) => (
-                      <tr key={grade.id}>
-                        <td>{grade.subjects?.name || '—'}</td>
-                        <td>{Number(grade.value)}</td>
-                        <td>{grade.exam || '—'}</td>
-                        <td>{grade.session}</td>
-                        <td>{formatDate(grade.grade_date)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          <section className="pdf-section">
-            <h3>Paiements & bilan financier</h3>
-            <div className="pdf-grid">
-              <div><small>Mois payés</small><b>{totalMonths ? `${paidMonths}/${totalMonths}` : '—'}</b></div>
-              <div><small>Total réglé</small><b>{totalPaid > 0 ? formatAmount(totalPaid) : '—'}</b></div>
-              {student.alerts && (
-                <div><small>Alertes médicales / comportementales</small><b>{student.alerts}</b></div>
-              )}
-            </div>
-          </section>
-
-          <section className="pdf-section">
-            <h3>Suivi comportemental & discipline — {periodLabel}</h3>
-            <div className="pdf-stats">
-              {EVENT_META.map((meta) => (
-                <div key={meta.id}>
-                  <b>{meta.emoji} {eventCounts[meta.id]}</b>
-                  <small>{meta.label}{meta.id === 'retard' && totalRetardMinutes > 0 ? ` · ${totalRetardMinutes} min` : ''}</small>
-                </div>
-              ))}
-            </div>
-            {events === null ? (
-              <p className="pdf-empty">Chargement du suivi...</p>
-            ) : logEvents.length === 0 ? (
-              <p className="pdf-empty">Aucun événement enregistré pour cette période.</p>
-            ) : (
-              <div className="pdf-log">
-                <table>
-                  <thead>
-                    <tr><th>Date</th><th>Événement</th><th>Note / Détail</th></tr>
-                  </thead>
-                  <tbody>
-                    {logEvents.map((event, index) => (
-                      <tr key={`${event.event_date}-${event.event_type}-${index}`}>
-                        <td>{formatDate(event.event_date)}</td>
-                        <td>{labelOf(event.event_type)}</td>
-                        <td>{event.detail || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-
-          <footer className="pdf-footer">
-            Centre Oskar · Fiche élève générée le {formatDate(today())}
-          </footer>
-        </div>
-      </div>
     </div>
   )
 }

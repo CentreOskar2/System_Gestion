@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Icon from '../../Icon'
 import { supabase } from '../../../supabaseClient'
-import { exportToPdf, safeFilename } from '../../../utils/exportToPdf'
+import { safeFilename } from '../../../utils/exportToPdf'
+import { downloadPdfDocument } from '../../pdf/downloadPdf'
+import AbsenceSheetPdf from '../../pdf/AbsenceSheetPdf'
 import './AttendanceSheet.css'
 import './AttendancePdf.css'
 
@@ -9,12 +11,14 @@ const ACADEMIC_YEAR = '2026 – 2027'
 const sessions = Array.from({ length: 18 }, (_, index) => `S${index + 1}`)
 
 function AbsenceSheet({ meta, students, close }) {
-  const sheetRef = useRef(null)
   const [isExporting, setIsExporting] = useState(false)
   const downloadPdf = async () => {
     setIsExporting(true)
     try {
-      await exportToPdf(sheetRef.current, `fiche-absence-${safeFilename(meta.teacher)}-${safeFilename(meta.subject)}-${safeFilename(meta.group)}.pdf`)
+      await downloadPdfDocument(
+        <AbsenceSheetPdf meta={meta} students={students} />,
+        `fiche-absence-${safeFilename(meta.teacher)}-${safeFilename(meta.subject)}-${safeFilename(meta.group)}.pdf`
+      )
     } finally {
       setIsExporting(false)
     }
@@ -27,7 +31,7 @@ function AbsenceSheet({ meta, students, close }) {
           {isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}
         </button>
       </div>
-      <article ref={sheetRef} className="absence-sheet">
+      <article className="absence-sheet">
         <header className="absence-sheet-header">
           <div className="absence-brand">
             <img src="/oskar-logo.png" alt="Centre Oskar" />
@@ -87,6 +91,7 @@ export default function AbsenceSheetModal({ close }) {
   const [subjects, setSubjects] = useState([])
   const [levels, setLevels] = useState([])
   const [groups, setGroups] = useState([])
+  const [teacherAssignments, setTeacherAssignments] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [teacherId, setTeacherId] = useState('')
@@ -136,6 +141,7 @@ export default function AbsenceSheetModal({ close }) {
         setTeachers((teachersRes.data || []).map((t) => ({ id: t.id, name: `${t.first_name} ${t.last_name}`.trim() || 'Professeur' })))
         setSubjects((subjectsRes.data || []).map((s) => ({ id: s.id, name: s.name })))
         setLevels((levelsRes.data || []).map((l) => ({ id: l.id, name: l.name })))
+        setTeacherAssignments(tgsRes.data || [])
         setGroups((groupsRes.data || []).map((g) => {
           const subjectIds = new Set(groupSubjectIds[g.id] || [])
           if (g.subject_id) subjectIds.add(g.subject_id)
@@ -154,50 +160,45 @@ export default function AbsenceSheetModal({ close }) {
     return () => { cancelled = true }
   }, [])
 
-  const teacherGroups = useMemo(
-    () => (teacherId ? groups.filter((g) => g.teacherIds.includes(teacherId)) : groups),
-    [groups, teacherId]
+  const matchingGroups = useMemo(
+    () =>
+      groups.filter(
+        (group) =>
+          (!teacherId || group.teacherIds.includes(teacherId)) &&
+          (!subjectId || group.subjectIds.includes(subjectId)) &&
+          (!levelId || group.levelId === levelId) &&
+          (!groupId || group.id === groupId)
+      ),
+    [groups, teacherId, subjectId, levelId, groupId]
+  )
+  const teacherOptions = useMemo(
+    () => teachers.filter((teacher) => matchingGroups.some((group) => group.teacherIds.includes(teacher.id))),
+    [teachers, matchingGroups]
   )
   const subjectOptions = useMemo(
-    () => (teacherId ? subjects.filter((s) => teacherGroups.some((g) => g.subjectIds.includes(s.id))) : subjects),
-    [subjects, teacherGroups, teacherId]
-  )
-  const subjectGroups = useMemo(
-    () => (subjectId ? teacherGroups.filter((g) => g.subjectIds.includes(subjectId)) : teacherGroups),
-    [teacherGroups, subjectId]
+    () => subjects.filter((subject) => matchingGroups.some((group) => group.subjectIds.includes(subject.id))),
+    [subjects, matchingGroups]
   )
   const levelOptions = useMemo(
-    () => (teacherId ? levels.filter((l) => subjectGroups.some((g) => g.levelId === l.id)) : levels),
-    [levels, subjectGroups, teacherId]
+    () => levels.filter((level) => matchingGroups.some((group) => group.levelId === level.id)),
+    [levels, matchingGroups]
   )
   const groupOptions = useMemo(
-    () => (levelId ? subjectGroups.filter((g) => g.levelId === levelId) : subjectGroups),
-    [subjectGroups, levelId]
+    () => matchingGroups,
+    [matchingGroups]
   )
 
   const changeTeacher = (value) => {
     setTeacherId(value)
-    setSubjectId('')
-    setLevelId('')
-    setGroupId('')
   }
   const changeSubject = (value) => {
     setSubjectId(value)
-    setLevelId('')
-    setGroupId('')
   }
   const changeLevel = (value) => {
     setLevelId(value)
-    setGroupId('')
   }
   const changeGroup = (value) => {
     setGroupId(value)
-    if (!value) return
-    const group = groups.find((g) => g.id === value)
-    if (!group) return
-    if (group.teacherIds.length > 0) setTeacherId(group.teacherIds[0])
-    if (group.levelId) setLevelId(group.levelId)
-    if (group.subjectIds.length > 0 && !group.subjectIds.includes(subjectId)) setSubjectId(group.subjectIds[0])
   }
 
   const handleGenerate = async () => {
@@ -206,23 +207,40 @@ export default function AbsenceSheetModal({ close }) {
     setLoadError('')
     try {
       const group = groups.find((g) => g.id === groupId)
-      const subjectQuery = subjectId
-        ? supabase.from('student_group_subjects').select('student_id, students(first_name, last_name, registration_number)').eq('group_id', groupId).eq('subject_id', subjectId)
-        : supabase.from('student_group_subjects').select('student_id, students(first_name, last_name, registration_number)').eq('group_id', groupId)
-      const [sgsRes, gsRes] = await Promise.all([
-        subjectQuery,
-        supabase.from('group_students').select('student_id, students(first_name, last_name, registration_number)').eq('group_id', groupId),
-      ])
-      if (sgsRes.error) throw new Error(sgsRes.error.message)
-      if (gsRes.error) throw new Error(gsRes.error.message)
+      if (!teacherId || !subjectId || !levelId) {
+        throw new Error('Choisissez le professeur, la matière et le niveau avant de générer la fiche.')
+      }
+
+      const matchingAssignment = teacherAssignments.find(
+        (row) =>
+          String(row.group_id) === String(groupId) &&
+          String(row.teacher_id) === String(teacherId) &&
+          String(row.subject_id) === String(subjectId)
+      )
+
+      if (!matchingAssignment) {
+        throw new Error('La combinaison professeur / matière / groupe sélectionnée ne correspond à aucune inscription enregistrée.')
+      }
+
+      const { data: rows, error } = await supabase
+        .from('student_group_subjects')
+        .select('student_id, subject_id, students(first_name, last_name, registration_number)')
+        .eq('group_id', groupId)
+        .eq('subject_id', subjectId)
+
+      if (error) throw new Error(error.message)
 
       const seen = new Set()
       const roster = []
-      for (const row of [...(sgsRes.data || []), ...(gsRes.data || [])]) {
+      for (const row of rows || []) {
         if (!row.students || seen.has(row.student_id)) continue
         seen.add(row.student_id)
         const s = row.students
-        roster.push({ id: row.student_id, name: `${s.first_name} ${s.last_name}`.trim(), registration_number: s.registration_number || '' })
+        roster.push({
+          id: row.student_id,
+          name: `${s.first_name} ${s.last_name}`.trim(),
+          registration_number: s.registration_number || '',
+        })
       }
       roster.sort((a, b) => a.name.localeCompare(b.name))
 
@@ -245,7 +263,7 @@ export default function AbsenceSheetModal({ close }) {
 
   if (sheet) return <AbsenceSheet meta={sheet.meta} students={sheet.students} close={close} />
 
-  const ready = Boolean(groupId)
+  const ready = Boolean(groupId && teacherId && subjectId && levelId)
 
   return (
     <div className="student-overlay" onMouseDown={close}>
@@ -262,7 +280,7 @@ export default function AbsenceSheetModal({ close }) {
             <label>Professeur
               <select value={teacherId} onChange={(event) => changeTeacher(event.target.value)}>
                 <option value="">— Tous —</option>
-                {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {teacherOptions.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
             </label>
             <label>Matière

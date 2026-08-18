@@ -5,9 +5,10 @@ import Dashboard from './components/Dashboard/Dashboard'
 import Login from './components/Login/Login'
 import Branches from './components/Branches/Branches'
 import Users from './components/Users/Users'
-import { AuthProvider } from './context/AuthContext'
+import { AuthProvider, useAuth } from './context/AuthContext'
 import { BranchProvider } from './context/BranchContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import NoAccess from './components/NoAccess'
 import Settings from './components/Settings/Settings'
 import Teachers from './components/Teachers/TeachersPage'
 import Groups from './components/Groups/GroupsPage'
@@ -17,6 +18,7 @@ import DelinquenciesPage from './components/Accounting/DelinquenciesPage'
 import SalariesPage from './components/Accounting/SalariesPage'
 import ExpensesPage from './components/Accounting/ExpensesPage'
 import NetProfitPage from './components/Accounting/NetProfitPage'
+import { firstAllowedPath } from './permissionRoutes'
 
 const sidebarSections = [
   {
@@ -61,6 +63,11 @@ function DashboardLayout() {
   )
 }
 
+function CatchAllRedirect() {
+  const { permissions } = useAuth()
+  return <Navigate to={firstAllowedPath(permissions)} replace />
+}
+
 function App() {
   return (
     <AuthProvider>
@@ -71,7 +78,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route element={<ProtectedRoute />}>
               <Route element={<DashboardLayout />}>
-                <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/dashboard" element={<ProtectedRoute requiredPerm="dashboard"><Dashboard /></ProtectedRoute>} />
                 <Route path="/students" element={<ProtectedRoute requiredPerm="students"><Students /></ProtectedRoute>} />
                 <Route path="/groups" element={<ProtectedRoute requiredPerm="groups"><Groups /></ProtectedRoute>} />
                 <Route path="/teachers" element={<ProtectedRoute requiredPerm="teachers"><Teachers /></ProtectedRoute>} />
@@ -83,7 +90,8 @@ function App() {
                 <Route path="/settings" element={<ProtectedRoute requiredPerm="settings"><Settings /></ProtectedRoute>} />
                 <Route path="/branches" element={<ProtectedRoute requiredPerm="administration"><Branches /></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute requiredPerm="administration"><Users /></ProtectedRoute>} />
-                <Route path="*" element={<Dashboard />} />
+                <Route path="/no-access" element={<NoAccess />} />
+                <Route path="*" element={<CatchAllRedirect />} />
               </Route>
             </Route>
           </Routes>
