@@ -153,7 +153,7 @@ export default function NetProfitPage() {
         ...(paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status)),
         ...paidRegistrationFees,
       ]
-      let manualExpenses = (expensesRes.data || []).filter((e) => e.type === 'Manuel')
+      let manualExpenses = (expensesRes.data || []).filter((e) => e.type !== 'Auto')
       let validatedSalaries = (salariesRes.data || []).filter((s) => s.status === 'paid' || s.status === 'validated')
       if (branchFilter) {
         paidPayments = paidPayments.filter((p) => studentBranch[p.student_id] === branchFilter)

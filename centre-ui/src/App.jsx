@@ -18,6 +18,7 @@ import DelinquenciesPage from './components/Accounting/DelinquenciesPage'
 import SalariesPage from './components/Accounting/SalariesPage'
 import ExpensesPage from './components/Accounting/ExpensesPage'
 import NetProfitPage from './components/Accounting/NetProfitPage'
+import ReportsPage from './components/Reports/ReportsPage'
 import { firstAllowedPath } from './permissionRoutes'
 
 const sidebarSections = [
@@ -41,6 +42,7 @@ const sidebarSections = [
           { label: 'Bénéfice net', path: '/accounting/profit', requiredPerm: 'net_profit' },
         ],
       },
+      { label: 'Bulletins', icon: 'clipboard', path: '/reports', requiredPerm: 'reports' },
       { label: 'Paramètres', icon: 'settings', path: '/settings', requiredPerm: 'settings' },
     ],
   },
@@ -87,6 +89,7 @@ function App() {
                 <Route path="/accounting/salaries" element={<ProtectedRoute requiredPerm="teacher_salaries"><SalariesPage /></ProtectedRoute>} />
                 <Route path="/accounting/expenses" element={<ProtectedRoute requiredPerm="expenses"><ExpensesPage /></ProtectedRoute>} />
                 <Route path="/accounting/profit" element={<ProtectedRoute requiredPerm="net_profit"><NetProfitPage /></ProtectedRoute>} />
+                <Route path="/reports" element={<ProtectedRoute requiredPerm="reports"><ReportsPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute requiredPerm="settings"><Settings /></ProtectedRoute>} />
                 <Route path="/branches" element={<ProtectedRoute requiredPerm="administration"><Branches /></ProtectedRoute>} />
                 <Route path="/users" element={<ProtectedRoute requiredPerm="administration"><Users /></ProtectedRoute>} />

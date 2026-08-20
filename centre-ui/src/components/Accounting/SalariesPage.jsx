@@ -11,19 +11,8 @@ import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
 import { academicMonths, currentMonthKey, isEnrolledInMonth, monthLabelOf } from './monthUtils'
+import { calculateSalary } from './salaryUtils'
 import './SalariesPage.css'
-
-function calculateSalary(teacher, groups) {
-  if (teacher.paymentType === 'fixe') {
-    return Number(teacher.fixed_salary) || Number(teacher.remuneration_amount) || 0
-  }
-  let total = 0
-  for (const group of groups) {
-    const rate = teacher.cycle_rates?.[group.cycleId] || 0
-    total += group.studentsCount * group.price * (rate / 100)
-  }
-  return Math.round(total)
-}
 
 function buildSalaryMessage(teacher, monthLabel) {
   const percentage = teacher.type === 'Pourcentage'
@@ -333,6 +322,7 @@ export default function SalariesPage() {
           title: `Salaire - ${teacher.name} (${monthLabel})`,
           amount: teacher.amount,
           month,
+          charge_date: new Date().toISOString().slice(0, 10),
           branch_id: teacher.branch_id || null,
           type: 'Auto',
           teacher_id: teacher.id,

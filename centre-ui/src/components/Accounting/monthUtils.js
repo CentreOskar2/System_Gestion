@@ -2,6 +2,18 @@ export const ACADEMIC_YEAR = 2026
 
 const MONTH_NAMES = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 
+// Calendar months (1-12, Janvier→Décembre), independent of any school year — for filters
+// that let a month be picked on its own (e.g. "Charges" page).
+export function calendarMonthOptions() {
+  return MONTH_NAMES.map((label, index) => ({ value: String(index + 1), label }))
+}
+
+// "2026-08-05" -> "05/08/2026"
+export function formatShortDate(value) {
+  const [year, month, day] = String(value || '').split('-')
+  return year && month && day ? `${day}/${month}/${year}` : '—'
+}
+
 export function academicYearStart() {
   return ACADEMIC_YEAR
 }

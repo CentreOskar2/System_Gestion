@@ -403,7 +403,7 @@ export default function Dashboard() {
 
   const monthExpenses = useMemo(
     () => expenses.filter(
-      (e) => e.type === 'Manuel'
+      (e) => e.type !== 'Auto'
         && String(e.month).slice(0, 7) === monthPrefix
         && (!branchId || e.branch_id === branchId)
     ),
@@ -433,7 +433,7 @@ export default function Dashboard() {
         return total + (Number(record.amount) || 0)
       }, 0)
       const expense = expenses.reduce((total, record) => {
-        if (record.type !== 'Manuel') return total
+        if (record.type === 'Auto') return total
         if (String(record.month).slice(0, 7) !== monthPrefix) return total
         if (record.branch_id !== branch.id) return total
         return total + (Number(record.amount) || 0)

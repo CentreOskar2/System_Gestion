@@ -11,6 +11,7 @@ export const PERMISSION_ROUTES = [
   { perm: 'expenses', path: '/accounting/expenses' },
   { perm: 'net_profit', path: '/accounting/profit' },
   { perm: 'settings', path: '/settings' },
+  { perm: 'reports', path: '/reports' },
   { perm: 'administration', path: '/users' },
 ]
 
