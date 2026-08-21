@@ -13,7 +13,10 @@ export async function fetchCatalog() {
       supabase.from('teacher_levels').select('teacher_id, level_id'),
       supabase.from('teacher_group_subjects').select('group_id, subject_id, teacher_id'),
       supabase.from('groups').select('*').order('name'),
-      supabase.from('group_students').select('group_id, student_id, students(first_name, last_name)'),
+      // FK nommée explicitement : une clé étrangère en double avait rendu cette
+      // jointure ambiguë et fait échouer fetchCatalog (corrigé par la migration 003).
+      // Nommer la contrainte protège d'une éventuelle réapparition du doublon.
+      supabase.from('group_students').select('group_id, student_id, students!group_students_student_id_fkey(first_name, last_name)'),
       supabase.from('tariffs').select('level_id, subject_id, price'),
       supabase.from('branches').select('id, name').order('name'),
       supabase.from('user_branches').select('branch_id'),
