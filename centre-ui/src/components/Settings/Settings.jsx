@@ -707,11 +707,18 @@ export default function Settings() {
   }
 
   const savePricingSubject = async ({ name, levelId, price }) => {
-    const normalizedName = name.trim().toLocaleLowerCase()
-    let subject = subjects.find((item) => item.name.trim().toLocaleLowerCase() === normalizedName)
+    const subjectName = name.trim()
+    const { data: matchingSubjects, error: lookupError } = await supabase
+      .from('subjects')
+      .select('id, name')
+      .ilike('name', subjectName)
+      .limit(1)
+    if (lookupError) throw new Error(lookupError.message)
+
+    let subject = matchingSubjects?.[0]
 
     if (!subject) {
-      const { data, error } = await supabase.from('subjects').insert({ name: name.trim() }).select('id, name').single()
+      const { data, error } = await supabase.from('subjects').insert({ name: subjectName }).select('id, name').single()
       if (error) throw new Error(error.message)
       subject = data
     }
