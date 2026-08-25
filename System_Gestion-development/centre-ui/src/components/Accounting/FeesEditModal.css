@@ -1,0 +1,21 @@
+.edit-modal{width:min(760px,100%)}
+.edit-subjects{gap:13px}
+.edit-subjects article{padding:16px;border:1px solid #dce3ed;border-radius:13px;background:#fff}
+.edit-subjects article.selected{border-color:#9cb5ff;background:#f7f9ff}
+.edit-subject-toggle{display:flex;align-items:center;gap:13px;cursor:pointer}
+.edit-subject-toggle input{width:21px;height:21px;accent-color:#315fec}
+.edit-subject-toggle b,.edit-subject-toggle small{display:block}
+.edit-subject-toggle small{margin-top:3px;color:#647088}
+.edit-subject-details{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:17px;padding-top:17px;border-top:1px solid #dce3ed}
+.edit-subject-details>label{display:block;color:#34425b;font-size:.86rem;font-weight:750}
+.edit-subject-details select{display:block;width:100%;height:43px;margin-top:7px;padding:0 12px;border:1px solid #dce3ed;border-radius:9px;background:#fff;font:inherit}
+.edit-subject-details fieldset{display:grid;grid-column:1/-1;grid-template-columns:1fr 1fr;gap:12px;margin:0;padding:0;border:0}
+.edit-subject-details legend{width:100%;margin-bottom:9px;color:#34425b;font-size:.86rem;font-weight:750}
+.edit-subject-details fieldset label{display:flex;align-items:flex-start;gap:10px;padding:13px;border:1px solid #dce3ed;border-radius:10px;cursor:pointer}
+.edit-subject-details fieldset label.active{border-color:#7fa2ff;background:#f0f4ff}
+.edit-subject-details fieldset input[type=radio]{width:18px;height:18px;margin-top:3px;accent-color:#315fec}
+.edit-subject-details fieldset b,.edit-subject-details fieldset small{display:block}
+.edit-subject-details fieldset small{margin-top:4px;color:#647088}
+.edit-subject-details input[type=number]{display:block;width:100%;height:38px;margin-top:8px;padding:0 10px;border:1px solid #dce3ed;border-radius:8px;font:inherit}
+.edit-subject-details input:disabled{background:#f4f6f9;color:#9ba5b6}
+@media(max-width:600px){.edit-modal{padding:28px 20px}.edit-subject-details,.edit-subject-details fieldset{grid-template-columns:1fr}}
