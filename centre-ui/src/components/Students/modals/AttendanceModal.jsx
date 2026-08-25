@@ -146,7 +146,8 @@ export default function AttendanceModal({ student, close }) {
 
     const rows = selected.map((id) => ({
       student_id: student.id,
-      group_id: Number(selectedGroupId),
+      // groups.id est un uuid : le convertir en nombre donnerait NaN.
+      group_id: selectedGroupId,
       event_date: date,
       event_type: id,
       detail: id === 'retard' ? details[id] || null : details[id] || null,
