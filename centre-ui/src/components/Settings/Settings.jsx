@@ -87,6 +87,65 @@ function LevelModal({ cycles, onClose, onSave }) {
   )
 }
 
+function PricingSubjectModal({ cycles, levels, onClose, onSave }) {
+  const [name, setName] = useState('')
+  const [cycleId, setCycleId] = useState(cycles[0]?.id || '')
+  const [levelId, setLevelId] = useState(() => levels.find((level) => level.cycle_id === cycles[0]?.id)?.id || '')
+  const [price, setPrice] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const cycleLevels = levels.filter((level) => level.cycle_id === cycleId)
+
+  const changeCycle = (nextCycleId) => {
+    setCycleId(nextCycleId)
+    setLevelId(levels.find((level) => level.cycle_id === nextCycleId)?.id || '')
+  }
+
+  const submit = async (event) => {
+    event.preventDefault()
+    const numericPrice = Number(price)
+    if (!name.trim() || !levelId || !Number.isFinite(numericPrice) || numericPrice <= 0) {
+      setError('Saisissez une matière, un niveau et un tarif supérieur à 0.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave({ name: name.trim(), levelId, price: numericPrice })
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="settings-dialog-bg" onMouseDown={onClose}>
+      <section className="settings-dialog" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="settings-close" onClick={onClose}>×</button>
+        <h2>Ajouter une matière et son tarif</h2>
+        <form onSubmit={submit}>
+          <label>Cycle
+            <select value={cycleId} onChange={(event) => changeCycle(event.target.value)} required>
+              {cycles.map((cycle) => <option key={cycle.id} value={cycle.id}>{cycle.name}</option>)}
+            </select>
+          </label>
+          <label>Niveau
+            <select value={levelId} onChange={(event) => setLevelId(event.target.value)} required disabled={cycleLevels.length === 0}>
+              {cycleLevels.length === 0
+                ? <option value="">Aucun niveau dans ce cycle</option>
+                : cycleLevels.map((level) => <option key={level.id} value={level.id}>{level.name}</option>)}
+            </select>
+          </label>
+          <label>Nom de la matière<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="ex : Mathématiques" required /></label>
+          <label>Tarif mensuel (DH)<input type="number" min="0.01" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="ex : 300" required /></label>
+          {error && <div className="settings-error">{error}</div>}
+          <footer><button type="button" className="settings-outline" onClick={onClose}>Annuler</button><button type="submit" className="settings-save" disabled={saving || !levelId}>{saving ? 'Enregistrement...' : 'Ajouter'}</button></footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
 function NameModal({ title, label, placeholder, onClose, onSave }) {
   const [name, setName] = useState('')
   const [saving, setSaving] = useState(false)
@@ -647,6 +706,27 @@ export default function Settings() {
     notify('Matière ajoutée')
   }
 
+  const savePricingSubject = async ({ name, levelId, price }) => {
+    const normalizedName = name.trim().toLocaleLowerCase()
+    let subject = subjects.find((item) => item.name.trim().toLocaleLowerCase() === normalizedName)
+
+    if (!subject) {
+      const { data, error } = await supabase.from('subjects').insert({ name: name.trim() }).select('id, name').single()
+      if (error) throw new Error(error.message)
+      subject = data
+    }
+
+    const { error } = await supabase.from('tariffs').upsert(
+      { level_id: levelId, subject_id: subject.id, price },
+      { onConflict: 'level_id,subject_id' },
+    )
+    if (error) throw new Error(error.message)
+
+    setModal(null)
+    await fetchAll()
+    notify(`Matière ajoutée avec un tarif de ${price} DH / mois`)
+  }
+
   const saveCycle = async (form, editing) => {
     const payload = {
       name: form.name,
@@ -994,11 +1074,14 @@ export default function Settings() {
           <section className="settings-card settings-pricing">
             <header className="settings-card-head">
               <div><strong>Grille tarifaire (DH / mois)</strong><p>Prix par matière et par niveau. Modifiez les tarifs puis enregistrez.</p></div>
-              <button className="settings-outline" onClick={() => setModal({ kind: 'level' })}>＋　Ajouter un niveau</button>
+              <button className="settings-outline" onClick={() => setModal({ kind: 'pricingSubject' })} disabled={levels.length === 0}>＋ Ajouter une matière</button>
             </header>
 
             {levels.length === 0 || subjects.length === 0
-              ? <div className="settings-empty">{levels.length === 0 ? 'Aucun niveau. Ajoutez un niveau pour commencer.' : 'Aucune matière. Ajoutez une matière pour commencer.'}</div>
+              ? <div className="settings-empty">
+                <p>{levels.length === 0 ? 'Aucun niveau. Ajoutez d’abord un niveau dans la structure académique.' : 'Aucune matière. Ajoutez une matière et choisissez son niveau ainsi que son tarif.'}</p>
+                {levels.length > 0 && <button className="settings-outline" onClick={() => setModal({ kind: 'pricingSubject' })}>＋ Ajouter une matière</button>}
+              </div>
               : (
                 <div className="pricing-matrix">
                   <table>
@@ -1006,7 +1089,6 @@ export default function Settings() {
                       <tr>
                         <th className="pricing-level-col">Niveau</th>
                         {subjects.map((subject) => <th key={subject.id}>{subject.name}</th>)}
-                        <th className="pricing-add-col">Matière</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1040,9 +1122,6 @@ export default function Settings() {
                                 </td>
                               )
                             })}
-                            <td className="pricing-add-col">
-                              <button className="pricing-add-subject" onClick={() => setModal({ kind: 'subject' })}>＋　Matière</button>
-                            </td>
                           </tr>
                         )
                       })}
@@ -1085,6 +1164,7 @@ export default function Settings() {
       {modal?.kind === 'cycle' && <CycleModal cycle={modal.cycle} onClose={() => setModal(null)} onSave={saveCycle} />}
       {modal?.kind === 'academicLevel' && <NameModal title="Ajouter un niveau" label="Nom du niveau" placeholder="ex : 1ère année" onClose={() => setModal(null)} onSave={(name) => saveLevel(name, modal.cycleId)} />}
       {modal?.kind === 'level' && <LevelModal cycles={cycles} onClose={() => setModal(null)} onSave={saveLevel} />}
+      {modal?.kind === 'pricingSubject' && <PricingSubjectModal cycles={cycles} levels={levels} onClose={() => setModal(null)} onSave={savePricingSubject} />}
       {modal?.kind === 'subject' && <NameModal title="Ajouter une matière" label="Nom de la matière" placeholder="ex : Philosophie" onClose={() => setModal(null)} onSave={saveSubject} />}
       {modal?.kind === 'schoolYear' && (
         <SchoolYearChangeModal
