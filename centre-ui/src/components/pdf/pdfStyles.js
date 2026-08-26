@@ -1,4 +1,4 @@
-import { StyleSheet } from '@react-pdf/renderer'
+import { Font, StyleSheet } from '@react-pdf/renderer'
 
 export const colors = {
   primary: '#315fec',
@@ -15,6 +15,18 @@ export const colors = {
 
 export const BRAND_NAME = 'Centre Oskar'
 export const LOGO_SRC = '/oskar-logo.png'
+export const PDF_FONT_FAMILY = 'Noto Sans Arabic'
+
+// Helvetica, the default react-pdf font, is limited to Western characters.
+// This bundled OFL font covers French and Arabic; react-pdf/textkit also applies
+// the required right-to-left and OpenType Arabic shaping rules.
+Font.register({
+  family: PDF_FONT_FAMILY,
+  fonts: [
+    { src: '/fonts/NotoSansArabic-Variable.ttf', fontWeight: 400 },
+    { src: '/fonts/NotoSansArabic-Variable.ttf', fontWeight: 700 },
+  ],
+})
 
 // The Helvetica standard font react-pdf uses only supports WinAnsi (cp1252) glyphs.
 // toLocaleString('fr-FR') inserts a no-break/narrow-no-break space (U+00A0 / U+202F) as
@@ -29,7 +41,7 @@ export const pdfStyles = StyleSheet.create({
   page: {
     padding: 40,
     fontSize: 10,
-    fontFamily: 'Helvetica',
+    fontFamily: PDF_FONT_FAMILY,
     color: colors.text,
   },
   header: {
@@ -52,7 +64,8 @@ export const pdfStyles = StyleSheet.create({
   },
   brandName: {
     fontSize: 14,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
     color: colors.text,
   },
   brandTagline: {
@@ -72,7 +85,8 @@ export const pdfStyles = StyleSheet.create({
   refCode: {
     marginTop: 6,
     fontSize: 12,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   refDate: {
     marginTop: 4,
@@ -101,12 +115,14 @@ export const pdfStyles = StyleSheet.create({
   },
   avatarText: {
     fontSize: 13,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
     color: colors.primary,
   },
   personName: {
     fontSize: 13,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
     marginBottom: 4,
   },
   personMeta: {
@@ -116,7 +132,8 @@ export const pdfStyles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 10,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
     marginBottom: 10,
   },
   tableHeadRow: {
@@ -124,7 +141,8 @@ export const pdfStyles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingBottom: 8,
     fontSize: 8.5,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
     color: colors.muted,
     textTransform: 'uppercase',
   },
@@ -142,11 +160,13 @@ export const pdfStyles = StyleSheet.create({
   },
   totalLabel: {
     fontSize: 10,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   totalValue: {
     fontSize: 14,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
     color: colors.primary,
   },
   confirmationBox: {

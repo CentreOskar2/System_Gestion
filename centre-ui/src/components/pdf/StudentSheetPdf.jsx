@@ -1,5 +1,5 @@
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
-import { pdfStyles, colors, BRAND_NAME, LOGO_SRC, formatMoney } from './pdfStyles'
+import { pdfStyles, colors, BRAND_NAME, LOGO_SRC, formatMoney, PDF_FONT_FAMILY } from './pdfStyles'
 
 const styles = StyleSheet.create({
   header: {
@@ -15,7 +15,8 @@ const styles = StyleSheet.create({
   },
   titleMain: {
     fontSize: 13,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   titleSub: {
     marginTop: 4,
@@ -27,7 +28,8 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 10.5,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
     marginBottom: 10,
   },
   grid: {
@@ -48,7 +50,8 @@ const styles = StyleSheet.create({
   },
   gridValue: {
     fontSize: 10,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   empty: {
     fontSize: 9,
@@ -66,7 +69,8 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 11,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   statLabel: {
     fontSize: 7.5,

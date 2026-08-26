@@ -1,5 +1,5 @@
 import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer'
-import { pdfStyles, colors, BRAND_NAME, formatMoney } from './pdfStyles'
+import { pdfStyles, colors, BRAND_NAME, formatMoney, PDF_FONT_FAMILY } from './pdfStyles'
 
 const styles = StyleSheet.create({
   groupBlock: {
@@ -12,7 +12,8 @@ const styles = StyleSheet.create({
   },
   groupName: {
     fontSize: 10,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   groupRate: {
     fontSize: 9,
@@ -32,16 +33,18 @@ const styles = StyleSheet.create({
   },
   groupTotalLabel: {
     fontSize: 9,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   groupTotalValue: {
     fontSize: 9,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   summaryCol1: { width: '34%' },
   summaryCol2: { width: '22%', textAlign: 'right' },
   summaryCol3: { width: '18%', textAlign: 'right' },
-  summaryCol4: { width: '26%', textAlign: 'right', fontFamily: 'Helvetica-Bold' },
+  summaryCol4: { width: '26%', textAlign: 'right', fontFamily: PDF_FONT_FAMILY, fontWeight: 700 },
 })
 
 export default function SalaryJournalPdf({ teacher, monthLabel }) {

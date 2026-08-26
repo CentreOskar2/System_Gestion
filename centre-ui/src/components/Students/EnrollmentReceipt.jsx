@@ -52,7 +52,7 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
         <header className="receipt-header">
           <div className="receipt-brand">
             <img src="/oskar-logo.png" alt="Oskar" />
-            <div><strong>Centre Oskar</strong><span>Centre de soutien scolaire — Casablanca</span></div>
+            <div><strong>Centre Oskar</strong><span>Centre de soutien scolaire — Agadir</span></div>
           </div>
           <div className="receipt-reference"><span>Reçu d'inscription</span><b>{form.code}</b><small>Date : {dateLabel}</small></div>
         </header>
