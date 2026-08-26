@@ -184,7 +184,7 @@ export default function SalariesPage() {
         teachersQuery = teachersQuery.eq('branch_id', branchFilter)
         groupsQuery = groupsQuery.eq('branch_id', branchFilter)
       }
-      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes, tariffsRes, paymentsRes] = await Promise.all([
+      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
         teachersQuery,
         supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
         supabase.from('levels').select('id, name, cycle_id'),
@@ -196,7 +196,6 @@ export default function SalariesPage() {
         supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id'),
         supabase.from('teacher_salaries').select('teacher_id').eq('month', month).eq('status', 'paid'),
         supabase.from('tariffs').select('level_id, subject_id, price'),
-        supabase.from('student_payments').select('student_id, status').eq('month', month),
       ])
       if (cancelled) return
       setLoading(false)
@@ -211,11 +210,6 @@ export default function SalariesPage() {
       const groupById = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g]))
       const studentMap = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, `${s.first_name} ${s.last_name}`.trim()]))
       const studentRowById = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s]))
-      const paidStudentIds = new Set(
-        (paymentsRes.data || [])
-          .filter((p) => p.status && (p.status === 'paid' || p.status === 'validé'))
-          .map((p) => p.student_id)
-      )
       const tariffsByLevelSubject = {}
       for (const row of tariffsRes.data || []) {
         if (!tariffsByLevelSubject[row.level_id]) tariffsByLevelSubject[row.level_id] = {}
@@ -245,7 +239,8 @@ export default function SalariesPage() {
         if (!name) continue
         if (student.status !== 'active') continue
         if (!isEnrolledInMonth({ registrationDate: student.registration_date, createdAt: student.created_at }, month)) continue
-        if (!paidStudentIds.has(row.student_id)) continue
+        // The teacher earns for every active enrolled student, including when
+        // the student's tuition payment is still pending or unpaid.
         if (group.branch_id && student.branch_id && group.branch_id !== student.branch_id) continue
         if (!studentsByGroup[row.group_id]) studentsByGroup[row.group_id] = []
         studentsByGroup[row.group_id].push(name)
