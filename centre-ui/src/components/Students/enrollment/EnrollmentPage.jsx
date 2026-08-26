@@ -59,7 +59,7 @@ const createInitialForm = (student) => {
     alerts: student.alerts || '',
     cycle: student.cycle || '',
     level: student.level || '',
-    filiere: student.groupFiliere || '',
+    filiere: student.track || '',
     track: student.track || '',
     chosen: student.chosen || [],
     subjectDetails: student.subjectDetails || {},
