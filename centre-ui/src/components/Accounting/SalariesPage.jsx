@@ -182,7 +182,6 @@ export default function SalariesPage() {
       let groupsQuery = supabase.from('groups').select('id, name, subject_id, level_id, branch_id')
       if (branchFilter) {
         teachersQuery = teachersQuery.eq('branch_id', branchFilter)
-        groupsQuery = groupsQuery.eq('branch_id', branchFilter)
       }
       const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, studentSubjectsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
         teachersQuery,
