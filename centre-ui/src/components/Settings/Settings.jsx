@@ -597,6 +597,12 @@ export default function Settings() {
   }, [])
 
   const cycleMap = useMemo(() => Object.fromEntries(cycles.map((c) => [c.id, c])), [cycles])
+  // Les tarifs par matière ne concernent que les cycles sans prix fixe.
+  const pricingCycles = useMemo(() => cycles.filter((cycle) => !cycle.has_fixed_price), [cycles])
+  const pricingLevels = useMemo(
+    () => levels.filter((level) => !cycleMap[level.cycle_id]?.has_fixed_price),
+    [levels, cycleMap],
+  )
 
   const levelsByCycle = useMemo(() => {
     const map = {}
@@ -707,6 +713,11 @@ export default function Settings() {
   }
 
   const savePricingSubject = async ({ name, levelId, price }) => {
+    const level = levels.find((item) => item.id === levelId)
+    if (!level || cycleMap[level.cycle_id]?.has_fixed_price) {
+      throw new Error('Les tarifs par matière sont réservés aux cycles sans prix fixe.')
+    }
+
     const subjectName = name.trim()
     const { data: matchingSubjects, error: lookupError } = await supabase
       .from('subjects')
@@ -802,6 +813,8 @@ export default function Settings() {
       const toDelete = []
       for (const [key, raw] of Object.entries(tariffDrafts)) {
         const [level_id, subject_id] = key.split('::')
+        const level = levels.find((item) => item.id === level_id)
+        if (!level || cycleMap[level.cycle_id]?.has_fixed_price) continue
         const trimmed = String(raw).trim()
         if (trimmed !== '' && !Number.isNaN(Number(trimmed)) && Number(trimmed) > 0) {
           rows.push({ level_id, subject_id, price: Number(trimmed) })
@@ -1081,13 +1094,13 @@ export default function Settings() {
           <section className="settings-card settings-pricing">
             <header className="settings-card-head">
               <div><strong>Grille tarifaire (DH / mois)</strong><p>Prix par matière et par niveau. Modifiez les tarifs puis enregistrez.</p></div>
-              <button className="settings-outline" onClick={() => setModal({ kind: 'pricingSubject' })} disabled={levels.length === 0}>＋ Ajouter une matière</button>
+              <button className="settings-outline" onClick={() => setModal({ kind: 'pricingSubject' })} disabled={pricingLevels.length === 0}>＋ Ajouter une matière</button>
             </header>
 
-            {levels.length === 0 || subjects.length === 0
+            {pricingLevels.length === 0 || subjects.length === 0
               ? <div className="settings-empty">
-                <p>{levels.length === 0 ? 'Aucun niveau. Ajoutez d’abord un niveau dans la structure académique.' : 'Aucune matière. Ajoutez une matière et choisissez son niveau ainsi que son tarif.'}</p>
-                {levels.length > 0 && <button className="settings-outline" onClick={() => setModal({ kind: 'pricingSubject' })}>＋ Ajouter une matière</button>}
+                <p>{pricingLevels.length === 0 ? 'Aucun niveau dans un cycle sans prix fixe. Désactivez le prix fixe du cycle concerné pour gérer les tarifs par matière.' : 'Aucune matière. Ajoutez une matière et choisissez son niveau ainsi que son tarif.'}</p>
+                {pricingLevels.length > 0 && <button className="settings-outline" onClick={() => setModal({ kind: 'pricingSubject' })}>＋ Ajouter une matière</button>}
               </div>
               : (
                 <div className="pricing-matrix">
@@ -1099,7 +1112,7 @@ export default function Settings() {
                       </tr>
                     </thead>
                     <tbody>
-                      {levels.map((level) => {
+                      {pricingLevels.map((level) => {
                         const cycle = cycleMap[level.cycle_id]
                         return (
                           <tr key={level.id}>
@@ -1171,7 +1184,7 @@ export default function Settings() {
       {modal?.kind === 'cycle' && <CycleModal cycle={modal.cycle} onClose={() => setModal(null)} onSave={saveCycle} />}
       {modal?.kind === 'academicLevel' && <NameModal title="Ajouter un niveau" label="Nom du niveau" placeholder="ex : 1ère année" onClose={() => setModal(null)} onSave={(name) => saveLevel(name, modal.cycleId)} />}
       {modal?.kind === 'level' && <LevelModal cycles={cycles} onClose={() => setModal(null)} onSave={saveLevel} />}
-      {modal?.kind === 'pricingSubject' && <PricingSubjectModal cycles={cycles} levels={levels} onClose={() => setModal(null)} onSave={savePricingSubject} />}
+      {modal?.kind === 'pricingSubject' && <PricingSubjectModal cycles={pricingCycles} levels={pricingLevels} onClose={() => setModal(null)} onSave={savePricingSubject} />}
       {modal?.kind === 'subject' && <NameModal title="Ajouter une matière" label="Nom de la matière" placeholder="ex : Philosophie" onClose={() => setModal(null)} onSave={saveSubject} />}
       {modal?.kind === 'schoolYear' && (
         <SchoolYearChangeModal
