@@ -11,7 +11,8 @@ export default function StudentsTable({
   const subjectLabel = (student) => {
     const cycle = catalog?.cycleByName?.[student.cycle]
     if (cycle?.has_fixed_price) {
-      return `${Number(cycle.fixed_price || 0).toLocaleString('fr-FR')} DH`
+      const level = catalog?.levelByName?.[student.level]
+      return `${Number(level?.fixed_price || 0).toLocaleString('fr-FR')} DH`
     }
     return student.subjects
   }

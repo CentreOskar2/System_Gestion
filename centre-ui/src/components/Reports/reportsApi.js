@@ -109,7 +109,7 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
   ] = await Promise.all([
     teachersQuery,
     supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
-    supabase.from('levels').select('id, name, cycle_id'),
+    supabase.from('levels').select('id, name, cycle_id, fixed_price'),
     supabase.from('branches').select('id, name'),
     supabase.from('subjects').select('id, name'),
     groupsQuery,
@@ -144,8 +144,9 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     if (!group) return 0
     const tariff = tariffsByLevelSubject[group.level_id]?.[group.subject_id]
     if (tariff != null) return tariff
-    const cycle = cycleById[levelById[group.level_id]?.cycle_id]
-    if (cycle?.has_fixed_price && cycle.fixed_price != null) return Number(cycle.fixed_price)
+    const level = levelById[group.level_id]
+    const cycle = cycleById[level?.cycle_id]
+    if (cycle?.has_fixed_price && level?.fixed_price != null) return Number(level.fixed_price)
     return 0
   }
 

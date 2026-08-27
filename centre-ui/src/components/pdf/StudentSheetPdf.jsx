@@ -1,5 +1,6 @@
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import { pdfStyles, colors, BRAND_NAME, LOGO_SRC, formatMoney, PDF_FONT_FAMILY } from './pdfStyles'
+import { initials } from '../Students/utils/studentHelpers'
 
 const styles = StyleSheet.create({
   header: {
@@ -25,6 +26,42 @@ const styles = StyleSheet.create({
   },
   section: {
     marginBottom: 18,
+  },
+  profileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  profileAvatar: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    marginRight: 14,
+  },
+  profileAvatarFallback: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    marginRight: 14,
+    backgroundColor: colors.avatarBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileAvatarText: {
+    fontSize: 16,
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
+    color: colors.primary,
+  },
+  profileName: {
+    fontSize: 13,
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
+  },
+  profileCode: {
+    marginTop: 3,
+    fontSize: 9,
+    color: colors.muted,
   },
   sectionTitle: {
     fontSize: 10.5,
@@ -141,6 +178,19 @@ export default function StudentSheetPdf({ data }) {
 
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Profil de l'élève</Text>
+          <View style={styles.profileRow}>
+            {student.photoUrl || student.photo_url ? (
+              <Image src={student.photoUrl || student.photo_url} style={styles.profileAvatar} />
+            ) : (
+              <View style={styles.profileAvatarFallback}>
+                <Text style={styles.profileAvatarText}>{initials(student.name)}</Text>
+              </View>
+            )}
+            <View>
+              <Text style={styles.profileName}>{student.name || 'Élève'}</Text>
+              <Text style={styles.profileCode}>{student.code || '—'}</Text>
+            </View>
+          </View>
           <View style={styles.grid}>
             <GridItem label="Nom complet" value={student.name} />
             <GridItem label="Code d'inscription" value={student.code} />
