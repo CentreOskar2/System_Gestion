@@ -171,3 +171,21 @@
   .db-skeleton-grid { grid-template-columns: 1fr; }
   .db-controls { padding: 10px; }
 }
+
+@media (max-width: 520px) {
+  .db-controls {
+    gap: 8px;
+  }
+  .db-controls .primary,
+  .db-controls .secondary {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+  .db-controls .menu {
+    flex: 1 1 48%;
+  }
+  .db-controls .menu button {
+    width: 100%;
+    justify-content: center;
+  }
+}

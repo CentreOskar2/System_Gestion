@@ -1114,3 +1114,13 @@
     width: 100%;
   }
 }
+
+@media (max-width: 520px) {
+  .settings-content {
+    padding: 20px 14px 40px;
+  }
+
+  .settings-card {
+    padding: 18px 14px;
+  }
+}

@@ -1,12 +1,13 @@
 import { useState } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, useLocation, useNavigate } from 'react-router-dom'
 import Icon from '../Icon'
 import { useAuth } from '../../context/AuthContext'
 
 const accountingIcons = ['calendar', 'advance', 'id', 'calculator', 'layers']
 
-export default function Sidebar({ sections }) {
+export default function Sidebar({ sections, open = false, onNavigate = () => {} }) {
   const { permissions, signOut } = useAuth()
+  const navigate = useNavigate()
 
   function hasPermission(item) {
     if (!item.requiredPerm) return true
@@ -36,11 +37,15 @@ export default function Sidebar({ sections }) {
   const [accountingOpen, setAccountingOpen] = useState(isAccountingRoute)
 
   return (
-    <aside className="sidebar">
-      <div className="brand">
+    <aside className={`sidebar${open ? ' is-open' : ''}`}>
+      <button
+        type="button"
+        className="brand"
+        onClick={() => { navigate('/dashboard'); if (onNavigate) onNavigate() }}
+      >
         <img className="brand__logo" src="/oskar-logo.png" alt="Centre Oskar" />
         <div><strong>Centre Oskar</strong><span>Gestion interne</span></div>
-      </div>
+      </button>
 
       <nav className="sidebar__nav" aria-label="Navigation principale">
         {visibleSections.map((section) => (
@@ -56,7 +61,7 @@ export default function Sidebar({ sections }) {
                       <span className={`nav-link__caret ${accountingOpen ? 'is-open' : ''}`}><Icon name="chevron-down" /></span>
                     </button>
                   ) : (
-                    <NavLink to={item.path || '#'} className={({ isActive }) => `nav-link ${isActive ? 'is-active' : ''}`}>
+                    <NavLink to={item.path || '#'} onClick={onNavigate} className={({ isActive }) => `nav-link ${isActive ? 'is-active' : ''}`}>
                       <span className="nav-link__icon"><Icon name={item.icon} /></span><span>{item.label}</span>
                     </NavLink>
                   )}
@@ -65,7 +70,7 @@ export default function Sidebar({ sections }) {
                       <ul className="nav-submenu">
                         {item.children.map((child, index) => (
                           <li key={child.label}>
-                            <NavLink to={child.path || '#'} className="nav-sub-link">
+                            <NavLink to={child.path || '#'} onClick={onNavigate} className="nav-sub-link">
                               <span className="nav-sub-link__icon" aria-hidden="true"><Icon name={child.icon || accountingIcons[index]} /></span>{child.label}
                             </NavLink>
                           </li>
@@ -80,7 +85,7 @@ export default function Sidebar({ sections }) {
         ))}
       </nav>
 
-      <button type="button" className="logout" onClick={signOut}>
+      <button type="button" className="logout" onClick={onNavigate ? () => { onNavigate(); signOut() } : signOut}>
         <span className="nav-link__icon">
           <Icon name="logout" />
         </span>

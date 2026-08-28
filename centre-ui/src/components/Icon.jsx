@@ -277,7 +277,13 @@ export default function Icon({ name }) {
          </svg>
        )
       case 'close':
-         return <span aria-hidden="true">×</span>
+          return <span aria-hidden="true">×</span>
+      case 'menu':
+        return (
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 6.5h16M4 12h16M4 17.5h16" {...common} />
+          </svg>
+        )
       case 'clipboard':
         return (
           <svg viewBox="0 0 24 24" aria-hidden="true">

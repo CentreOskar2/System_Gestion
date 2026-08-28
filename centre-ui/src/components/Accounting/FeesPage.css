@@ -569,6 +569,105 @@
   }
 }
 
+/* ============================================================
+   FORCE-FIX : Mobile layout accounting (<= 768px)
+   Matches Students.css stacked-structure fix.
+   ============================================================ */
+@media (max-width: 768px) {
+  /* 1. Force Accounting containers to stack vertically */
+  .fees-page,
+  .fees-content,
+  .fees-heading,
+  .fees-toolbar,
+  .daily-history-toolbar {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+  }
+
+  .fees-page,
+  .fees-content {
+    position: relative !important;
+    max-width: 100vw !important;
+    padding-top: 20px !important;
+    padding-left: 14px !important;
+    padding-right: 14px !important;
+    overflow-x: hidden !important;
+  }
+
+  .fees-heading {
+    margin-top: 10px !important;
+  }
+
+  /* Box sizing for select/input fields */
+  .fees-content select,
+  .fees-content input,
+  .fees-content input[type="date"],
+  .fees-year-select select,
+  .daily-history-month select,
+  .daily-history-range input {
+    box-sizing: border-box !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* 2. Action buttons stack full width */
+  .fees-toolbar .fees-view-switch,
+  .daily-history-toolbar .daily-history-filters {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    gap: 10px !important;
+  }
+
+  .fees-toolbar button,
+  .fees-toolbar .fees-view-switch button,
+  .daily-history-toolbar button,
+  .daily-history-filters button,
+  .history-export {
+    display: flex !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+    justify-content: center !important;
+    align-items: center !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+  }
+
+  .fees-year-select {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* 3. Horizontal scrollable navigation tabs */
+  .accounting-tabs {
+    display: flex !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    -webkit-overflow-scrolling: touch !important;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 4px;
+  }
+
+  .accounting-tabs button,
+  .accounting-tabs a {
+    flex: 0 0 auto !important;
+    width: auto !important;
+  }
+}
+
 @media (max-width: 600px) {
   .advance-receipts-modal {
     padding: 28px 20px;
@@ -616,4 +715,37 @@
 .payment-dot.pending {
   background: #ffffff;
   box-shadow: inset 0 0 0 1px #dbe2eb;
+}
+
+@media (max-width: 520px) {
+  .fees-content {
+    padding: 22px 14px;
+  }
+
+  .fees-heading h1 {
+    font-size: 1.6rem;
+  }
+
+  .fees-year-select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .fees-search {
+    max-width: none;
+    height: 50px;
+    margin: 22px 0;
+  }
+
+  .fees-view-switch,
+  .daily-history-filters {
+    width: 100%;
+  }
+
+  .fees-view-switch button,
+  .daily-history-filters button {
+    flex: 1;
+    font-size: 0.9rem;
+    padding: 0 10px;
+  }
 }

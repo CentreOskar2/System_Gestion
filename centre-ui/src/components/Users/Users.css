@@ -539,3 +539,18 @@
     min-width: 900px;
   }
 }
+
+@media (max-width: 520px) {
+  .users-content {
+    padding: 20px 14px 40px;
+  }
+
+  .users-heading h1 {
+    font-size: 1.6rem;
+  }
+
+  .user-add {
+    width: 100%;
+    justify-content: center;
+  }
+}

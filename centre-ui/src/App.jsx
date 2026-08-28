@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import './App.css'
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import Sidebar from './components/SideBar/Sidebar'
+import Icon from './components/Icon'
 import Dashboard from './components/Dashboard/Dashboard'
 import Login from './components/Login/Login'
 import Branches from './components/Branches/Branches'
@@ -57,9 +59,28 @@ const sidebarSections = [
 ]
 
 function DashboardLayout() {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const closeMenu = () => setMenuOpen(false)
+
   return (
     <div className="dashboard-shell">
-      <Sidebar sections={sidebarSections} />
+      <button
+        type="button"
+        className="menu-toggle"
+        aria-label="Ouvrir le menu de navigation"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((open) => !open)}
+      >
+        <Icon name="menu" />
+      </button>
+
+      <div
+        className={`sidebar-backdrop${menuOpen ? ' is-open' : ''}`}
+        onClick={closeMenu}
+        aria-hidden="true"
+      />
+
+      <Sidebar sections={sidebarSections} open={menuOpen} onNavigate={closeMenu} />
       <Outlet />
     </div>
   )

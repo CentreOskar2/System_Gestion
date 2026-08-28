@@ -156,3 +156,25 @@
     min-width: 0;
   }
 }
+
+@media (max-width: 520px) {
+  .reports-content {
+    padding: 22px 14px;
+  }
+
+  .reports-filters {
+    flex-direction: column;
+    gap: 12px;
+    margin: 26px 0 28px;
+  }
+
+  .reports-filter {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .reports-filter select {
+    width: 100%;
+  }
+}

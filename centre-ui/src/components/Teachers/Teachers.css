@@ -978,3 +978,37 @@
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 520px) {
+  .teachers-content,
+  .teacher-form-content,
+  .teacher-profile-content {
+    padding: 20px 14px 40px;
+  }
+
+  .teacher-add {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .teachers-heading h1,
+  .teacher-form-heading h1 {
+    font-size: 1.6rem;
+  }
+
+  .teacher-search {
+    height: 50px;
+    margin-bottom: 26px;
+  }
+
+  .teacher-card {
+    padding: 20px 16px;
+  }
+
+  .teacher-form-footer {
+    flex-direction: column-reverse;
+  }
+  .teacher-form-footer button {
+    width: 100%;
+  }
+}

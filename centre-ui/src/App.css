@@ -61,6 +61,23 @@
   border-bottom: 0;
 }
 
+button.brand {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+button.brand:hover .brand__logo {
+  transform: scale(1.04);
+}
+button.brand:focus-visible {
+  outline: 3px solid rgba(49, 95, 236, 0.22);
+  outline-offset: 2px;
+  border-radius: 12px;
+}
+
 .brand__mark,
 .profile__avatar {
   display: grid;
@@ -326,6 +343,34 @@
 .dashboard-main {
   min-width: 0;
   padding: 26px 0 22px;
+}
+
+/* Bouton hamburger : affiché uniquement sur mobile/tablette */
+.menu-toggle {
+  display: none;
+  position: fixed;
+  z-index: 90;
+  top: 12px;
+  left: 12px;
+  width: 46px;
+  height: 46px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 12px;
+  background: #315fec;
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(49, 95, 236, 0.35);
+  cursor: pointer;
+}
+.menu-toggle svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Voile semi-transparent derrière le tiroir, uniquement sur mobile */
+.sidebar-backdrop {
+  display: none;
 }
 
 .topbar {
@@ -874,13 +919,54 @@
     grid-template-columns: 1fr;
   }
 
+  /* Tiroir latéral hors-écran : ouvert via le bouton hamburger */
   .sidebar {
-    border-right: 0;
-    border-bottom: 1px solid rgba(215, 221, 233, 0.9);
+    position: fixed;
+    z-index: 95;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    max-width: 85vw;
+    transform: translateX(-100%);
+    transition: transform 0.28s ease;
+    border-right: 1px solid rgba(215, 221, 233, 0.9);
+    border-bottom: 0;
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+
+  .menu-toggle {
+    display: flex;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    z-index: 94;
+    inset: 0;
+    background: rgba(12, 23, 45, 0.5);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.28s ease, visibility 0.28s ease;
+  }
+
+  .sidebar-backdrop.is-open {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  /* Décale les blocs du bandeau supérieur pour dégager le hamburger */
+  .dashboard-main {
+    padding-top: 18px;
   }
 
   .topbar {
     grid-template-columns: 1fr 1fr;
+    padding-left: 64px;
   }
 
   .searchbar {
@@ -888,7 +974,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .dashboard-main {
     padding: 14px 0;
   }
@@ -898,8 +984,46 @@
   }
 
   .topbar {
-    grid-template-columns: 1fr;
+    grid-template-columns: auto auto 1fr;
+    gap: 10px;
     padding: 0 14px;
+    padding-left: 64px;
+    align-items: center;
+  }
+
+  /* Rangée 1 : notifications + profil à droite du hamburger fixe */
+  .notifications {
+    justify-self: start;
+  }
+
+  .profile {
+    justify-self: start;
+    padding: 0 10px;
+  }
+  .profile > div:last-child {
+    display: none;
+  }
+  .notifications,
+  .profile {
+    min-height: 46px;
+  }
+
+  /* Rangée 2 : la succursale occupe toute sa propre rangée */
+  .branch-select {
+    grid-column: 1 / -1;
+    min-width: 0;
+    width: 100%;
+  }
+  .branch-select > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Rangée 3 : recherche pleine largeur */
+  .searchbar {
+    grid-column: 1 / -1;
+    min-width: 0;
   }
 
   .metrics-grid {

@@ -42,3 +42,5 @@
 .branch-cancel, .branch-save { min-height: 55px; padding: 0 24px; font-size: 1rem; }
 .branch-cancel { border: 1px solid #d9e0ea; border-radius: 12px; background: #fff; color: #273140; font-weight: 700; box-shadow: 0 2px 4px rgba(21,31,47,.1); }
 @media (max-width: 850px) { .branches-topbar { padding: 16px; }.branches-content { padding: 32px 20px; }.branches-heading { flex-direction: column; }.branch-modal { padding: 30px 22px; }.branch-status-field { align-items: flex-start; flex-direction: column; }.branches-table-wrap { overflow-x: auto; }.branches-table { min-width: 720px; } }
+
+@media (max-width: 520px) { .branches-content { padding: 20px 14px 40px; }.branches-heading h1 { font-size: 1.6rem; }.branch-add { width: 100%; justify-content: center; } }
