@@ -8,7 +8,7 @@ export default function EnrollmentReceiptPdf({ form, lines, total, dateLabel, re
     <Document>
       <Page size="A4" style={pdfStyles.page}>
         <PdfBrandHeader
-          tagline="Centre de soutien scolaire — Casablanca"
+          tagline="Centre de soutien scolaire — Agadir"
           label="Reçu d'inscription"
           code={form.code}
           date={dateLabel}

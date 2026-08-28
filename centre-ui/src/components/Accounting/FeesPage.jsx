@@ -37,8 +37,6 @@ import './FeesPage.css'
 import './FeesEditModal.css'
 import './Receipt.css'
 
-const DAILY_HISTORY_STORAGE_KEY = 'fees_daily_history_v1'
-
 function buildSchoolMonths(startYear) {
   const year = Number(startYear)
   if (!Number.isFinite(year)) return []
@@ -57,25 +55,6 @@ function toNumber(value) {
 
 function normalizeDateKey(value) {
   return accountingDayBucket(value)
-}
-
-function loadDailyArchive(branchId, schoolYearStart) {
-  const key = `${DAILY_HISTORY_STORAGE_KEY}:${branchId || 'all'}:${schoolYearStart}`
-  try {
-    const raw = localStorage.getItem(key)
-    return raw ? JSON.parse(raw) : []
-  } catch {
-    return []
-  }
-}
-
-function saveDailyArchive(branchId, schoolYearStart, rows) {
-  const key = `${DAILY_HISTORY_STORAGE_KEY}:${branchId || 'all'}:${schoolYearStart}`
-  try {
-    localStorage.setItem(key, JSON.stringify(rows))
-  } catch {
-    /* storage can be unavailable */
-  }
 }
 
 function aggregateDailyRows(payments, studentsById, schoolYearStart) {
@@ -286,7 +265,7 @@ function Receipt({ receipts, close, catalog }) {
                 <img src="/oskar-logo.png" alt="Logo Centre Oskar" />
                 <div>
                   <strong>Centre Oskar</strong>
-                  <span>Cours particuliers — Casablanca</span>
+                  <span>Cours particuliers — Agadir</span>
                 </div>
               </div>
               <div className="fee-ref">
@@ -372,7 +351,7 @@ function RegistrationFeeReceipt({ student, amount, schoolYear, paidAt, close }) 
               <img src="/oskar-logo.png" alt="Logo Centre Oskar" />
               <div>
                 <strong>Centre Oskar</strong>
-                <span>Cours particuliers — Casablanca</span>
+                <span>Cours particuliers — Agadir</span>
               </div>
             </div>
             <div className="fee-ref">
@@ -472,14 +451,13 @@ export default function FeesPage() {
   const [historyMonth, setHistoryMonth] = useState('')
   const [historyFrom, setHistoryFrom] = useState('')
   const [historyTo, setHistoryTo] = useState('')
-  const [dailyHistory, setDailyHistory] = useState([])
   const [selected, setSelected] = useState(null)
   const [editing, setEditing] = useState(null)
   const [receipt, setReceipt] = useState(null)
   const [advance, setAdvance] = useState(null)
   const [advanceReceipts, setAdvanceReceipts] = useState(null)
   const [saving, setSaving] = useState(false)
-  const [nowTick, setNowTick] = useState(Date.now())
+  const [nowTick, setNowTick] = useState(() => Date.now())
   const [appSettings, setAppSettings] = useState(null)
   const [registrationFees, setRegistrationFees] = useState({})
   const [feeModal, setFeeModal] = useState(null)
@@ -558,8 +536,10 @@ export default function FeesPage() {
   }, [schoolYearKeyLabel])
 
   // Paid registration fees are cash-ins like any other: they feed the day's totals
-  // and the daily archive alongside monthly tuition payments.
+  // and the daily archive alongside monthly tuition payments. Keep only payments
+  // belonging to students shown for the selected branch.
   const allPayments = useMemo(() => {
+    const visibleStudentIds = new Set(students.map((student) => student.id))
     const feePayments = Object.values(registrationFees)
       .filter((fee) => fee.status === 'paid' && fee.paid_at)
       .map((fee) => ({
@@ -569,26 +549,22 @@ export default function FeesPage() {
         paid_at: fee.paid_at,
         status: 'paid',
       }))
-    return [...payments, ...feePayments]
-  }, [payments, registrationFees])
+    return [...payments, ...feePayments].filter(
+      (payment) =>
+        visibleStudentIds.has(payment.student_id) &&
+        (payment.status === 'paid' || payment.status === 'validé')
+    )
+  }, [payments, registrationFees, students])
 
-  useEffect(() => {
-    // Note backend: configure pg_cron with the schedule '0 3 * * *' to archive the completed day
-    // before the counters reset for the new accounting day.
-    const archiveSeed = aggregateDailyRows(allPayments, Object.fromEntries(students.map((student) => [student.id, student])), schoolYearStart)
-    const currentDayKey = normalizeDateKey(new Date(nowTick))
-    const merged = loadDailyArchive(selectedBranch, schoolYearStart)
-    const next = [...merged]
-    for (const row of archiveSeed) {
-      if (row.date >= currentDayKey) continue
-      if (!next.some((item) => item.date === row.date)) next.push(row)
-    }
-    next.sort((a, b) => b.date.localeCompare(a.date))
-    if (JSON.stringify(next) !== JSON.stringify(merged)) {
-      saveDailyArchive(selectedBranch, schoolYearStart, next)
-    }
-    setDailyHistory(next)
-  }, [allPayments, students, selectedBranch, schoolYearStart, nowTick])
+  const dailyHistory = useMemo(
+    () =>
+      aggregateDailyRows(
+        allPayments,
+        Object.fromEntries(students.map((student) => [student.id, student])),
+        schoolYearStart
+      ),
+    [allPayments, students, schoolYearStart]
+  )
 
   const shown = useMemo(
     () => students.filter((s) => `${s.name} ${s.code}`.toLowerCase().includes(query.toLowerCase())),
@@ -596,23 +572,17 @@ export default function FeesPage() {
   )
 
   const schoolMonths = useMemo(() => buildSchoolMonths(schoolYearStart), [schoolYearStart])
-  const schoolYearKey = `${schoolYearStart}-09-01`
-  const schoolYearEndKey = `${Number(schoolYearStart) + 1}-08-31`
-  const selectedYearPayments = useMemo(
-    () => allPayments.filter((payment) => {
-      const dayKey = normalizeDateKey(payment.paid_at || payment.month)
-      return !dayKey || (dayKey >= schoolYearKey && dayKey <= schoolYearEndKey)
-    }),
-    [allPayments, schoolYearKey, schoolYearEndKey]
-  )
   const currentDayKey = normalizeDateKey(new Date(nowTick))
   const currentDayPayments = useMemo(
-    () => selectedYearPayments.filter((payment) => normalizeDateKey(payment.paid_at || payment.month) === currentDayKey),
-    [selectedYearPayments, currentDayKey]
+    () => allPayments.filter((payment) => normalizeDateKey(payment.paid_at || payment.month) === currentDayKey),
+    [allPayments, currentDayKey]
   )
-  const currentDayStudentIds = useMemo(
-    () => [...new Set(currentDayPayments.map((payment) => payment.student_id))],
-    [currentDayPayments]
+  const currentMonthBillableStudents = useMemo(
+    () =>
+      students.filter(
+        (student) => student.active && isEnrolledInMonth(student, currentMonthKey())
+      ),
+    [students, nowTick]
   )
   const filteredDailyHistory = useMemo(() => {
     const rows = [...dailyHistory]
@@ -631,13 +601,13 @@ export default function FeesPage() {
 
   const stats = useMemo(() => {
     const totalCollected = currentDayPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
-    const currentDayDue = currentDayStudentIds.reduce((sum, studentId) => sum + toNumber(students.find((student) => student.id === studentId)?.du_mois), 0)
+    const monthlyDue = currentMonthBillableStudents.reduce((sum, student) => sum + toNumber(student.du_mois), 0)
     return {
       totalCollected,
-      billed: currentDayStudentIds.length,
-      dueTotal: currentDayDue,
+      billed: currentMonthBillableStudents.length,
+      dueTotal: monthlyDue,
     }
-  }, [students, currentDayPayments, currentDayStudentIds])
+  }, [currentDayPayments, currentMonthBillableStudents])
 
   const stateOf = (student, index) => {
     const key = monthDate(index, Number(schoolYearStart))
@@ -881,12 +851,12 @@ export default function FeesPage() {
             <i className="fee-stat-icon fee-stat-icon--green"><TrendingUp size={20} /></i>
           </article>
           <article>
-            <span>Élèves facturés aujourd'hui</span>
+            <span>Élèves facturés ce mois</span>
             <strong>{stats.billed}</strong>
             <i className="fee-stat-icon"><Users size={20} /></i>
           </article>
           <article>
-            <span>Dû mensuel aujourd'hui</span>
+            <span>Dû mensuel ce mois</span>
             <strong>{stats.dueTotal.toLocaleString('fr-FR')} DH</strong>
             <i className="fee-stat-icon"><Wallet size={20} /></i>
           </article>

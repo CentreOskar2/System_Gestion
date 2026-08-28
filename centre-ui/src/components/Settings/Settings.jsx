@@ -45,19 +45,26 @@ function Toast({ notice }) {
   )
 }
 
-function LevelModal({ cycles, onClose, onSave }) {
+function LevelModal({ cycles, initialCycleId, onClose, onSave }) {
   const [name, setName] = useState('')
-  const [cycleId, setCycleId] = useState(cycles[0]?.id || '')
+  const [cycleId, setCycleId] = useState(initialCycleId || cycles[0]?.id || '')
+  const [fixedPrice, setFixedPrice] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
   const submit = async (e) => {
     e.preventDefault()
+    const cycle = cycles.find((item) => item.id === cycleId)
+    const price = Number(fixedPrice)
     if (!name.trim() || !cycleId) return
+    if (cycle?.has_fixed_price && (!Number.isFinite(price) || price < 0 || fixedPrice === '')) {
+      setError('Veuillez saisir un prix fixe valide pour ce niveau.')
+      return
+    }
     setSaving(true)
     setError(null)
     try {
-      await onSave(name.trim(), cycleId)
+      await onSave(name.trim(), cycleId, cycle?.has_fixed_price ? price : null)
     } catch (err) {
       setError(err.message || 'Une erreur est survenue')
       setSaving(false)
@@ -76,11 +83,73 @@ function LevelModal({ cycles, onClose, onSave }) {
               {cycles.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </label>
+          {cycles.find((item) => item.id === cycleId)?.has_fixed_price && (
+            <label>Prix fixe du niveau (DH / mois)<input type="number" min="0" step="0.01" value={fixedPrice} onChange={(e) => setFixedPrice(e.target.value)} placeholder="ex : 180" required /></label>
+          )}
           {error && <div className="settings-error">{error}</div>}
           <footer>
             <button type="button" className="settings-outline" onClick={onClose}>Annuler</button>
             <button type="submit" className="settings-save" disabled={saving || !cycleId}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button>
           </footer>
+        </form>
+      </section>
+    </div>
+  )
+}
+
+function PricingSubjectModal({ cycles, levels, onClose, onSave }) {
+  const [name, setName] = useState('')
+  const [cycleId, setCycleId] = useState(cycles[0]?.id || '')
+  const [levelId, setLevelId] = useState(() => levels.find((level) => level.cycle_id === cycles[0]?.id)?.id || '')
+  const [price, setPrice] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState(null)
+  const cycleLevels = levels.filter((level) => level.cycle_id === cycleId)
+
+  const changeCycle = (nextCycleId) => {
+    setCycleId(nextCycleId)
+    setLevelId(levels.find((level) => level.cycle_id === nextCycleId)?.id || '')
+  }
+
+  const submit = async (event) => {
+    event.preventDefault()
+    const numericPrice = Number(price)
+    if (!name.trim() || !levelId || !Number.isFinite(numericPrice) || numericPrice <= 0) {
+      setError('Saisissez une matière, un niveau et un tarif supérieur à 0.')
+      return
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      await onSave({ name: name.trim(), levelId, price: numericPrice })
+    } catch (err) {
+      setError(err.message || 'Une erreur est survenue')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="settings-dialog-bg" onMouseDown={onClose}>
+      <section className="settings-dialog" onMouseDown={(event) => event.stopPropagation()}>
+        <button className="settings-close" onClick={onClose}>×</button>
+        <h2>Ajouter une matière et son tarif</h2>
+        <form onSubmit={submit}>
+          <label>Cycle
+            <select value={cycleId} onChange={(event) => changeCycle(event.target.value)} required>
+              {cycles.map((cycle) => <option key={cycle.id} value={cycle.id}>{cycle.name}</option>)}
+            </select>
+          </label>
+          <label>Niveau
+            <select value={levelId} onChange={(event) => setLevelId(event.target.value)} required disabled={cycleLevels.length === 0}>
+              {cycleLevels.length === 0
+                ? <option value="">Aucun niveau dans ce cycle</option>
+                : cycleLevels.map((level) => <option key={level.id} value={level.id}>{level.name}</option>)}
+            </select>
+          </label>
+          <label>Nom de la matière<input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="ex : Mathématiques" required /></label>
+          <label>Tarif mensuel (DH)<input type="number" min="0.01" step="0.01" value={price} onChange={(event) => setPrice(event.target.value)} placeholder="ex : 300" required /></label>
+          {error && <div className="settings-error">{error}</div>}
+          <footer><button type="button" className="settings-outline" onClick={onClose}>Annuler</button><button type="submit" className="settings-save" disabled={saving || !levelId}>{saving ? 'Enregistrement...' : 'Ajouter'}</button></footer>
         </form>
       </section>
     </div>
@@ -123,8 +192,8 @@ function NameModal({ title, label, placeholder, onClose, onSave }) {
 function CycleModal({ cycle, onClose, onSave }) {
   const editing = Boolean(cycle)
   const [form, setForm] = useState(cycle
-    ? { id: cycle.id, name: cycle.name, has_fixed_price: Boolean(cycle.has_fixed_price), fixed_price: cycle.fixed_price != null ? String(cycle.fixed_price) : '' }
-    : { id: undefined, name: '', has_fixed_price: false, fixed_price: '' })
+    ? { id: cycle.id, name: cycle.name, has_fixed_price: Boolean(cycle.has_fixed_price) }
+    : { id: undefined, name: '', has_fixed_price: false })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
@@ -132,10 +201,6 @@ function CycleModal({ cycle, onClose, onSave }) {
   const submit = async (e) => {
     e.preventDefault()
     if (!form.name.trim()) return
-    if (form.has_fixed_price && (form.fixed_price === '' || Number(form.fixed_price) <= 0)) {
-      setError('Veuillez saisir un prix fixe valide.')
-      return
-    }
     setSaving(true)
     setError(null)
     try {
@@ -154,10 +219,9 @@ function CycleModal({ cycle, onClose, onSave }) {
         <form onSubmit={submit}>
           <label>Nom du cycle *<input autoFocus value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="ex : Collège" required /></label>
           <div className="cycle-fixed">
-            <div><strong>Prix fixe pour tout le cycle</strong><p>Si activé, tous les niveaux du cycle partagent ce tarif.</p></div>
+            <div><strong>Prix fixe par niveau</strong><p>Si activé, chaque niveau possède son propre tarif.</p></div>
             <label className="settings-switch"><input type="checkbox" checked={form.has_fixed_price} onChange={(e) => set('has_fixed_price', e.target.checked)} /><i /></label>
           </div>
-          {form.has_fixed_price && <label>Prix fixe (DH / mois)<input type="number" min="0" step="0.01" value={form.fixed_price} onChange={(e) => set('fixed_price', e.target.value)} placeholder="ex : 400" /></label>}
           {error && <div className="settings-error">{error}</div>}
           <footer><button type="button" className="settings-outline" onClick={onClose}>Annuler</button><button type="submit" className="settings-save" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></footer>
         </form>
@@ -347,6 +411,8 @@ export default function Settings() {
   const [subjects, setSubjects] = useState([])
   const [tariffs, setTariffs] = useState([])
   const [tariffDrafts, setTariffDrafts] = useState({})
+  const [levelPriceDrafts, setLevelPriceDrafts] = useState({})
+  const [levelPriceSaving, setLevelPriceSaving] = useState(null)
   const [tariffSaving, setTariffSaving] = useState(false)
   const [appSettings, setAppSettings] = useState(null)
   const [registrationFeeDraft, setRegistrationFeeDraft] = useState('')
@@ -429,6 +495,7 @@ export default function Settings() {
     setStudyBranches(data.studyBranches)
     setSubjects(data.subjects)
     setTariffs(data.tariffs)
+    setLevelPriceDrafts(Object.fromEntries(data.levels.map((level) => [level.id, level.fixed_price != null ? String(level.fixed_price) : ''])))
     if (opts.resetTariffDrafts) {
       const drafts = {}
       for (const row of data.tariffs) drafts[`${row.level_id}::${row.subject_id}`] = String(row.price)
@@ -538,6 +605,12 @@ export default function Settings() {
   }, [])
 
   const cycleMap = useMemo(() => Object.fromEntries(cycles.map((c) => [c.id, c])), [cycles])
+  // Les tarifs par matière ne concernent que les cycles sans prix fixe.
+  const pricingCycles = useMemo(() => cycles.filter((cycle) => !cycle.has_fixed_price), [cycles])
+  const pricingLevels = useMemo(
+    () => levels.filter((level) => !cycleMap[level.cycle_id]?.has_fixed_price),
+    [levels, cycleMap],
+  )
 
   const levelsByCycle = useMemo(() => {
     const map = {}
@@ -631,8 +704,8 @@ export default function Settings() {
     }
   }
 
-  const saveLevel = async (name, cycleId) => {
-    const { error } = await supabase.from('levels').insert({ cycle_id: cycleId, name })
+  const saveLevel = async (name, cycleId, fixedPrice = null) => {
+    const { error } = await supabase.from('levels').insert({ cycle_id: cycleId, name, fixed_price: fixedPrice })
     if (error) throw new Error(error.message)
     setModal(null)
     await fetchAll()
@@ -647,11 +720,43 @@ export default function Settings() {
     notify('Matière ajoutée')
   }
 
+  const savePricingSubject = async ({ name, levelId, price }) => {
+    const level = levels.find((item) => item.id === levelId)
+    if (!level || cycleMap[level.cycle_id]?.has_fixed_price) {
+      throw new Error('Les tarifs par matière sont réservés aux cycles sans prix fixe.')
+    }
+
+    const subjectName = name.trim()
+    const { data: matchingSubjects, error: lookupError } = await supabase
+      .from('subjects')
+      .select('id, name')
+      .ilike('name', subjectName)
+      .limit(1)
+    if (lookupError) throw new Error(lookupError.message)
+
+    let subject = matchingSubjects?.[0]
+
+    if (!subject) {
+      const { data, error } = await supabase.from('subjects').insert({ name: subjectName }).select('id, name').single()
+      if (error) throw new Error(error.message)
+      subject = data
+    }
+
+    const { error } = await supabase.from('tariffs').upsert(
+      { level_id: levelId, subject_id: subject.id, price },
+      { onConflict: 'level_id,subject_id' },
+    )
+    if (error) throw new Error(error.message)
+
+    setModal(null)
+    await fetchAll()
+    notify(`Matière ajoutée avec un tarif de ${price} DH / mois`)
+  }
+
   const saveCycle = async (form, editing) => {
     const payload = {
       name: form.name,
       has_fixed_price: form.has_fixed_price,
-      fixed_price: form.has_fixed_price ? Number(form.fixed_price) : 0,
     }
     const { error } = editing
       ? await supabase.from('cycles').update(payload).eq('id', form.id)
@@ -671,14 +776,36 @@ export default function Settings() {
   }
 
   const toggleFixedPrice = async (id, value) => {
-    const cycle = cycles.find((c) => c.id === id)
     const { error } = await supabase.from('cycles').update({
       has_fixed_price: value,
-      fixed_price: value ? (cycle?.fixed_price ?? 0) : 0,
     }).eq('id', id)
     if (error) return notify(error.message, 'error')
     await fetchAll()
-    notify(value ? 'Prix fixe activé pour le cycle' : 'Prix fixe désactivé')
+    notify(value ? 'Prix fixe par niveau activé' : 'Prix fixe désactivé')
+  }
+
+  const saveCycleFixedPrices = async (cycleId) => {
+    const cycleLevels = levelsByCycle[cycleId] || []
+    const rows = cycleLevels.map((level) => ({ level, rawPrice: levelPriceDrafts[level.id] }))
+    if (rows.some(({ rawPrice }) => rawPrice === '' || !Number.isFinite(Number(rawPrice)) || Number(rawPrice) < 0)) {
+      notify('Veuillez saisir un prix fixe valide pour chaque niveau.', 'error')
+      return
+    }
+    setLevelPriceSaving(cycleId)
+    try {
+      const results = await Promise.all(rows.map(({ level, rawPrice }) =>
+        supabase.from('levels').update({ fixed_price: Number(rawPrice) }).eq('id', level.id)
+      ))
+      const error = results.find((result) => result.error)?.error
+      if (error) throw new Error(error.message)
+      const prices = Object.fromEntries(rows.map(({ level, rawPrice }) => [level.id, Number(rawPrice)]))
+      setLevels((current) => current.map((level) => prices[level.id] != null ? { ...level, fixed_price: prices[level.id] } : level))
+      notify('Prix fixes des niveaux enregistrés')
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+    } finally {
+      setLevelPriceSaving(null)
+    }
   }
 
   const deleteLevel = async (id) => {
@@ -715,6 +842,8 @@ export default function Settings() {
       const toDelete = []
       for (const [key, raw] of Object.entries(tariffDrafts)) {
         const [level_id, subject_id] = key.split('::')
+        const level = levels.find((item) => item.id === level_id)
+        if (!level || cycleMap[level.cycle_id]?.has_fixed_price) continue
         const trimmed = String(raw).trim()
         if (trimmed !== '' && !Number.isNaN(Number(trimmed)) && Number(trimmed) > 0) {
           rows.push({ level_id, subject_id, price: Number(trimmed) })
@@ -900,11 +1029,11 @@ export default function Settings() {
                         <span>{(levelsByCycle[cycle.id] || []).length} niveau(x) · {branchCountByCycle[cycle.id] || 0} filière(s)</span>
                       </div>
                       <div className="academic-card__fixed">
-                        <span>Prix fixe</span>
+                        <span>Prix fixe par niveau</span>
                         <label className="settings-switch"><input type="checkbox" checked={Boolean(cycle.has_fixed_price)} onChange={(e) => toggleFixedPrice(cycle.id, e.target.checked)} /><i /></label>
-                        <strong className={cycle.has_fixed_price ? 'academic-fixed-price' : 'academic-fixed-price is-none'}>{cycle.has_fixed_price ? `${cycle.fixed_price} DH` : '—'}</strong>
                       </div>
                       <div className="academic-card__actions">
+                        {cycle.has_fixed_price && <button className="settings-save academic-prices-save" onClick={() => saveCycleFixedPrices(cycle.id)} disabled={levelPriceSaving === cycle.id}>{levelPriceSaving === cycle.id ? 'Enregistrement...' : 'Enregistrer les prix'}</button>}
                         <button className="settings-icon-btn" onClick={() => setModal({ kind: 'cycle', cycle })} aria-label="Modifier le cycle"><Pencil /></button>
                         <button className="settings-icon-btn is-danger" onClick={() => deleteCycle(cycle.id)} aria-label="Supprimer le cycle"><Trash /></button>
                       </div>
@@ -917,6 +1046,20 @@ export default function Settings() {
                             <strong>{level.name}</strong>
                             <button className="settings-icon-btn is-danger" onClick={() => deleteLevel(level.id)} aria-label={`Supprimer le niveau ${level.name}`}><Trash /></button>
                           </div>
+                          {cycle.has_fixed_price && (
+                            <label className="level-fixed-price">
+                              <span>Prix fixe du niveau</span>
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={levelPriceDrafts[level.id] ?? ''}
+                                onChange={(e) => setLevelPriceDrafts((current) => ({ ...current, [level.id]: e.target.value }))}
+                                aria-label={`Prix fixe pour ${level.name}`}
+                              />
+                              <b>DH / mois</b>
+                            </label>
+                          )}
                           <div className="branch-chips">
                             {(branchesByLevel[level.id] || []).map((b) => (
                               <span className="branch-chip" key={b.id}>{b.name}<button onClick={() => deleteStudyBranch(b.id)} aria-label={`Supprimer la filière ${b.name}`}>×</button></span>
@@ -994,11 +1137,14 @@ export default function Settings() {
           <section className="settings-card settings-pricing">
             <header className="settings-card-head">
               <div><strong>Grille tarifaire (DH / mois)</strong><p>Prix par matière et par niveau. Modifiez les tarifs puis enregistrez.</p></div>
-              <button className="settings-outline" onClick={() => setModal({ kind: 'level' })}>＋　Ajouter un niveau</button>
+              <button className="settings-outline" onClick={() => setModal({ kind: 'pricingSubject' })} disabled={pricingLevels.length === 0}>＋ Ajouter une matière</button>
             </header>
 
-            {levels.length === 0 || subjects.length === 0
-              ? <div className="settings-empty">{levels.length === 0 ? 'Aucun niveau. Ajoutez un niveau pour commencer.' : 'Aucune matière. Ajoutez une matière pour commencer.'}</div>
+            {pricingLevels.length === 0 || subjects.length === 0
+              ? <div className="settings-empty">
+                <p>{pricingLevels.length === 0 ? 'Aucun niveau dans un cycle sans prix fixe. Désactivez le prix fixe du cycle concerné pour gérer les tarifs par matière.' : 'Aucune matière. Ajoutez une matière et choisissez son niveau ainsi que son tarif.'}</p>
+                {pricingLevels.length > 0 && <button className="settings-outline" onClick={() => setModal({ kind: 'pricingSubject' })}>＋ Ajouter une matière</button>}
+              </div>
               : (
                 <div className="pricing-matrix">
                   <table>
@@ -1006,11 +1152,10 @@ export default function Settings() {
                       <tr>
                         <th className="pricing-level-col">Niveau</th>
                         {subjects.map((subject) => <th key={subject.id}>{subject.name}</th>)}
-                        <th className="pricing-add-col">Matière</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {levels.map((level) => {
+                      {pricingLevels.map((level) => {
                         const cycle = cycleMap[level.cycle_id]
                         return (
                           <tr key={level.id}>
@@ -1040,9 +1185,6 @@ export default function Settings() {
                                 </td>
                               )
                             })}
-                            <td className="pricing-add-col">
-                              <button className="pricing-add-subject" onClick={() => setModal({ kind: 'subject' })}>＋　Matière</button>
-                            </td>
                           </tr>
                         )
                       })}
@@ -1083,8 +1225,9 @@ export default function Settings() {
       </main>
 
       {modal?.kind === 'cycle' && <CycleModal cycle={modal.cycle} onClose={() => setModal(null)} onSave={saveCycle} />}
-      {modal?.kind === 'academicLevel' && <NameModal title="Ajouter un niveau" label="Nom du niveau" placeholder="ex : 1ère année" onClose={() => setModal(null)} onSave={(name) => saveLevel(name, modal.cycleId)} />}
+      {modal?.kind === 'academicLevel' && <LevelModal cycles={cycles} initialCycleId={modal.cycleId} onClose={() => setModal(null)} onSave={saveLevel} />}
       {modal?.kind === 'level' && <LevelModal cycles={cycles} onClose={() => setModal(null)} onSave={saveLevel} />}
+      {modal?.kind === 'pricingSubject' && <PricingSubjectModal cycles={pricingCycles} levels={pricingLevels} onClose={() => setModal(null)} onSave={savePricingSubject} />}
       {modal?.kind === 'subject' && <NameModal title="Ajouter une matière" label="Nom de la matière" placeholder="ex : Philosophie" onClose={() => setModal(null)} onSave={saveSubject} />}
       {modal?.kind === 'schoolYear' && (
         <SchoolYearChangeModal

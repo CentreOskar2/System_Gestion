@@ -8,7 +8,7 @@ export default function RegistrationFeeReceiptPdf({ student, amount, schoolYear,
     <Document>
       <Page size="A4" style={pdfStyles.page}>
         <PdfBrandHeader
-          tagline="Cours particuliers — Casablanca"
+          tagline="Cours particuliers — Agadir"
           label="Reçu de frais d'inscription"
           code={student.code}
           date={dateLabel}

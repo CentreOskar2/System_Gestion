@@ -182,21 +182,19 @@ export default function SalariesPage() {
       let groupsQuery = supabase.from('groups').select('id, name, subject_id, level_id, branch_id')
       if (branchFilter) {
         teachersQuery = teachersQuery.eq('branch_id', branchFilter)
-        groupsQuery = groupsQuery.eq('branch_id', branchFilter)
       }
-      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, gsRes, studentsRes, salaryRes, tariffsRes, paymentsRes] = await Promise.all([
+      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, studentSubjectsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
         teachersQuery,
         supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
-        supabase.from('levels').select('id, name, cycle_id'),
+        supabase.from('levels').select('id, name, cycle_id, fixed_price'),
         supabase.from('branches').select('id, name'),
         supabase.from('subjects').select('id, name'),
         groupsQuery,
-        supabase.from('teacher_group_subjects').select('teacher_id, group_id'),
-        supabase.from('group_students').select('group_id, student_id'),
+        supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
+        supabase.from('student_group_subjects').select('group_id, student_id, subject_id'),
         supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id'),
         supabase.from('teacher_salaries').select('teacher_id').eq('month', month).eq('status', 'paid'),
         supabase.from('tariffs').select('level_id, subject_id, price'),
-        supabase.from('student_payments').select('student_id, status').eq('month', month),
       ])
       if (cancelled) return
       setLoading(false)
@@ -211,65 +209,70 @@ export default function SalariesPage() {
       const groupById = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g]))
       const studentMap = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, `${s.first_name} ${s.last_name}`.trim()]))
       const studentRowById = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s]))
-      const paidStudentIds = new Set(
-        (paymentsRes.data || [])
-          .filter((p) => p.status && (p.status === 'paid' || p.status === 'validé'))
-          .map((p) => p.student_id)
-      )
       const tariffsByLevelSubject = {}
       for (const row of tariffsRes.data || []) {
         if (!tariffsByLevelSubject[row.level_id]) tariffsByLevelSubject[row.level_id] = {}
         tariffsByLevelSubject[row.level_id][row.subject_id] = Number(row.price)
       }
-      const priceForGroup = (groupId) => {
+      const priceForGroup = (groupId, subjectId) => {
         const group = groupById[groupId]
         if (!group) return 0
-        const tariff = tariffsByLevelSubject[group.level_id]?.[group.subject_id]
+        const tariff = tariffsByLevelSubject[group.level_id]?.[subjectId || group.subject_id]
         if (tariff != null) return tariff
-        const cycle = cycleById[levelById[group.level_id]?.cycle_id]
-        if (cycle?.has_fixed_price && cycle.fixed_price != null) return Number(cycle.fixed_price)
+        const level = levelById[group.level_id]
+        const cycle = cycleById[level?.cycle_id]
+        if (cycle?.has_fixed_price && level?.fixed_price != null) return Number(level.fixed_price)
         return 0
       }
 
-      const groupIdsByTeacher = {}
+      const assignmentsByTeacher = {}
       for (const row of tgRes.data || []) {
-        if (!groupIdsByTeacher[row.teacher_id]) groupIdsByTeacher[row.teacher_id] = []
-        if (!groupIdsByTeacher[row.teacher_id].includes(row.group_id)) groupIdsByTeacher[row.teacher_id].push(row.group_id)
+        if (!row.teacher_id || !row.group_id) continue
+        if (!assignmentsByTeacher[row.teacher_id]) assignmentsByTeacher[row.teacher_id] = []
+        const subjectId = row.subject_id || groupById[row.group_id]?.subject_id
+        const key = `${row.group_id}:${subjectId || ''}`
+        if (!assignmentsByTeacher[row.teacher_id].some((assignment) => assignment.key === key)) {
+          assignmentsByTeacher[row.teacher_id].push({ groupId: row.group_id, subjectId, key })
+        }
       }
-      const studentsByGroup = {}
-      for (const row of gsRes.data || []) {
+      const studentsByGroupSubject = {}
+      for (const row of studentSubjectsRes.data || []) {
         const group = groupById[row.group_id]
         const student = studentRowById[row.student_id]
-        if (!group || !student) continue
+        if (!group || !student || !row.subject_id) continue
         const name = studentMap[row.student_id]
         if (!name) continue
         if (student.status !== 'active') continue
         if (!isEnrolledInMonth({ registrationDate: student.registration_date, createdAt: student.created_at }, month)) continue
-        if (!paidStudentIds.has(row.student_id)) continue
         if (group.branch_id && student.branch_id && group.branch_id !== student.branch_id) continue
-        if (!studentsByGroup[row.group_id]) studentsByGroup[row.group_id] = []
-        studentsByGroup[row.group_id].push(name)
+        // The teacher earns for every active enrolled student, including when
+        // the student's tuition payment is still pending or unpaid.
+        const key = `${row.group_id}:${row.subject_id}`
+        if (!studentsByGroupSubject[key]) studentsByGroupSubject[key] = []
+        if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
+          studentsByGroupSubject[key].push({ id: row.student_id, name })
+        }
       }
 
       setTeachers(
         (teachersRes.data || []).map((t) => {
           const cycleIds = t.cycle_ids || []
-          const groups = (groupIdsByTeacher[t.id] || [])
-            .map((groupId) => {
-              const group = groupById[groupId]
+          const groups = (assignmentsByTeacher[t.id] || [])
+            .map((assignment) => {
+              const group = groupById[assignment.groupId]
               if (!group) return null
               const cycleId = levelById[group.level_id]?.cycle_id
               const rate = t.remuneration_type === 'pourcentage' ? Number(t.cycle_rates?.[cycleId] ?? 0) : 0
-              const students = studentsByGroup[groupId] || []
+              const students = (studentsByGroupSubject[assignment.key] || []).map((entry) => entry.name)
               return {
-                id: group.id,
+                id: assignment.key,
                 name: group.name,
                 subject: subjectMap[group.subject_id] || '—',
                 level: levelMap[group.level_id] || '—',
                 branch: branchMap[group.branch_id] || '—',
                 cycleId,
                 rate,
-                price: priceForGroup(groupId),
+                price: priceForGroup(group.id, assignment.subjectId),
                 students,
                 studentsCount: students.length,
               }

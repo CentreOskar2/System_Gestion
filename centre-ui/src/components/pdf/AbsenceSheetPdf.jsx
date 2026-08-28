@@ -1,5 +1,5 @@
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
-import { colors, BRAND_NAME, LOGO_SRC } from './pdfStyles'
+import { colors, BRAND_NAME, LOGO_SRC, PDF_FONT_FAMILY } from './pdfStyles'
 
 const ACADEMIC_YEAR = '2026 – 2027'
 const sessions = Array.from({ length: 18 }, (_, index) => `S${index + 1}`)
@@ -8,7 +8,7 @@ const styles = StyleSheet.create({
   page: {
     padding: 24,
     fontSize: 8,
-    fontFamily: 'Helvetica',
+    fontFamily: PDF_FONT_FAMILY,
     color: colors.text,
   },
   header: {
@@ -31,7 +31,8 @@ const styles = StyleSheet.create({
   },
   brandName: {
     fontSize: 11,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   brandTagline: {
     marginTop: 2,
@@ -43,7 +44,8 @@ const styles = StyleSheet.create({
   },
   titleMain: {
     fontSize: 11,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   titleSub: {
     marginTop: 2,
@@ -65,7 +67,8 @@ const styles = StyleSheet.create({
   },
   detailValue: {
     fontSize: 9.5,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
   },
   table: {
     borderTop: `1px solid ${colors.border}`,
@@ -75,7 +78,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   headCell: {
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: PDF_FONT_FAMILY,
+    fontWeight: 700,
     fontSize: 7,
     color: colors.muted,
     backgroundColor: '#f4f7fb',

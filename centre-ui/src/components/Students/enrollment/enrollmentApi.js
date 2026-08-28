@@ -175,10 +175,10 @@ export function getPrice(catalog, levelName, subjectName) {
   const level = catalog.levelByName[levelName]
   const subject = catalog.subjectsByName[subjectName]
   if (level && subject) {
+    const cycle = catalog.cycleByName[cycleNameOf(level, catalog.cycles)]
+    if (cycle?.has_fixed_price && level.fixed_price != null) return Number(level.fixed_price)
     const tariff = catalog.tariffsByLevelSubject[level.id]?.[subject.id]
     if (tariff != null) return tariff
-    const cycle = catalog.cycleByName[cycleNameOf(level, catalog.cycles)]
-    if (cycle?.has_fixed_price && cycle.fixed_price != null) return Number(cycle.fixed_price)
   }
   return 0
 }

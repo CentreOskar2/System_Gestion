@@ -55,19 +55,21 @@ export default function AttendanceModal({ student, close }) {
 
         if (fetchError) throw new Error(fetchError.message)
 
-        const uniqueGroups = new Map()
+        const subjectGroups = new Map()
         for (const row of data || []) {
           const groupId = row.group_id
-          if (!groupId) continue
+          const subjectId = row.subject_id
+          if (!groupId || !subjectId) continue
           const subjectName = row.subjects?.name || 'Matière'
           const groupName = row.groups?.name || `Groupe ${groupId}`
           const label = `${subjectName} — ${groupName}`
-          if (!uniqueGroups.has(groupId)) {
-            uniqueGroups.set(groupId, { id: String(groupId), label, subjectName, groupName })
+          const optionId = `${groupId}::${subjectId}`
+          if (!subjectGroups.has(optionId)) {
+            subjectGroups.set(optionId, { id: optionId, groupId: String(groupId), label, subjectName, groupName })
           }
         }
 
-        const nextOptions = [...uniqueGroups.values()]
+        const nextOptions = [...subjectGroups.values()]
         if (!active) return
         setGroupOptions(nextOptions)
         setSelectedGroupId((previous) => previous || nextOptions[0]?.id || '')
@@ -88,6 +90,10 @@ export default function AttendanceModal({ student, close }) {
 
   const selectedGroupLabel = useMemo(
     () => groupOptions.find((option) => option.id === selectedGroupId)?.label || '',
+    [groupOptions, selectedGroupId]
+  )
+  const selectedGroup = useMemo(
+    () => groupOptions.find((option) => option.id === selectedGroupId) || null,
     [groupOptions, selectedGroupId]
   )
 
@@ -129,7 +135,7 @@ export default function AttendanceModal({ student, close }) {
     if (saving) return
     setError('')
 
-    if (!selectedGroupId) {
+    if (!selectedGroup) {
       setError('Sélectionnez une matière / groupe concerné avant d’enregistrer.')
       return
     }
@@ -147,10 +153,11 @@ export default function AttendanceModal({ student, close }) {
     const rows = selected.map((id) => ({
       student_id: student.id,
       // groups.id est un uuid : le convertir en nombre donnerait NaN.
-      group_id: selectedGroupId,
+      group_id: selectedGroup.groupId,
       event_date: date,
       event_type: id,
       detail: id === 'retard' ? details[id] || null : details[id] || null,
+      created_at: new Date().toISOString(),
     }))
 
     setSaving(true)

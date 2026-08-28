@@ -139,6 +139,7 @@ export async function logPaymentReminder(studentId, { months, amount, message, c
     channel,
     status,
     sent_by: sentBy || null,
+    sent_at: new Date().toISOString(),
   })
   if (error) throw new Error(error.message)
   return data

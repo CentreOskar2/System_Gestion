@@ -61,6 +61,7 @@ export default function AddGradeModal({ student, onSaved, close }) {
         exam: grade.exam || null,
         session: grade.session,
         grade_date: grade.date || null,
+        created_at: new Date().toISOString(),
       })
       if (saveError) throw new Error(saveError.message)
       onSaved?.()

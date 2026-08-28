@@ -10,7 +10,7 @@ export default function FeeReceiptPdf({ receipt, dateLabel }) {
     <Document>
       <Page size="A4" style={pdfStyles.page}>
         <PdfBrandHeader
-          tagline="Cours particuliers — Casablanca"
+          tagline="Cours particuliers — Agadir"
           label="Reçu de paiement mensuel"
           code={student.code}
           date={dateLabel}
