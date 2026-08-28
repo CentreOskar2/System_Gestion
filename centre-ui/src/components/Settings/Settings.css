@@ -434,14 +434,7 @@
 
 .academic-card__actions {
   display: flex;
-  align-items: center;
   gap: 8px;
-}
-
-.academic-prices-save {
-  min-height: 36px;
-  padding: 0 13px;
-  font-size: .82rem;
 }
 
 .academic-levels {
@@ -469,34 +462,6 @@
 .level-row__head strong {
   color: #172033;
   font-size: .96rem;
-}
-
-.level-fixed-price {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 12px;
-  color: #59667b;
-  font-size: .86rem;
-  font-weight: 650;
-}
-
-.level-fixed-price input {
-  width: 110px;
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid #d9e1ee;
-  border-radius: 8px;
-  background: #fff;
-  color: #172033;
-  font: inherit;
-  font-weight: 700;
-  outline: 0;
-}
-
-.level-fixed-price input:focus {
-  border-color: #315fec;
-  box-shadow: 0 0 0 3px #315fec1e;
 }
 
 .branch-chips {
@@ -1149,7 +1114,6 @@
     width: 100%;
   }
 }
-<<<<<<< HEAD
 
 @media (max-width: 520px) {
   .settings-content {
@@ -1160,5 +1124,3 @@
     padding: 18px 14px;
   }
 }
-=======
->>>>>>> production
