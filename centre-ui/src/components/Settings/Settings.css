@@ -78,7 +78,8 @@
 
 .settings-card input,
 .settings-card textarea,
-.settings-dialog input {
+.settings-dialog input,
+.settings-dialog select {
   display: block;
   width: 100%;
 
@@ -94,8 +95,48 @@
 }
 
 .settings-card input,
-.settings-dialog input {
+.settings-dialog input,
+.settings-dialog select {
   height: 54px;
+}
+
+/* Les listes déroulantes des fenêtres « Ajouter un niveau » et « Ajouter une
+   matière » n'avaient aucune règle : elles gardaient l'apparence native du
+   navigateur et restaient collées à la suite de leur libellé, alors que les
+   champs de saisie voisins occupaient toute la largeur. */
+.settings-dialog select {
+  /* `appearance: none` supprime la flèche native : on la redessine. */
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 44px;
+
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.6 6 6.4 11 1.6' fill='none' stroke='%23667184' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 16px center;
+  background-size: 12px 8px;
+
+  color: #172033;
+  font: inherit;
+  font-size: 1rem;
+  cursor: pointer;
+  /* Un nom de niveau long (« 2ème Bac Sciences Mathématiques B ») était coupé
+     net contre le chevron sur téléphone. */
+  text-overflow: ellipsis;
+}
+
+.settings-dialog input:focus,
+.settings-dialog select:focus {
+  border-color: #315fec;
+  box-shadow: 0 0 0 3px #315fec1e;
+  outline: 0;
+}
+
+/* Le niveau est désactivé tant que le cycle sélectionné n'en contient aucun. */
+.settings-dialog select:disabled {
+  background-color: #f5f7fb;
+  color: #8b95a7;
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 /* =======================
