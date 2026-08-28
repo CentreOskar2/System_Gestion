@@ -27,6 +27,7 @@ export default function ExpensesPage() {
   const [recurringCharges, setRecurringCharges] = useState([])
   const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(null)
   const [recurringForm, setRecurringForm] = useState(null)
@@ -40,6 +41,7 @@ export default function ExpensesPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     const currentMonth = currentMonthKey()
     let expensesQuery = supabase.from('expenses').select('*').order('charge_date', { ascending: false })
     let recurringQuery = supabase.from('recurring_charges').select('*').order('created_at', { ascending: false })
@@ -58,7 +60,9 @@ export default function ExpensesPage() {
       recurringQuery,
       teachersQuery,
     ])
-    if (branchesRes.error || expensesRes.error || recurringRes.error || teachersRes.error) {
+    const loadError = [branchesRes.error, expensesRes.error, recurringRes.error, teachersRes.error].find(Boolean)
+    if (loadError) {
+      setError(`Impossible de charger les charges : ${loadError.message}`)
       setLoading(false)
       return
     }
@@ -139,6 +143,7 @@ export default function ExpensesPage() {
   const save = async () => {
     if (!form.title.trim() || !Number(form.amount) || !form.charge_date) return
     setSaving(true)
+    setError(null)
     const isAuto = form.type === 'Auto'
     const monthKey = `${form.charge_date.slice(0, 7)}-01`
     const basePayload = {
@@ -149,35 +154,45 @@ export default function ExpensesPage() {
       branch_id: form.branch_id || null,
       ...(form.teacher_id ? { teacher_id: form.teacher_id } : {}),
     }
-    if (form.id) {
-      await supabase.from('expenses').update({ ...basePayload, type: isAuto ? 'Auto' : form.type }).eq('id', form.id)
+    try {
+      if (form.id) {
+        const { error: updateError } = await supabase.from('expenses').update({ ...basePayload, type: isAuto ? 'Auto' : form.type }).eq('id', form.id)
+        if (updateError) throw updateError
       if (isAuto && form.teacher_id) {
-        await supabase.from('teacher_salaries').upsert(
+          const { error: salaryError } = await supabase.from('teacher_salaries').upsert(
           { teacher_id: form.teacher_id, month: monthKey, amount: basePayload.amount, status: 'paid' },
           { onConflict: 'teacher_id,month' }
         )
+          if (salaryError) throw salaryError
+        }
+      } else if (form.recurring) {
+        const { data: template, error: templateError } = await supabase
+          .from('recurring_charges')
+          .insert({
+            label: form.title.trim(),
+            amount: Number(form.amount),
+            branch_id: form.branch_id || null,
+            day_of_month: Number(form.charge_date.slice(8, 10)),
+            status: 'active',
+          })
+          .select()
+          .single()
+        if (templateError) throw templateError
+        const { error: insertError } = await supabase
+          .from('expenses')
+          .insert({ ...basePayload, type: 'recurring_fixed', recurring_charge_id: template.id })
+        if (insertError) throw insertError
+      } else {
+        const { error: insertError } = await supabase.from('expenses').insert({ ...basePayload, type: 'Manuel' })
+        if (insertError) throw insertError
       }
-    } else if (form.recurring) {
-      const { data: template, error } = await supabase
-        .from('recurring_charges')
-        .insert({
-          label: form.title.trim(),
-          amount: Number(form.amount),
-          branch_id: form.branch_id || null,
-          day_of_month: Number(form.charge_date.slice(8, 10)),
-          status: 'active',
-        })
-        .select()
-        .single()
-      if (!error) {
-        await supabase.from('expenses').insert({ ...basePayload, type: 'recurring_fixed', recurring_charge_id: template.id })
-      }
-    } else {
-      await supabase.from('expenses').insert({ ...basePayload, type: 'Manuel' })
+      setForm(null)
+      await load()
+    } catch (saveError) {
+      setError(`Impossible d'enregistrer la charge : ${saveError.message || 'erreur inconnue'}`)
+    } finally {
+      setSaving(false)
     }
-    setSaving(false)
-    setForm(null)
-    load()
   }
 
   const remove = async (id) => {
@@ -248,6 +263,7 @@ export default function ExpensesPage() {
           <Link className="active" to="/accounting/expenses">Charges</Link>
           <Link to="/accounting/profit">Bénéfice net</Link>
         </nav>
+        {error && <p className="expenses-error" role="alert">{error}</p>}
         <section className="expense-stats">
           <article>
             <span>Total des charges</span>
