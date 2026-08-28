@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import './App.css'
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import Sidebar from './components/SideBar/Sidebar'
@@ -62,12 +62,28 @@ function DashboardLayout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const closeMenu = () => setMenuOpen(false)
 
+  // Tiroir de navigation ouvert (mobile/tablette) : la page derrière ne doit pas
+  // défiler sous le doigt, et Échap doit refermer comme n'importe quel calque.
+  useEffect(() => {
+    if (!menuOpen) return undefined
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') closeMenu()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [menuOpen])
+
   return (
     <div className="dashboard-shell">
       <button
         type="button"
         className="menu-toggle"
-        aria-label="Ouvrir le menu de navigation"
+        aria-label={menuOpen ? 'Fermer le menu de navigation' : 'Ouvrir le menu de navigation'}
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((open) => !open)}
       >

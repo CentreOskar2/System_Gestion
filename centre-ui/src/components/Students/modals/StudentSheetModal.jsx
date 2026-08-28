@@ -282,22 +282,24 @@ export default function StudentSheetModal({ student, close }) {
             ) : grades.length === 0 ? (
               <p className="sheet-empty">Aucune note enregistrée.</p>
             ) : (
-              <table>
-                <thead>
-                  <tr><th>Matière</th><th>Note /20</th><th>N° examen</th><th>Session</th><th>Date</th></tr>
-                </thead>
-                <tbody>
-                  {grades.map((grade) => (
-                    <tr key={grade.id}>
-                      <td>{grade.subjects?.name || '—'}</td>
-                      <td><span>{Number(grade.value)}</span></td>
-                      <td>{grade.exam || '—'}</td>
-                      <td>{grade.session}</td>
-                      <td>{formatDate(grade.grade_date)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="sheet-grades-scroll">
+                <table>
+                  <thead>
+                    <tr><th>Matière</th><th>Note /20</th><th>N° examen</th><th>Session</th><th>Date</th></tr>
+                  </thead>
+                  <tbody>
+                    {grades.map((grade) => (
+                      <tr key={grade.id}>
+                        <td>{grade.subjects?.name || '—'}</td>
+                        <td><span>{Number(grade.value)}</span></td>
+                        <td>{grade.exam || '—'}</td>
+                        <td>{grade.session}</td>
+                        <td>{formatDate(grade.grade_date)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </section>
           <section className="enrolled-subjects">

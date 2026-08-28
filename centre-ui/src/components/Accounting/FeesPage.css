@@ -593,7 +593,7 @@
   .fees-page,
   .fees-content {
     position: relative !important;
-    max-width: 100vw !important;
+    max-width: 100% !important;
     padding-top: 20px !important;
     padding-left: 14px !important;
     padding-right: 14px !important;

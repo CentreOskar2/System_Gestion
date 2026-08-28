@@ -24,13 +24,23 @@ function useOutsideClose(open, setOpen) {
   return ref
 }
 
+/** Classe de modificateur posée sur l'enveloppe `.menu`.
+ *  L'enveloppe — et non le bouton — est l'élément de mise en page (enfant de la
+ *  barre supérieure, de la grille du tableau de bord…). Sans repère sur elle,
+ *  les règles responsives ne pouvaient viser que le bouton interne et restaient
+ *  sans effet sur la disposition. */
+function wrapperClass(className) {
+  const first = String(className || '').trim().split(/\s+/)[0]
+  return first ? `menu menu--${first}` : 'menu'
+}
+
 /** Bouton + panneau déroulant libre. `children` reçoit une fonction de fermeture. */
 export function Popover({ className, label, trigger, children }) {
   const [open, setOpen] = useState(false)
   const ref = useOutsideClose(open, setOpen)
 
   return (
-    <div className="menu" ref={ref}>
+    <div className={wrapperClass(className)} ref={ref}>
       <button
         type="button"
         className={className}
@@ -63,7 +73,7 @@ export function MenuSelect({ className, icon, value, options, onChange, label })
   )
 
   return (
-    <div className="menu" ref={ref}>
+    <div className={wrapperClass(className)} ref={ref}>
       <button
         type="button"
         className={className}

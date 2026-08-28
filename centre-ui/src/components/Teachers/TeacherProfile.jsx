@@ -233,23 +233,25 @@ export default function TeacherProfile({ teacher, onBack }) {
               ) : salaries.length === 0 ? (
                 <p className="teacher-profile-empty">Aucun versement de salaire enregistré.</p>
               ) : (
-                <table>
-                  <thead>
-                    <tr><th>Mois</th><th>Montant</th><th>Statut</th></tr>
-                  </thead>
-                  <tbody>
-                    {salaries.map((item) => {
-                      const status = salaryStatus[item.status] || salaryStatus.pending
-                      return (
-                        <tr key={item.id}>
-                          <td>{formatMonth(item.month)}</td>
-                          <td>{formatAmount(item.amount)}</td>
-                          <td><span className={`salary-status ${status.cls}`}>{status.label}</span></td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+                <div className="teacher-salary-scroll">
+                  <table>
+                    <thead>
+                      <tr><th>Mois</th><th>Montant</th><th>Statut</th></tr>
+                    </thead>
+                    <tbody>
+                      {salaries.map((item) => {
+                        const status = salaryStatus[item.status] || salaryStatus.pending
+                        return (
+                          <tr key={item.id}>
+                            <td>{formatMonth(item.month)}</td>
+                            <td>{formatAmount(item.amount)}</td>
+                            <td><span className={`salary-status ${status.cls}`}>{status.label}</span></td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </article>
           </section>

@@ -340,8 +340,15 @@ button.brand:focus-visible {
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
-.dashboard-main {
+/* Chaque page pose sa propre racine (`.fees-page`, `.students-page`…) comme
+   élément de cette grille ; seul le tableau de bord utilise `.dashboard-main`.
+   Sans `min-width: 0`, la piste `1fr` s'élargit jusqu'au contenu minimal de la
+   page et c'est la fenêtre entière qui défile horizontalement. */
+.dashboard-shell > * {
   min-width: 0;
+}
+
+.dashboard-main {
   padding: 26px 0 22px;
 }
 
@@ -374,8 +381,8 @@ button.brand:focus-visible {
 }
 
 .topbar {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: center;
   width: 100%;
@@ -384,10 +391,28 @@ button.brand:focus-visible {
   padding: 0 24px;
 }
 
+/* Le composant Menu enveloppe chaque bouton dans un `.menu` : c'est cette
+   enveloppe qui est l'élément de la barre, pas le bouton. Elle doit donc porter
+   elle-même son dimensionnement, sinon elle impose sa largeur de contenu. */
+.topbar > .menu {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.topbar > .menu > button {
+  width: 100%;
+}
+
+.menu--branch-select {
+  flex: 0 1 auto;
+}
+
 .searchbar {
   display: flex;
+  flex: 1 1 240px;
   align-items: center;
   gap: 10px;
+  min-width: 0;
   min-height: 46px;
   padding: 0 14px;
   border-radius: 14px;
@@ -396,7 +421,11 @@ button.brand:focus-visible {
 }
 
 .searchbar input {
+  /* Un `input` conserve une largeur minimale intrinsèque d'une vingtaine de
+     caractères tant que `min-width: auto` n'est pas levé : c'est ce qui
+     poussait la barre de recherche hors de l'écran sur téléphone. */
   width: 100%;
+  min-width: 0;
   border: 0;
   background: transparent;
   outline: none;
@@ -964,13 +993,9 @@ button.brand:focus-visible {
     padding-top: 18px;
   }
 
+  /* Dégage la place du bouton hamburger, fixé en haut à gauche. */
   .topbar {
-    grid-template-columns: 1fr 1fr;
     padding-left: 64px;
-  }
-
-  .searchbar {
-    grid-column: 1 / -1;
   }
 }
 
@@ -984,20 +1009,12 @@ button.brand:focus-visible {
   }
 
   .topbar {
-    grid-template-columns: auto auto 1fr;
     gap: 10px;
     padding: 0 14px;
     padding-left: 64px;
-    align-items: center;
-  }
-
-  /* Rangée 1 : notifications + profil à droite du hamburger fixe */
-  .notifications {
-    justify-self: start;
   }
 
   .profile {
-    justify-self: start;
     padding: 0 10px;
   }
   .profile > div:last-child {
@@ -1008,9 +1025,12 @@ button.brand:focus-visible {
     min-height: 46px;
   }
 
-  /* Rangée 2 : la succursale occupe toute sa propre rangée */
+  /* La succursale occupe toute sa rangée : son libellé peut être long et le
+     bouton réclame 232px, plus que la largeur utile d'un petit téléphone. */
+  .menu--branch-select {
+    flex: 1 1 100%;
+  }
   .branch-select {
-    grid-column: 1 / -1;
     min-width: 0;
     width: 100%;
   }
@@ -1020,10 +1040,9 @@ button.brand:focus-visible {
     white-space: nowrap;
   }
 
-  /* Rangée 3 : recherche pleine largeur */
+  /* La recherche occupe elle aussi sa propre rangée. */
   .searchbar {
-    grid-column: 1 / -1;
-    min-width: 0;
+    flex: 1 1 100%;
   }
 
   .metrics-grid {

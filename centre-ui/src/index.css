@@ -16,7 +16,12 @@
 
 html,
 body {
-  max-width: 100vw;
+  /* `100vw` inclut la barre de défilement : sur un poste de travail elle
+     provoquait un débordement de quelques pixels. `100%` s'aligne sur la
+     largeur réellement disponible. */
+  max-width: 100%;
+  /* Filet de sécurité : les débordements sont traités à la source (conteneurs
+     de tableaux défilants, `min-width: 0` sur les enfants de grille). */
   overflow-x: hidden;
 }
 

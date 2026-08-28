@@ -1,0 +1,533 @@
+/* ============================================================================
+   responsive.css — socle responsive commun à toute l'application.
+
+   Chargé en DERNIER (voir main.jsx) pour pouvoir compléter les feuilles de
+   style des composants sans recourir à `!important`.
+
+   Paliers d'appareils retenus (largeur du viewport) :
+     ≤ 360px    petit téléphone            (iPhone SE, Galaxy A0x)
+     ≤ 480px    téléphone                  (iPhone 12/13/14/15)
+     ≤ 600px    grand téléphone / phablette
+     601–900    tablette portrait          (iPad mini/Air, Galaxy Tab)
+     901–1180   tablette paysage           (iPad Pro 11", Surface)
+     1181–1440  portable                   (13"–15")
+     ≥ 1441     grand écran / TV
+
+   Deux axes complémentaires, souvent oubliés :
+     - la HAUTEUR (téléphone en paysage : 375px de haut) ;
+     - le TYPE DE POINTEUR (doigt vs souris), indépendant de la largeur :
+       une tablette 1024px se pilote au doigt, un portable 1024px à la souris.
+   ============================================================================ */
+
+/* ---------------------------------------------------------------------------
+   1. Fondations — s'appliquent à tous les appareils
+   --------------------------------------------------------------------------- */
+
+html {
+  /* iOS Safari grossit automatiquement le texte au passage en paysage, ce qui
+     casse les mises en page calibrées. Neutralisé ici. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* `100vh` sur mobile = hauteur écran barre d'URL RÉTRACTÉE : la page dépasse
+   toujours la zone visible et « saute » au défilement. `dvh` suit la hauteur
+   réellement affichée. Les navigateurs anciens ignorent la seconde règle. */
+body,
+#root,
+.dashboard-shell,
+.access-denied,
+.students-page,
+.teachers-page,
+.teacher-profile-page,
+.enrollment-page,
+.fees-page,
+.delinquencies-page,
+.salaries-page,
+.expenses-page,
+.profit-page,
+.reports-page,
+.fee-receipt,
+.absence-sheet-page,
+.login-page {
+  min-height: 100dvh;
+}
+
+/* Un média ne doit jamais imposer sa largeur intrinsèque au conteneur. */
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+/* Emails, noms composés et références longues débordaient des cellules et des
+   cartes sur les petits écrans. */
+body {
+  overflow-wrap: break-word;
+}
+
+/* Un enfant de grille/flex refuse de rétrécir sous sa largeur de contenu tant
+   que `min-width: auto` n'est pas levé : cause n°1 des débordements latéraux. */
+.dashboard-main,
+.content > *,
+.metrics-grid > *,
+.analytics-grid > * {
+  min-width: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   2. Grilles de cartes réellement fluides
+   Remplace les `repeat(N, 1fr)` figés, qui passaient brutalement de N colonnes
+   à 1 et laissaient les tailles intermédiaires (tablette) illisibles.
+   `auto-fit` + `minmax` s'adapte à TOUTE largeur sans point de rupture.
+   --------------------------------------------------------------------------- */
+
+.metrics-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.fee-stats,
+.delinquency-stats,
+.profit-stats,
+.expense-stats,
+.salary-stats {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+}
+
+.db-skeleton-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+/* Les filtres élèves imposaient `1.7fr + 3 x 190px`, soit ~640px de largeur
+   minimale : ils débordaient dès que la zone de contenu passait sous ce seuil
+   (Surface Pro 912px, barre latérale visible). Ils se répartissent désormais
+   d'eux-mêmes, de 4 colonnes sur grand écran à 1 sur téléphone. */
+.students-filters {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+/* ---------------------------------------------------------------------------
+   3. Conteneurs de page — centrage sur grand écran
+   Ces conteneurs plafonnaient leur largeur sans marge automatique : au-delà de
+   1600px tout le contenu restait collé à gauche.
+   --------------------------------------------------------------------------- */
+
+.fees-content,
+.delinquencies-content,
+.salaries-content,
+.expenses-content,
+.profit-content,
+.reports-content,
+.students-content,
+.teachers-content,
+.settings-content,
+.users-content {
+  margin-inline: auto;
+}
+
+/* ---------------------------------------------------------------------------
+   4. Tableaux — défilement horizontal maîtrisé
+   Les tableaux de données gardent une largeur minimale lisible ; c'est leur
+   conteneur qui défile, jamais la page.
+   --------------------------------------------------------------------------- */
+
+.fees-table-wrap,
+.radar-scroll,
+.expenses-table-wrap,
+.salary-table-wrap,
+.groups-table-wrap,
+.teachers-table-wrap,
+.students-table-wrapper,
+.users-table-wrap,
+.branches-table-wrap,
+.profit-table-scroll,
+.sheet-events-log,
+.sheet-grades-scroll,
+.teacher-salary-scroll,
+.pricing-matrix {
+  max-width: 100%;
+  overflow-x: auto;
+  /* Défilement inertiel iOS + le geste horizontal ne remonte pas à la page. */
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+@media screen {
+
+  /* ---------------------------------------------------------------------------
+     5. Fenêtres modales — jamais plus hautes que l'écran
+     Un voile `position: fixed` + `place-items: center` sans hauteur maximale rend
+     le HAUT de la fenêtre inatteignable dès que son contenu dépasse l'écran :
+     panne systématique sur téléphone en paysage et sur petite tablette.
+     `safe center` empêche le débordement centré, la hauteur maximale garantit un
+     défilement interne, et les pieds de page restent accessibles.
+     --------------------------------------------------------------------------- */
+
+  .fee-overlay,
+  .expense-overlay,
+  .salary-overlay,
+  .student-overlay,
+  .branch-modal-backdrop,
+  .delinquency-overlay {
+    place-items: safe center;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .payment-modal,
+  .edit-modal,
+  .advance-receipts-modal,
+  .expense-modal,
+  .salary-journal,
+  .branch-modal,
+  .absence-modal,
+  .attendance-modal,
+  .grade-modal,
+  .reminder-modal {
+    /* 32px = marge du voile, en haut et en bas.
+       `.group-modal` et `.user-modal` sont volontairement exclues : leur voile
+       défile déjà correctement (flex sans centrage vertical), un plafond ici
+       créerait une seconde barre de défilement imbriquée. */
+    max-height: calc(100dvh - 32px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .student-sheet {
+    max-height: calc(100dvh - 48px);
+  }
+
+}
+
+/* ---------------------------------------------------------------------------
+   6. Appareils tactiles — cibles de 44px minimum
+   Piloté par le type de POINTEUR et non par la largeur : une tablette large au
+   doigt est concernée, un petit portable à la souris ne l'est pas.
+   Référence : WCAG 2.5.5 (AAA) et les guides Apple / Material.
+   --------------------------------------------------------------------------- */
+
+@media screen and (pointer: coarse) {
+  .student-actions button,
+  .expense-row-actions button,
+  .group-actions button,
+  .branch-actions button,
+  .user-actions button,
+  .teacher-actions button,
+  .fee-edit,
+  .fee-advance,
+  .modal-close,
+  .reminder-modal-close,
+  .user-modal__close,
+  .branch-modal__close {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Les pastilles de paiement du tableau des frais sont des boutons. */
+  .payment-dot {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* Onglets et pastilles cliquables. */
+  .accounting-tabs a,
+  .accounting-tabs button,
+  .cycle-tabs button,
+  .settings-tabs button {
+    min-height: 44px;
+  }
+
+  /* Liens du menu latéral : 29px de haut, en pleine liste verticale, c'est la
+     zone où une erreur de frappe coûte une navigation involontaire. */
+  .nav-sub-link,
+  .nav-link {
+    min-height: 44px;
+  }
+
+  /* Libellés cliquables ouvrant une fiche : le texte seul faisait la cible. */
+  .group-name-btn,
+  .student-name-button,
+  .teacher-name-button {
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  /* Sélecteurs habillés (année scolaire, mois) : la liste native est basse. */
+  .delinquency-filter select,
+  .expense-filters select,
+  .salary-month select {
+    min-height: 44px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   7. Téléphones et petites tablettes (≤ 768px)
+   --------------------------------------------------------------------------- */
+
+@media screen and (max-width: 768px) {
+  /* iOS zoome automatiquement sur tout champ dont la police est < 16px, et ne
+     dézoome jamais ensuite. Plancher à 16px sur les champs de saisie. */
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /* Un tableau qui défile doit le faire savoir : dégradé en bord droit. */
+  .fees-table-wrap,
+  .radar-scroll,
+  .expenses-table-wrap,
+  .salary-table-wrap,
+  .groups-table-wrap,
+  .teachers-table-wrap,
+  .students-table-wrapper,
+  .users-table-wrap,
+  .branches-table-wrap,
+  .profit-table-scroll {
+    background-image: linear-gradient(to right, rgba(23, 32, 51, 0) 85%, rgba(23, 32, 51, 0.06));
+    background-position: right center;
+    background-repeat: no-repeat;
+    background-size: 46px 100%;
+    background-attachment: local;
+  }
+
+  /* Les pieds de fenêtre modale empilent leurs boutons plutôt que de les
+     comprimer sous la largeur du doigt. */
+  .edit-modal footer,
+  .expense-modal footer,
+  .group-modal footer,
+  .absence-modal footer,
+  .attendance-modal footer,
+  .grade-modal footer,
+  .user-modal footer,
+  .reminder-modal footer {
+    flex-wrap: wrap;
+  }
+
+  .edit-modal footer > button,
+  .expense-modal footer > button,
+  .group-modal footer > button,
+  .absence-modal footer > button,
+  .attendance-modal footer > button,
+  .grade-modal footer > button,
+  .user-modal footer > button,
+  .reminder-modal footer > button {
+    flex: 1 1 auto;
+    min-height: 46px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   8. Petits téléphones (≤ 360px) — Galaxy A0x, iPhone SE
+   Les paddings de 14px et les titres de 2rem y consommaient l'écran entier.
+   --------------------------------------------------------------------------- */
+
+@media screen and (max-width: 360px) {
+  .fees-content,
+  .delinquencies-content,
+  .salaries-content,
+  .expenses-content,
+  .profit-content,
+  .students-content,
+  .teachers-content,
+  .settings-content,
+  .users-content,
+  .branches-content,
+  .groups-content,
+  .enrollment-content,
+  .reports-content {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .fees-heading h1,
+  .students-heading h1,
+  .users-heading h1,
+  .delinquencies-content h1 {
+    font-size: 1.45rem;
+  }
+
+  .fee-stats strong,
+  .delinquency-stats strong,
+  .profit-stats strong {
+    font-size: 1.5rem;
+  }
+
+  .payment-amount strong {
+    font-size: 2rem;
+  }
+
+  /* Le tiroir latéral laisse voir le contenu derrière lui. */
+  .sidebar {
+    width: 260px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   9. Écrans courts — téléphone en PAYSAGE (hauteur ≤ 520px)
+   Cas le plus souvent ignoré : 844×390 devient 390px de hauteur utile.
+   --------------------------------------------------------------------------- */
+
+@media screen and (max-height: 520px) and (orientation: landscape) {
+  .fee-overlay,
+  .expense-overlay,
+  .salary-overlay,
+  .student-overlay,
+  .branch-modal-backdrop,
+  .delinquency-overlay,
+  .group-modal-bg,
+  .user-modal-backdrop {
+    padding: 10px;
+    align-items: start;
+  }
+
+  .payment-modal,
+  .edit-modal,
+  .expense-modal,
+  .branch-modal,
+  .absence-modal,
+  .attendance-modal,
+  .grade-modal,
+  .reminder-modal,
+  .group-modal,
+  .user-modal {
+    max-height: calc(100dvh - 20px);
+    padding-top: 20px;
+    padding-bottom: 20px;
+  }
+
+  /* Le tiroir latéral doit défiler : 10 entrées de menu ne tiennent pas dans
+     390px de hauteur. */
+  .sidebar {
+    overflow-y: auto;
+  }
+
+  /* On récupère de la hauteur utile sur les grands blocs décoratifs. */
+  .payment-amount {
+    margin: 8px 0 14px;
+    padding: 14px;
+  }
+
+  .payment-amount strong {
+    font-size: 1.8rem;
+  }
+
+  .teacher-profile-summary {
+    min-height: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   10. Tablette paysage / petit portable (901–1180px)
+   Palier absent du projet : la barre latérale reprend sa place mais la zone de
+   contenu ne fait plus que ~680px. Les mises en page à deux colonnes y étaient
+   comprimées.
+   --------------------------------------------------------------------------- */
+
+@media screen and (min-width: 901px) and (max-width: 1180px) {
+  /* Zone de contenu tombée à ~633px dès que la barre latérale reprend sa
+     place : la succursale garde sa lisibilité sans imposer ses 232px. */
+  .branch-select {
+    min-width: 0;
+  }
+
+  .teacher-profile-layout,
+  .settings-general {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .teacher-profile-summary {
+    min-height: 0;
+  }
+
+  .analytics-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fees-content,
+  .delinquencies-content,
+  .salaries-content,
+  .expenses-content,
+  .profit-content {
+    padding-left: 26px;
+    padding-right: 26px;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   11. Tablette portrait (601–900px)
+   La barre latérale est déjà en tiroir ; on récupère la largeur pour afficher
+   deux colonnes là où le projet retombait directement sur une seule.
+   --------------------------------------------------------------------------- */
+
+@media screen and (min-width: 601px) and (max-width: 900px) {
+  .teacher-groups-grid,
+  .enrolled-subjects > div,
+  .settings-two {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* La règle d'origine figeait 2 colonnes dès 800px alors que la définition de
+     base est déjà auto-adaptative : on la rétablit sur cette plage. */
+  .cycle-tabs {
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   12. Grands écrans (≥ 1441px)
+   Le contenu est plafonné et centré ; on desserre les gouttières pour éviter
+   l'effet « colonne étroite au milieu du vide ».
+   --------------------------------------------------------------------------- */
+
+@media screen and (min-width: 1441px) {
+  .content,
+  .topbar {
+    max-width: 1600px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   13. Confort et accessibilité transverses
+   --------------------------------------------------------------------------- */
+
+/* Respecte le réglage système « réduire les animations ». */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Actions globales des paramètres : le libellé du bouton est en `nowrap` et
+   dépassait de la carte sur petit écran. La ligne s'empile. */
+@media screen and (max-width: 600px) {
+  .settings-global-actions__body {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-danger-action,
+  .settings-global-actions__body .settings-outline {
+    white-space: normal;
+  }
+}
+
+/* Le tiroir latéral se ferme d'un geste : il doit rester au-dessus du contenu
+   sur toute la hauteur réellement visible. */
+@media screen and (max-width: 900px) {
+  .sidebar {
+    height: 100dvh;
+    overflow-y: auto;
+  }
+}

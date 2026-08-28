@@ -24,7 +24,7 @@
   .delinquencies-page,
   .delinquencies-content {
     position: relative !important;
-    max-width: 100vw !important;
+    max-width: 100% !important;
     padding-top: 20px !important;
     padding-left: 14px !important;
     padding-right: 14px !important;
@@ -57,5 +57,192 @@
   .accounting-tabs a {
     flex: 0 0 auto !important;
     width: auto !important;
+  }
+}
+
+/* ============================================================
+   Fenêtre « Rappel de paiement »
+   Ces classes étaient référencées par DelinquenciesPage.jsx sans
+   aucune règle CSS : la fenêtre s'affichait en flux, pleine largeur,
+   sans voile ni mise en forme. Styles fluides, sans largeur figée.
+   ============================================================ */
+.delinquency-overlay {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(17, 24, 39, 0.75);
+}
+
+.reminder-modal {
+  position: relative;
+  width: min(560px, 100%);
+  padding: 30px clamp(18px, 4vw, 34px);
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.33);
+}
+
+.reminder-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #5c6574;
+  font-size: 1.7rem;
+  line-height: 1;
+}
+
+.reminder-modal-close:hover {
+  background: #f2f4f8;
+}
+
+.reminder-modal > header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin: 0 40px 22px 0;
+}
+
+.reminder-modal > header i {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: #e9eeff;
+  color: #315fec;
+  font-style: normal;
+  font-weight: 750;
+}
+
+.reminder-modal > header h2 {
+  font-size: 1.25rem;
+}
+
+.reminder-modal > header p {
+  margin-top: 3px;
+  color: #647088;
+  font-size: 0.9rem;
+}
+
+/* Les trois indicateurs se réorganisent seuls : 3 colonnes sur tablette et
+   ordinateur, 1 seule dès que la largeur ne le permet plus. */
+.reminder-modal-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.reminder-modal-stats span {
+  display: block;
+  padding: 13px 15px;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #647088;
+  font-size: 0.8rem;
+}
+
+.reminder-modal-stats b {
+  display: block;
+  margin-top: 5px;
+  color: #172033;
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.reminder-modal-message {
+  display: block;
+  color: #34425b;
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.reminder-modal-message textarea {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: 9px;
+  padding: 13px 15px;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+  font-weight: 400;
+  line-height: 1.5;
+  outline: 0;
+  resize: vertical;
+}
+
+.reminder-modal-message textarea:focus {
+  border-color: #315fec;
+  box-shadow: 0 0 0 3px rgba(49, 95, 236, 0.12);
+}
+
+.reminder-modal > footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.reminder-modal > footer button {
+  min-height: 46px;
+  padding: 0 18px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  background: #fff;
+  color: #34425b;
+  font-weight: 700;
+}
+
+.reminder-send {
+  border-color: transparent;
+  background: #3fc553;
+  color: #fff;
+  box-shadow: 0 4px 9px rgba(26, 139, 47, 0.27);
+}
+
+.reminder-send:disabled {
+  background: #cbd5e1;
+  color: #fff;
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.reminder-log {
+  border-color: #cedbf7;
+  color: #315fec;
+}
+
+.radar-empty {
+  padding: 34px 16px;
+  color: #718099;
+  text-align: center;
+}
+
+/* Sur téléphone, les trois actions occupent chacune une ligne pleine :
+   plus lisible et plus sûr à toucher que trois boutons comprimés. */
+@media (max-width: 520px) {
+  .reminder-modal > footer button {
+    flex: 1 1 100%;
+  }
+
+  .reminder-modal > header i {
+    width: 48px;
+    height: 48px;
   }
 }
