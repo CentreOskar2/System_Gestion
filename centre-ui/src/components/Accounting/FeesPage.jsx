@@ -265,7 +265,7 @@ function Receipt({ receipts, close, catalog }) {
                 <img src="/oskar-logo.png" alt="Logo Centre Oskar" />
                 <div>
                   <strong>Centre Oskar</strong>
-                  <span>Cours particuliers — Casablanca</span>
+                  <span>Cours particuliers — Agadir</span>
                 </div>
               </div>
               <div className="fee-ref">
@@ -351,7 +351,7 @@ function RegistrationFeeReceipt({ student, amount, schoolYear, paidAt, close }) 
               <img src="/oskar-logo.png" alt="Logo Centre Oskar" />
               <div>
                 <strong>Centre Oskar</strong>
-                <span>Cours particuliers — Casablanca</span>
+                <span>Cours particuliers — Agadir</span>
               </div>
             </div>
             <div className="fee-ref">
