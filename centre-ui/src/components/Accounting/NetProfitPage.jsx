@@ -4,7 +4,7 @@ import { Coins, TrendingUp, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
-import { academicMonths, currentMonthKey } from './monthUtils'
+import { academicMonths, calendarMonthOptions, currentMonthKey, schoolYearOptions } from './monthUtils'
 import { subscribeFeesCache } from './feesApi'
 import './NetProfitPage.css'
 
@@ -109,7 +109,15 @@ export default function NetProfitPage() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [reload, setReload] = useState(0)
-  const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey())
+  const initialPeriod = currentMonthKey()
+  const [selectedMonthNumber, setSelectedMonthNumber] = useState(() => String(Number(initialPeriod.slice(5, 7))))
+  const [selectedYear, setSelectedYear] = useState(() => initialPeriod.slice(0, 4))
+
+  // An academic year begins in September: Jan–Aug belong to its following calendar year.
+  const selectedCalendarYear = Number(selectedYear) + (Number(selectedMonthNumber) < 9 ? 1 : 0)
+  const selectedMonth = `${selectedCalendarYear}-${selectedMonthNumber.padStart(2, '0')}-01`
+  const monthOptions = calendarMonthOptions()
+  const yearOptions = schoolYearOptions()
 
   const branchFilter = selectedBranch && selectedBranch !== 'all' ? selectedBranch : null
 
@@ -237,13 +245,24 @@ export default function NetProfitPage() {
           <div className="fees-loading">Calcul du bénéfice net...</div>
         ) : (
           <>
-            <label className="salary-month">
-              Mois : <select value={selectedMonth} onChange={(event) => setSelectedMonth(event.target.value)}>
-                {academicMonths().map((m) => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
-                ))}
-              </select>
-            </label>
+            <div className="profit-period" aria-label="Période du bénéfice net">
+              <label>
+                <span>Mois</span>
+                <select value={selectedMonthNumber} onChange={(event) => setSelectedMonthNumber(event.target.value)}>
+                  {monthOptions.map((month) => (
+                    <option key={month.value} value={month.value}>{month.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>Année scolaire</span>
+                <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>
+                  {yearOptions.map((year) => (
+                    <option key={year.value} value={year.value}>{year.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <section className="profit-formula">
               <span>FORMULE</span>
               <p>
