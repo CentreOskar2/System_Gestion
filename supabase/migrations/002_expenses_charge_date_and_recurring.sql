@@ -20,6 +20,11 @@ create table if not exists public.recurring_charges (
   created_at    timestamptz not null default now()
 );
 
+-- The table may already exist in older projects, where created_at had no
+-- default. `create table if not exists` does not update that existing column.
+alter table public.recurring_charges
+  alter column created_at set default now();
+
 -- Trace de quel modèle récurrent chaque ligne "charges" générée automatiquement est issue.
 alter table public.expenses add column if not exists recurring_charge_id uuid references public.recurring_charges (id) on delete set null;
 

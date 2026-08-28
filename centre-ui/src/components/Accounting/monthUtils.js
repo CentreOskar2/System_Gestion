@@ -101,13 +101,36 @@ export function formatFrenchDate(value) {
   return new Intl.DateTimeFormat('fr-MA').format(date)
 }
 
+function daysInMonth(year, monthIndex) {
+  return new Date(year, monthIndex + 1, 0).getDate()
+}
+
+// Le cycle de facturation d'un élève est ancré sur son jour d'inscription, pas sur une
+// date fixe du mois : inscrit le 26/07, il doit régler le 26 de chaque mois suivant.
+// Les mois plus courts que le jour d'inscription (le 31 en février) basculent sur leur
+// dernier jour.
+export function billingDueDate(registrationDate, monthKey) {
+  const regDate = parseLocalDate(registrationDate)
+  const monthDate = parseLocalDate(normalizeMonthKey(monthKey))
+  if (!regDate || !monthDate) return null
+  const year = monthDate.getFullYear()
+  const monthIndex = monthDate.getMonth()
+  return new Date(year, monthIndex, Math.min(regDate.getDate(), daysInMonth(year, monthIndex)))
+}
+
+// Année scolaire en cours : elle démarre en septembre, donc janvier→août appartient
+// encore à l'année ouverte l'automne précédent.
+export function currentSchoolYearStart(now = new Date()) {
+  return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1
+}
+
 export function receiptDateFromRegistration(registrationDate, monthKey) {
   const regDate = parseLocalDate(registrationDate)
   const monthDate = parseLocalDate(monthKey)
   if (!regDate && !monthDate) return null
   if (!regDate) return monthDate
   if (!monthDate) return regDate
-  return new Date(monthDate.getFullYear(), monthDate.getMonth(), regDate.getDate())
+  return billingDueDate(registrationDate, monthKey) || monthDate
 }
 
 export function accountingDayBucket(value = new Date()) {

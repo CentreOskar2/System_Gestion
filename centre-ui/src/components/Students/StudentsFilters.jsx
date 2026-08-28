@@ -11,6 +11,9 @@ export default function StudentsFilters({
   subjects,
   activeSubject,
   onSubjectChange,
+  groups,
+  activeGroup,
+  onGroupChange,
   studentsCount,
   searchQuery,
   onSearchChange,
@@ -22,6 +25,10 @@ export default function StudentsFilters({
   const subjectOptions = [
     { value: 'Tous', label: 'Toutes les matières' },
     ...subjects.map((subject) => ({ value: subject, label: subject })),
+  ]
+  const groupOptions = [
+    { value: '', label: 'Tous les groupes' },
+    ...groups.map((group) => ({ value: group.id, label: group.name })),
   ]
 
   return (
@@ -69,7 +76,7 @@ export default function StudentsFilters({
         </div>
         <div className="filter-select">
           <Icon name="users" />
-          <FilterSelect ariaLabel="Filtrer par groupe" value="" options={[{ value: '', label: 'Tous les groupes' }]} onChange={() => {}} />
+          <FilterSelect ariaLabel="Filtrer par groupe" value={activeGroup} options={groupOptions} onChange={onGroupChange} />
         </div>
       </div>
       <p className="students-count">{studentsCount} élèves affichés</p>

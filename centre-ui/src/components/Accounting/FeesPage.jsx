@@ -13,11 +13,13 @@ import { syncSubscriptions } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
 import {
   accountingDayBucket,
+  billingDueDate,
   formatAccountingDay,
   formatFrenchDate,
   monthLabelOf,
   normalizeMonthKey,
   isEnrolledInMonth,
+  parseLocalDate,
   receiptDateFromRegistration,
   schoolYearOptions,
   schoolYearLabel,
@@ -571,6 +573,9 @@ export default function FeesPage() {
     [students, query]
   )
 
+  // Jour comptable courant (rollover à 3h), à minuit : borne les mois déjà exigibles.
+  const today = useMemo(() => parseLocalDate(accountingDayBucket(new Date(nowTick))), [nowTick])
+
   const schoolMonths = useMemo(() => buildSchoolMonths(schoolYearStart), [schoolYearStart])
   const currentDayKey = normalizeDateKey(new Date(nowTick))
   const currentDayPayments = useMemo(
@@ -615,7 +620,10 @@ export default function FeesPage() {
     const payment = (paymentsByStudent[student.id] || []).find((p) => normalizeMonthKey(p.month) === key)
     if (payment && (payment.status === 'paid' || payment.status === 'validé')) return 'paid'
     if (!student.active) return 'inactive'
-    if (key > currentMonthKey()) return 'pending'
+    // Un mois n'est exigible qu'à partir de la date anniversaire de l'inscription
+    // (inscrit le 26/07 → échéance le 26 de chaque mois), et non dès le 1er du mois.
+    const dueDate = billingDueDate(student.registrationDate, key)
+    if (dueDate && today < dueDate) return 'pending'
     return 'unpaid'
   }
 

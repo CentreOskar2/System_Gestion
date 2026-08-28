@@ -10,7 +10,7 @@ import SalaryJournalPdf from '../pdf/SalaryJournalPdf'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
-import { academicMonths, currentMonthKey, isEnrolledInMonth, monthLabelOf } from './monthUtils'
+import { calendarMonthOptions, currentMonthKey, isEnrolledInMonth, monthLabelOf, schoolYearOptions } from './monthUtils'
 import { calculateSalary } from './salaryUtils'
 import './SalariesPage.css'
 
@@ -168,9 +168,16 @@ export default function SalariesPage() {
   const [pendingSalaries, setPendingSalaries] = useState([])
   const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [month, setMonth] = useState(currentMonthKey())
+  const initialPeriod = currentMonthKey()
+  const [selectedMonthNumber, setSelectedMonthNumber] = useState(() => String(Number(initialPeriod.slice(5, 7))))
+  const [selectedYear, setSelectedYear] = useState(() => initialPeriod.slice(0, 4))
   const [notice, setNotice] = useState(null)
-  const months = useMemo(() => academicMonths(), [])
+  const monthOptions = useMemo(() => calendarMonthOptions(), [])
+  const yearOptions = useMemo(() => schoolYearOptions(), [])
+
+  // An academic year begins in September: Jan–Aug belong to its following calendar year.
+  const selectedCalendarYear = Number(selectedYear) + (Number(selectedMonthNumber) < 9 ? 1 : 0)
+  const month = `${selectedCalendarYear}-${selectedMonthNumber.padStart(2, '0')}-01`
 
   const branchFilter = selectedBranch && selectedBranch !== 'all' ? selectedBranch : null
 
@@ -398,13 +405,24 @@ export default function SalariesPage() {
             <i><Percent size={22} /></i>
           </article>
         </section>
-        <label className="salary-month">
-          Mois : <select value={month} onChange={(event) => setMonth(event.target.value)}>
-            {months.map((m) => (
-              <option key={m.key} value={m.key}>{m.label}</option>
-            ))}
-          </select>
-        </label>
+        <div className="salary-period" aria-label="Période des salaires">
+          <label>
+            <span>Mois</span>
+            <select value={selectedMonthNumber} onChange={(event) => setSelectedMonthNumber(event.target.value)}>
+              {monthOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Année scolaire</span>
+            <select value={selectedYear} onChange={(event) => setSelectedYear(event.target.value)}>
+              {yearOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
         {notice && (
           <p style={{ margin: '0 0 16px', padding: '10px 14px', background: '#fdecea', color: '#c0392b', borderRadius: 8 }}>
             {notice}

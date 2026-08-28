@@ -13,7 +13,7 @@ import {
   whatsappLink,
 } from './delinquenciesApi'
 import { subscribeFeesCache } from './feesApi'
-import { currentMonthKey, schoolYearOptions } from './monthUtils'
+import { currentSchoolYearStart, schoolYearOptions } from './monthUtils'
 import './DelinquenciesPage.css'
 
 export default function DelinquenciesPage() {
@@ -28,7 +28,7 @@ export default function DelinquenciesPage() {
   const [modalError, setModalError] = useState('')
   const [saving, setSaving] = useState(false)
   const [reload, setReload] = useState(0)
-  const [schoolYearStart, setSchoolYearStart] = useState(String(currentMonthKey().slice(0, 4)))
+  const [schoolYearStart, setSchoolYearStart] = useState(String(currentSchoolYearStart()))
 
   useEffect(() => {
     let active = true

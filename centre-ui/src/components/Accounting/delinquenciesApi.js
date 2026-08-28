@@ -1,9 +1,10 @@
 import { supabase } from '../../supabaseClient'
 import { fetchFeesData } from './feesApi'
-import { academicYearStart, currentMonthKey, enrollmentDateOf } from './monthUtils'
+import { billingDueDate, currentSchoolYearStart, enrollmentDateOf } from './monthUtils'
 
-export const GRACE_DAYS = 5
-export const SUBSEQUENT_DUE_DAY = 5
+// Le retard ne court qu'à partir du lendemain de l'échéance : le jour de l'échéance
+// lui-même reste "à jour".
+export const LATE_AFTER_DAYS = 1
 
 const DAY_MS = 1000 * 60 * 60 * 24
 
@@ -17,15 +18,9 @@ const monthKeyOf = (date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
 const diffDays = (a, b) => Math.round((a - b) / DAY_MS)
 
-function dueDateFor(monthDate, regDate, isEnrollmentMonth) {
-  if (isEnrollmentMonth) {
-    return new Date(regDate.getFullYear(), regDate.getMonth(), regDate.getDate() + GRACE_DAYS)
-  }
-  return new Date(monthDate.getFullYear(), monthDate.getMonth(), SUBSEQUENT_DUE_DAY)
-}
-
-export function computeOverdueMonths(student, paymentsByStudent, today = new Date(), schoolYearStart = academicYearStart()) {
-  const regDate = toDate(enrollmentDateOf(student))
+export function computeOverdueMonths(student, paymentsByStudent, today = new Date(), schoolYearStart = currentSchoolYearStart(today)) {
+  const registrationDate = enrollmentDateOf(student)
+  const regDate = toDate(registrationDate)
   if (!regDate) return []
 
   const settledMonths = new Set(
@@ -34,40 +29,44 @@ export function computeOverdueMonths(student, paymentsByStudent, today = new Dat
       .map((payment) => String(payment.month).slice(0, 7))
   )
 
-  const yearStart = Number(schoolYearStart) || academicYearStart()
-  const fiscalStart = new Date(yearStart, 8, 1)
-  const fiscalEnd = new Date(yearStart + 1, 7, 1)
+  // Le cycle de facturation est propre à l'élève : il démarre au mois d'inscription et
+  // se répète chaque mois jusqu'au mois courant, indépendamment du calendrier scolaire.
   const firstMonth = new Date(regDate.getFullYear(), regDate.getMonth(), 1)
-  if (firstMonth > fiscalEnd) return [] // student wasn't enrolled yet during this school year
+  const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+  if (firstMonth > currentMonth) return [] // inscription datée dans le futur
 
-  const firstDueMonth = firstMonth < fiscalStart ? fiscalStart : firstMonth
-  const currentMonth = toDate(currentMonthKey(today))
-  const lastMonth = fiscalEnd < currentMonth ? fiscalEnd : currentMonth
-  if (firstDueMonth > lastMonth) return [] // this school year hasn't started yet, or is entirely before enrollment
+  // L'année scolaire sélectionnée ne décale pas les échéances, elle ne fait que borner
+  // les mois rapportés (septembre → août).
+  const yearStart = Number(schoolYearStart) || currentSchoolYearStart(today)
+  const windowStart = `${yearStart}-09`
+  const windowEnd = `${yearStart + 1}-08`
 
   const overdue = []
 
   for (
-    let cursor = new Date(firstDueMonth);
-    cursor <= lastMonth;
+    let cursor = new Date(firstMonth);
+    cursor <= currentMonth;
     cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
   ) {
-    const isEnrollmentMonth = cursor.getTime() === firstMonth.getTime()
-    const dueDate = dueDateFor(cursor, regDate, isEnrollmentMonth)
-    if (!settledMonths.has(monthKeyOf(cursor))) {
-      overdue.push({ month: monthKeyOf(cursor), dueDate })
-    }
+    const month = monthKeyOf(cursor)
+    if (month < windowStart || month > windowEnd) continue
+    if (settledMonths.has(month)) continue
+    const dueDate = billingDueDate(registrationDate, month)
+    if (dueDate) overdue.push({ month, dueDate })
   }
 
   return overdue
 }
 
-export function buildDebtors(students, paymentsByStudent, today = new Date(), schoolYearStart = academicYearStart()) {
+export function buildDebtors(students, paymentsByStudent, today = new Date(), schoolYearStart = currentSchoolYearStart(today)) {
   const debtors = []
   for (const student of students || []) {
     if (!student.active) continue
     const duMois = Number(student.du_mois) || 0
+    // Une échéance n'est en retard qu'une fois un jour plein écoulé : l'élève n'est pas
+    // listé le jour même de son échéance.
     const overdue = computeOverdueMonths(student, paymentsByStudent, today, schoolYearStart)
+      .filter(({ dueDate }) => diffDays(startOfDay(today), dueDate) >= LATE_AFTER_DAYS)
     if (overdue.length === 0 || duMois <= 0) continue
 
     overdue.sort((a, b) => a.month.localeCompare(b.month))
@@ -145,7 +144,7 @@ export async function logPaymentReminder(studentId, { months, amount, message, c
   return data
 }
 
-export async function fetchDelinquenciesData(branchId = null, schoolYearStart = academicYearStart()) {
+export async function fetchDelinquenciesData(branchId = null, schoolYearStart = currentSchoolYearStart()) {
   const [fees, templatesRes, settingsRes] = await Promise.all([
     fetchFeesData(branchId),
     supabase.from('whatsapp_templates').select('type, content').eq('type', 'payment_reminder').maybeSingle(),

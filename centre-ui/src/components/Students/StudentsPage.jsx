@@ -24,6 +24,7 @@ export default function StudentsPage() {
   const [activeCycle, setActiveCycle] = useState('Tous')
   const [activeLevel, setActiveLevel] = useState('Tous')
   const [activeSubject, setActiveSubject] = useState('Tous')
+  const [activeGroup, setActiveGroup] = useState('')
   const [attendanceStudent, setAttendanceStudent] = useState(null)
   const [absenceSheetOpen, setAbsenceSheetOpen] = useState(location.state?.quick === 'absence-sheet')
   const [sheetStudent, setSheetStudent] = useState(null)
@@ -70,12 +71,25 @@ export default function StudentsPage() {
           (activeCycle === 'Tous' || student.cycle === activeCycle) &&
           (activeLevel === 'Tous' || student.level === activeLevel) &&
           (activeSubject === 'Tous' || student.chosen?.includes(activeSubject)) &&
+          (!activeGroup || student.groupSelections?.some((group) => group.groupId === activeGroup)) &&
           `${student.name} ${student.code} ${student.phone}`
             .toLowerCase()
             .includes(query.toLowerCase())
       ),
-    [items, query, activeCycle, activeLevel, activeSubject]
+    [items, query, activeCycle, activeLevel, activeSubject, activeGroup]
   )
+
+  const groups = useMemo(() => {
+    const uniqueGroups = new Map()
+    for (const student of items) {
+      for (const group of student.groupSelections || []) {
+        if (group.groupId && group.groupName) uniqueGroups.set(group.groupId, group.groupName)
+      }
+    }
+    return [...uniqueGroups]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+  }, [items])
 
   const cycleTabs = useMemo(() => {
     const all = [{ name: 'Tous', count: items.length }]
@@ -115,6 +129,7 @@ export default function StudentsPage() {
     setActiveCycle(cycle)
     setActiveLevel('Tous')
     setActiveSubject('Tous')
+    setActiveGroup('')
   }
 
   const handleFinishEnrollment = async () => {
@@ -188,6 +203,9 @@ export default function StudentsPage() {
           subjects={subjects}
           activeSubject={activeSubject}
           onSubjectChange={setActiveSubject}
+          groups={groups}
+          activeGroup={activeGroup}
+          onGroupChange={setActiveGroup}
           studentsCount={shownStudents.length}
           searchQuery={query}
           onSearchChange={setQuery}
