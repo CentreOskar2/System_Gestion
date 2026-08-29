@@ -171,12 +171,32 @@ function subjectsById(id, subjects) {
   return subjects.find((s) => s.id === id)
 }
 
+// Cycles au forfait (préscolaire, primaire) : l'élève suit tout le niveau et
+// paie un prix unique. Il n'y a donc ni matière à choisir ni tarif par matière.
+export function isPackageLevel(catalog, levelName) {
+  const level = catalog?.levelByName?.[levelName]
+  if (!level) return false
+  return Boolean(catalog.cycleById?.[level.cycle_id]?.has_fixed_price)
+}
+
+export function packagePrice(catalog, levelName) {
+  const level = catalog?.levelByName?.[levelName]
+  return level?.fixed_price != null ? Number(level.fixed_price) : 0
+}
+
+// Le forfait du niveau, sauf remise saisie à l'inscription pour cet élève.
+export function packageAmount(form, catalog) {
+  if (form?.packagePriceType === 'manual') {
+    const manual = Number(form.packageManualPrice)
+    return Number.isFinite(manual) && manual >= 0 ? manual : 0
+  }
+  return packagePrice(catalog, form?.level)
+}
+
 export function getPrice(catalog, levelName, subjectName) {
   const level = catalog.levelByName[levelName]
   const subject = catalog.subjectsByName[subjectName]
   if (level && subject) {
-    const cycle = catalog.cycleByName[cycleNameOf(level, catalog.cycles)]
-    if (cycle?.has_fixed_price && level.fixed_price != null) return Number(level.fixed_price)
     const tariff = catalog.tariffsByLevelSubject[level.id]?.[subject.id]
     if (tariff != null) return tariff
   }
@@ -388,6 +408,8 @@ async function resolveCycleId(form, catalog) {
 }
 
 export function computeDuMois(form, catalog) {
+  // Au forfait le prix couvre le niveau entier : il ne se cumule pas par matière.
+  if (isPackageLevel(catalog, form.level)) return packageAmount(form, catalog)
   return (form.chosen || []).reduce((sum, name) => {
     const price = subjectDetailsFor(form, catalog, name).monthly_price
     return sum + (Number.isFinite(price) ? price : 0)
@@ -497,7 +519,7 @@ export async function reactivateAllStudents(branchId = null) {
 export async function fetchStudents(branchId = null) {
   let query = supabase
     .from('students')
-    .select('*, branches(name), levels(name, cycle_id, cycles(name)), cycles(name), study_branches(name)')
+    .select('*, branches(name), levels(name, cycle_id, fixed_price, cycles(name, has_fixed_price)), cycles(name), study_branches(name)')
     .order('created_at', { ascending: false })
   if (branchId && branchId !== 'all') query = query.eq('branch_id', branchId)
 
@@ -557,6 +579,11 @@ export async function fetchStudents(branchId = null) {
       track: s.study_branches?.name || '',
       branch: s.branches?.name || '',
       subjects: list.length,
+      // Au forfait le dû mensuel ne se déduit pas des matières : il est porté
+      // par l'élève, et une valeur différente du prix du niveau est une remise.
+      isPackage: Boolean(s.levels?.cycles?.has_fixed_price),
+      packagePrice: s.levels?.fixed_price != null ? Number(s.levels.fixed_price) : 0,
+      du_mois: Number(s.du_mois) || 0,
       payment: 'N/A',
       active: s.status === 'active',
       status: s.status,

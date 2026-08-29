@@ -9,7 +9,7 @@ import { useBranch } from '../../context/BranchContext'
 import { safeFilename } from '../../utils/exportToPdf'
 import { downloadPdfDocument } from '../pdf/downloadPdf'
 import FeeReceiptPdf from '../pdf/FeeReceiptPdf'
-import { syncSubscriptions } from '../Students/enrollment/enrollmentApi'
+import { syncSubscriptions, isPackageLevel, packagePrice } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
 import {
   accountingDayBucket,
@@ -752,6 +752,8 @@ export default function FeesPage() {
       ...student,
       chosen: [...student.chosen],
       subjectDetails: { ...(student.subjectDetails || {}) },
+      // Au forfait il n'y a qu'un montant à revoir, pas une liste de matières.
+      packageAmount: String(student.du_mois ?? ''),
     })
   }
 
@@ -768,8 +770,16 @@ export default function FeesPage() {
   const setSubjectDetails = (subject, changes) =>
     setEditing((e) => ({ ...e, subjectDetails: { ...e.subjectDetails, [subject]: { ...e.subjectDetails?.[subject], ...changes } } }))
 
+  // Préscolaire et primaire : l'élève suit tout le niveau pour un prix unique,
+  // il n'y a donc pas de liste de matières à revoir, seulement ce montant.
+  const editIsPackage = Boolean(editing && catalog && isPackageLevel(catalog, editing.level))
+
   const editTotal = useMemo(() => {
     if (!editing || !catalog) return 0
+    if (isPackageLevel(catalog, editing.level)) {
+      const amount = Number(editing.packageAmount)
+      return Number.isFinite(amount) && amount >= 0 ? amount : 0
+    }
     return editing.chosen.reduce((sum, name) => {
       const details = editing.subjectDetails?.[name] || {}
       const value =
@@ -793,11 +803,15 @@ export default function FeesPage() {
     setSaving(true)
     setError('')
     try {
-      await syncSubscriptions(
-        editing.id,
-        { chosen: editing.chosen, subjectDetails: editing.subjectDetails, level: editing.level },
-        catalog
-      )
+      // Au forfait il n'y a aucune ligne par matière à synchroniser, et y
+      // passer une liste vide retirerait l'élève de son groupe.
+      if (!editIsPackage) {
+        await syncSubscriptions(
+          editing.id,
+          { chosen: editing.chosen, subjectDetails: editing.subjectDetails, level: editing.level },
+          catalog
+        )
+      }
       await supabase.from('students').update({ du_mois: editTotal }).eq('id', editing.id)
       await load()
       invalidateFeesCache()
@@ -1052,8 +1066,27 @@ export default function FeesPage() {
         <div className="fee-overlay">
           <section className="edit-modal">
             <button className="modal-close" onClick={() => setEditing(null)}>×</button>
-            <h2>Modifier les matières & groupes</h2>
-            <p>{editing.name} — sélectionnez les matières auxquelles l'élève est inscrit.</p>
+            <h2>{editIsPackage ? 'Modifier le forfait' : 'Modifier les matières & groupes'}</h2>
+            <p>
+              {editIsPackage
+                ? `${editing.name} — ${editing.level} est facturé au forfait : toutes les matières sont comprises dans ce montant.`
+                : `${editing.name} — sélectionnez les matières auxquelles l'élève est inscrit.`}
+            </p>
+            {editIsPackage ? (
+              <div className="edit-package">
+                <label>
+                  Forfait mensuel (DH)
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={editing.packageAmount}
+                    onChange={(e) => setEditing((current) => ({ ...current, packageAmount: e.target.value }))}
+                  />
+                </label>
+                <small>Prix standard du niveau : {packagePrice(catalog, editing.level).toLocaleString('fr-FR')} DH/mois</small>
+              </div>
+            ) : (
             <div className="edit-subjects">
               {availableSubjects.map((subject) => {
                 const isSelected = editing.chosen.includes(subject)
@@ -1124,6 +1157,7 @@ export default function FeesPage() {
                 )
               })}
             </div>
+            )}
             <div className="edit-total">
               <span>Total dû / mois</span>
               <strong>{editTotal.toLocaleString('fr-FR')} DH</strong>

@@ -69,6 +69,30 @@ export default function AttendanceModal({ student, close }) {
           }
         }
 
+        // Au forfait l'élève n'a pas de ligne par matière : le suivi se fait
+        // au niveau de son groupe, qui couvre toutes les matières.
+        if (subjectGroups.size === 0) {
+          const { data: memberships, error: groupsError } = await supabase
+            .from('group_students')
+            .select('group_id, groups(name)')
+            .eq('student_id', student.id)
+          if (groupsError) throw new Error(groupsError.message)
+          for (const row of memberships || []) {
+            if (!row.group_id) continue
+            const groupName = row.groups?.name || `Groupe ${row.group_id}`
+            const optionId = `${row.group_id}::`
+            if (!subjectGroups.has(optionId)) {
+              subjectGroups.set(optionId, {
+                id: optionId,
+                groupId: String(row.group_id),
+                label: groupName,
+                subjectName: '',
+                groupName,
+              })
+            }
+          }
+        }
+
         const nextOptions = [...subjectGroups.values()]
         if (!active) return
         setGroupOptions(nextOptions)
@@ -192,10 +216,10 @@ export default function AttendanceModal({ student, close }) {
           disabled={loadingGroups || groupOptions.length === 0}
         >
           {groupOptions.length === 0 ? (
-            <option value="">Aucune matière / groupe inscrit</option>
+            <option value="">Aucun groupe inscrit</option>
           ) : (
             <>
-              <option value="">Sélectionner une matière...</option>
+              <option value="">Sélectionner...</option>
               {groupOptions.map((option) => (
                 <option key={option.id} value={option.id}>{option.label}</option>
               ))}

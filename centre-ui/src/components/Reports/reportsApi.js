@@ -105,7 +105,7 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
 
   const [
     teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes,
-    tgRes, gsRes, studentsRes, salaryRes, tariffsRes, paymentsRes, teacherBranchesRes,
+    tgRes, tgnRes, gsRes, studentsRes, salaryRes, tariffsRes, paymentsRes, teacherBranchesRes,
   ] = await Promise.all([
     teachersQuery,
     supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
@@ -114,6 +114,7 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     supabase.from('subjects').select('id, name'),
     groupsQuery,
     supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
+    supabase.from('teacher_groups').select('teacher_id, group_id'),
     supabase.from('group_students').select('group_id, student_id'),
     supabase.from('students').select('id, status, registration_date, created_at'),
     supabase.from('teacher_salaries').select('teacher_id').eq('month', monthKey).eq('status', 'paid'),
@@ -139,14 +140,16 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     if (!tariffsByLevelSubject[row.level_id]) tariffsByLevelSubject[row.level_id] = {}
     tariffsByLevelSubject[row.level_id][row.subject_id] = Number(row.price)
   }
+  // Cycles au forfait : le groupe rapporte le prix du niveau par élève,
+  // toutes matières comprises — il n'y a pas de tarif par matière à cumuler.
   const priceForGroup = (groupId) => {
     const group = groupById[groupId]
     if (!group) return 0
-    const tariff = tariffsByLevelSubject[group.level_id]?.[group.subject_id]
-    if (tariff != null) return tariff
     const level = levelById[group.level_id]
     const cycle = cycleById[level?.cycle_id]
-    if (cycle?.has_fixed_price && level?.fixed_price != null) return Number(level.fixed_price)
+    if (cycle?.has_fixed_price) return level?.fixed_price != null ? Number(level.fixed_price) : 0
+    const tariff = tariffsByLevelSubject[group.level_id]?.[group.subject_id]
+    if (tariff != null) return tariff
     return 0
   }
 
@@ -157,6 +160,11 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     if (!groupIdsByTeacher[row.teacher_id].includes(row.group_id)) groupIdsByTeacher[row.teacher_id].push(row.group_id)
     if (!subjectIdsByTeacher[row.teacher_id]) subjectIdsByTeacher[row.teacher_id] = new Set()
     subjectIdsByTeacher[row.teacher_id].add(row.subject_id)
+  }
+  // Affectations sans matière : le professeur assure tout le groupe.
+  for (const row of tgnRes.data || []) {
+    if (!groupIdsByTeacher[row.teacher_id]) groupIdsByTeacher[row.teacher_id] = []
+    if (!groupIdsByTeacher[row.teacher_id].includes(row.group_id)) groupIdsByTeacher[row.teacher_id].push(row.group_id)
   }
   const branchIdsByTeacher = {}
   for (const row of teacherBranchesRes.data || []) {

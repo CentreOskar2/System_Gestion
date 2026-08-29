@@ -1,4 +1,4 @@
-import { getPrice } from '../enrollmentApi'
+import { getPrice, isPackageLevel, packageAmount } from '../enrollmentApi'
 import { monthLabelOf, normalizeMonthKey } from '../../../Accounting/monthUtils'
 
 export default function Step4Billing({ form, catalog, set, registrationFee, schoolYear, editing }) {
@@ -6,7 +6,11 @@ export default function Step4Billing({ form, catalog, set, registrationFee, scho
     const details = form.subjectDetails?.[subject]
     return details?.priceType === 'manual' ? Number(details.manualPrice || 0) : getPrice(catalog, form.level, subject)
   }
-  const total = form.chosen.reduce((acc, subject) => acc + amountFor(subject), 0)
+  // Au forfait le détail se résume à une ligne : le niveau, toutes matières comprises.
+  const lines = isPackageLevel(catalog, form.level)
+    ? [{ name: `Forfait ${form.level} — toutes matières`, amount: packageAmount(form, catalog) }]
+    : form.chosen.map((subject) => ({ name: subject, amount: amountFor(subject) }))
+  const total = lines.reduce((acc, line) => acc + line.amount, 0)
   const studentName = `${form.firstName} ${form.lastName}`.trim() || '—'
   const cursus = [form.cycle, form.level, form.track].filter(Boolean).join(' > ')
   const avatar = studentName === '—' ? '??' : studentName.split(' ').map((name) => name[0]).join('').slice(0, 2)
@@ -25,7 +29,7 @@ export default function Step4Billing({ form, catalog, set, registrationFee, scho
       </article>
       <article className="billing-fees">
         <small>DÉTAIL DES FRAIS</small>
-        {form.chosen.map((subject) => <p key={subject}><span>{subject}</span><strong>{amountFor(subject).toLocaleString('fr-FR')} DH</strong></p>)}
+        {lines.map((line) => <p key={line.name}><span>{line.name}</span><strong>{line.amount.toLocaleString('fr-FR')} DH</strong></p>)}
         <div className="billing-total"><b>Total mensuel</b><strong>{total.toLocaleString('fr-FR')} DH</strong></div>
 
         {showFirstMonthChoice && (

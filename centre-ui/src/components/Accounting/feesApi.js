@@ -1,5 +1,5 @@
 import { supabase } from '../../supabaseClient'
-import { fetchCatalog } from '../Students/enrollment/enrollmentApi'
+import { fetchCatalog, isPackageLevel } from '../Students/enrollment/enrollmentApi'
 import { academicYearStart, normalizeMonthKey } from './monthUtils'
 
 export { academicYearStart }
@@ -58,6 +58,10 @@ export function priceFor(catalog, student, subjectName, details = student?.subje
 }
 
 export function studentLineItems(student, catalog) {
+  // Cycles au forfait : une seule ligne, le prix couvre tout le niveau.
+  if (isPackageLevel(catalog, student.level)) {
+    return [{ name: `Forfait ${student.level} — toutes matières`, amount: student.du_mois }]
+  }
   if (!student.chosen.length) return [{ name: 'Forfait tout inclus', amount: student.du_mois }]
   return student.chosen.map((name) => ({ name, amount: priceFor(catalog, student, name) }))
 }

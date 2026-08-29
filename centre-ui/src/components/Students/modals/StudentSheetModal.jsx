@@ -138,11 +138,20 @@ export default function StudentSheetModal({ student, close }) {
         note: meta.id === 'retard' && totalRetardMinutes > 0 ? `${totalRetardMinutes} min` : undefined,
       }))
       const pdfLogEvents = logEvents.map((event) => ({ ...event, label: labelOf(event.event_type) }))
+      // Au forfait, la fiche présente une ligne unique au lieu du détail par matière.
+      const pdfSubscriptions = student.isPackage
+        ? [{
+            subject_id: 'forfait',
+            subjects: { name: `Forfait ${student.level} — toutes matières` },
+            groups: { name: student.groupSelections?.[0]?.groupName || 'Non assigné' },
+            monthly_price: student.du_mois,
+          }]
+        : subscriptions || []
       await downloadPdfDocument(
         <StudentSheetPdf
           data={{
             student,
-            subscriptions: subscriptions || [],
+            subscriptions: pdfSubscriptions,
             grades: grades || [],
             logEvents: pdfLogEvents,
             eventStats,
@@ -303,9 +312,16 @@ export default function StudentSheetModal({ student, close }) {
             )}
           </section>
           <section className="enrolled-subjects">
-            <h3>Matières inscrites</h3>
+            <h3>{student.isPackage ? 'Scolarité' : 'Matières inscrites'}</h3>
             <div>
-              {subscriptions === null ? (
+              {student.isPackage ? (
+                // Au forfait l'élève n'a pas de ligne par matière : il suit tout le niveau.
+                <article>
+                  <b>Forfait {student.level} — toutes matières</b>
+                  <small>Groupe : {student.groupSelections?.[0]?.groupName || 'Non assigné'}</small>
+                  <span>{formatAmount(student.du_mois)}</span>
+                </article>
+              ) : subscriptions === null ? (
                 <p className="sheet-empty">Chargement des matières...</p>
               ) : subscriptions.length === 0 ? (
                 <p className="sheet-empty">Aucune matière inscrite.</p>

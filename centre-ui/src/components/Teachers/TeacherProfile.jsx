@@ -51,7 +51,7 @@ export default function TeacherProfile({ teacher, onBack }) {
 
       const [subjectsRes, levelsRes, gsRes, salariesRes, groupsRes] = await Promise.all([
         supabase.from('subjects').select('id, name'),
-        supabase.from('levels').select('id, name'),
+        supabase.from('levels').select('id, name, cycles(has_fixed_price)'),
         groupIds.length > 0
           ? supabase.from('group_students').select('group_id, student_id').in('group_id', groupIds)
           : Promise.resolve({ data: [] }),
@@ -68,6 +68,10 @@ export default function TeacherProfile({ teacher, onBack }) {
 
       const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
       const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
+      // Cycles au forfait : le professeur assure tout le niveau, pas une matière.
+      const packageLevelIds = new Set(
+        (levelsRes.data || []).filter((l) => l.cycles?.has_fixed_price).map((l) => l.id)
+      )
       const countByGroup = {}
       for (const row of gsRes.data || []) {
         countByGroup[row.group_id] = (countByGroup[row.group_id] || 0) + 1
@@ -88,7 +92,9 @@ export default function TeacherProfile({ teacher, onBack }) {
         grouped[group.id] = {
           id: group.id,
           name: group.name,
-          subject: subjectMap[group.subject_id] || subjects[0] || '—',
+          subject: packageLevelIds.has(group.level_id)
+            ? 'Toutes les matières'
+            : subjectMap[group.subject_id] || subjects[0] || '—',
           level: levelMap[group.level_id] || '—',
           capacity: group.capacity,
           status: group.status,

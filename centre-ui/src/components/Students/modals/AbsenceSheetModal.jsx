@@ -106,13 +106,14 @@ export default function AbsenceSheetModal({ close }) {
     async function fetchCatalog() {
       setLoading(true)
       try {
-        const [teachersRes, subjectsRes, levelsRes, groupsRes, gsRes, tgsRes, sgsRes] = await Promise.all([
+        const [teachersRes, subjectsRes, levelsRes, groupsRes, gsRes, tgsRes, tgRes, sgsRes] = await Promise.all([
           supabase.from('teachers').select('id, first_name, last_name').eq('status', 'active').order('last_name'),
           supabase.from('subjects').select('id, name').order('name'),
-          supabase.from('levels').select('id, name').order('name'),
+          supabase.from('levels').select('id, name, cycles(has_fixed_price)').order('name'),
           supabase.from('groups').select('id, name, subject_id, level_id, teacher_id').eq('status', 'active').order('name'),
           supabase.from('group_students').select('group_id, student_id'),
           supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
+          supabase.from('teacher_groups').select('teacher_id, group_id'),
           supabase.from('student_group_subjects').select('group_id, subject_id'),
         ])
         if (teachersRes.error) throw new Error(teachersRes.error.message)
@@ -121,6 +122,7 @@ export default function AbsenceSheetModal({ close }) {
         if (groupsRes.error) throw new Error(groupsRes.error.message)
         if (gsRes.error) throw new Error(gsRes.error.message)
         if (tgsRes.error) throw new Error(tgsRes.error.message)
+        if (tgRes.error) throw new Error(tgRes.error.message)
         if (sgsRes.error) throw new Error(sgsRes.error.message)
 
         const groupSubjectIds = {}
@@ -131,12 +133,17 @@ export default function AbsenceSheetModal({ close }) {
             groupSubjectIds[row.group_id].add(row.subject_id)
           }
         }
-        for (const row of tgsRes.data || []) {
+        // Cycles au forfait : le professeur est rattaché au groupe entier,
+        // sans matière — l'affectation vit dans teacher_groups.
+        for (const row of [...(tgsRes.data || []), ...(tgRes.data || [])]) {
           if (row.group_id && row.teacher_id) {
             if (!groupTeacherIds[row.group_id]) groupTeacherIds[row.group_id] = new Set()
             groupTeacherIds[row.group_id].add(row.teacher_id)
           }
         }
+        const packageLevelIds = new Set(
+          (levelsRes.data || []).filter((l) => l.cycles?.has_fixed_price).map((l) => l.id)
+        )
 
         setTeachers((teachersRes.data || []).map((t) => ({ id: t.id, name: `${t.first_name} ${t.last_name}`.trim() || 'Professeur' })))
         setSubjects((subjectsRes.data || []).map((s) => ({ id: s.id, name: s.name })))
@@ -147,7 +154,14 @@ export default function AbsenceSheetModal({ close }) {
           if (g.subject_id) subjectIds.add(g.subject_id)
           const teacherIds = new Set(groupTeacherIds[g.id] || [])
           if (g.teacher_id) teacherIds.add(g.teacher_id)
-          return { id: g.id, name: g.name, levelId: g.level_id || '', subjectIds: [...subjectIds], teacherIds: [...teacherIds] }
+          return {
+            id: g.id,
+            name: g.name,
+            levelId: g.level_id || '',
+            subjectIds: [...subjectIds],
+            teacherIds: [...teacherIds],
+            isPackage: packageLevelIds.has(g.level_id),
+          }
         }))
       } catch (err) {
         console.error(err)
@@ -207,26 +221,43 @@ export default function AbsenceSheetModal({ close }) {
     setLoadError('')
     try {
       const group = groups.find((g) => g.id === groupId)
-      if (!teacherId || !subjectId || !levelId) {
-        throw new Error('Choisissez le professeur, la matière et le niveau avant de générer la fiche.')
+      // Au forfait, le groupe couvre toutes les matières : il n'y en a aucune
+      // à choisir, et l'effectif se lit directement sur le groupe.
+      const packageGroup = Boolean(group?.isPackage)
+
+      if (!teacherId || !levelId || (!packageGroup && !subjectId)) {
+        throw new Error(
+          packageGroup
+            ? 'Choisissez le professeur et le niveau avant de générer la fiche.'
+            : 'Choisissez le professeur, la matière et le niveau avant de générer la fiche.'
+        )
       }
 
-      const matchingAssignment = teacherAssignments.find(
-        (row) =>
-          String(row.group_id) === String(groupId) &&
-          String(row.teacher_id) === String(teacherId) &&
-          String(row.subject_id) === String(subjectId)
-      )
+      if (!packageGroup) {
+        const matchingAssignment = teacherAssignments.find(
+          (row) =>
+            String(row.group_id) === String(groupId) &&
+            String(row.teacher_id) === String(teacherId) &&
+            String(row.subject_id) === String(subjectId)
+        )
 
-      if (!matchingAssignment) {
-        throw new Error('La combinaison professeur / matière / groupe sélectionnée ne correspond à aucune inscription enregistrée.')
+        if (!matchingAssignment) {
+          throw new Error('La combinaison professeur / matière / groupe sélectionnée ne correspond à aucune inscription enregistrée.')
+        }
       }
 
-      const { data: rows, error } = await supabase
-        .from('student_group_subjects')
-        .select('student_id, subject_id, students(first_name, last_name, registration_number)')
-        .eq('group_id', groupId)
-        .eq('subject_id', subjectId)
+      const rosterQuery = packageGroup
+        ? supabase
+            .from('group_students')
+            .select('student_id, students(first_name, last_name, registration_number)')
+            .eq('group_id', groupId)
+        : supabase
+            .from('student_group_subjects')
+            .select('student_id, subject_id, students(first_name, last_name, registration_number)')
+            .eq('group_id', groupId)
+            .eq('subject_id', subjectId)
+
+      const { data: rows, error } = await rosterQuery
 
       if (error) throw new Error(error.message)
 
@@ -247,7 +278,9 @@ export default function AbsenceSheetModal({ close }) {
       setSheet({
         meta: {
           teacher: teachers.find((t) => t.id === teacherId)?.name || '—',
-          subject: subjects.find((s) => s.id === subjectId)?.name || '—',
+          subject: packageGroup
+            ? 'Toutes les matières'
+            : subjects.find((s) => s.id === subjectId)?.name || '—',
           level: levels.find((l) => l.id === levelId)?.name || '—',
           group: group?.name || '—',
         },
@@ -263,7 +296,9 @@ export default function AbsenceSheetModal({ close }) {
 
   if (sheet) return <AbsenceSheet meta={sheet.meta} students={sheet.students} close={close} />
 
-  const ready = Boolean(groupId && teacherId && subjectId && levelId)
+  const selectedGroup = groups.find((group) => group.id === groupId) || null
+  // Un groupe au forfait n'a pas de matière : ne pas l'exiger pour générer.
+  const ready = Boolean(groupId && teacherId && levelId && (selectedGroup?.isPackage || subjectId))
 
   return (
     <div className="student-overlay" onMouseDown={close}>
@@ -284,8 +319,12 @@ export default function AbsenceSheetModal({ close }) {
               </select>
             </label>
             <label>Matière
-              <select value={subjectId} onChange={(event) => changeSubject(event.target.value)} disabled={subjectOptions.length === 0}>
-                <option value="">—</option>
+              <select
+                value={subjectId}
+                onChange={(event) => changeSubject(event.target.value)}
+                disabled={subjectOptions.length === 0 || Boolean(selectedGroup?.isPackage)}
+              >
+                <option value="">{selectedGroup?.isPackage ? 'Toutes les matières' : '—'}</option>
                 {subjectOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </label>

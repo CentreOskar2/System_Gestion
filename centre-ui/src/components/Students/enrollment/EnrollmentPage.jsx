@@ -5,7 +5,7 @@ import Step2Classification from './steps/Step2Classification'
 import Step3SubjectsGroups from './steps/Step3SubjectsGroups'
 import Step4Billing from './steps/Step4Billing'
 import EnrollmentReceipt from '../EnrollmentReceipt'
-import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment, teacherForGroupSubject, computeDuMois } from './enrollmentApi'
+import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment, teacherForGroupSubject, computeDuMois, isPackageLevel } from './enrollmentApi'
 import { today } from '../utils/studentHelpers'
 import { isValidPhoneNumber, normalizePhoneInput, phoneValidationMessage } from '../../../utils/validators'
 import { fetchAppSettings } from '../../../appSettings'
@@ -37,6 +37,8 @@ const createInitialForm = (student) => {
       chosen: [],
       subjectDetails: {},
       groupSelections: [],
+      packagePriceType: 'standard',
+      packageManualPrice: '',
       photoUrl: '',
       photoFile: null,
       registrationFeePaidNow: true,
@@ -64,6 +66,16 @@ const createInitialForm = (student) => {
     chosen: student.chosen || [],
     subjectDetails: student.subjectDetails || {},
     groupSelections: student.groupSelections || [],
+    // Au forfait, un dû mensuel différent du prix du niveau est une remise
+    // accordée à cet élève : on la restitue telle quelle en modification.
+    packagePriceType:
+      student.isPackage && Number(student.du_mois) > 0 && Number(student.du_mois) !== Number(student.packagePrice)
+        ? 'manual'
+        : 'standard',
+    packageManualPrice:
+      student.isPackage && Number(student.du_mois) > 0 && Number(student.du_mois) !== Number(student.packagePrice)
+        ? String(student.du_mois)
+        : '',
     photoUrl: student.photoUrl || '',
     photoFile: null,
     branch_id: student.branch_id,
@@ -176,17 +188,20 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
 
   const toggleGroup = (group) => {
     setForm((prev) => {
+      const entry = { groupId: group.id, groupName: group.name, subjectIds: [], subjectNames: [] }
+      // Au forfait, l'élève appartient à une seule classe : le choix remplace
+      // le précédent au lieu de s'y ajouter.
+      if (isPackageLevel(catalog, prev.level)) {
+        const already = (prev.groupSelections || []).some((sel) => sel.groupId === group.id)
+        const groupSelections = already ? [] : [entry]
+        return { ...prev, groupSelections, ...deriveFromGroups(prev, groupSelections) }
+      }
       const groupSelections = [...(prev.groupSelections || [])]
       const index = groupSelections.findIndex((sel) => sel.groupId === group.id)
       if (index >= 0) {
         groupSelections.splice(index, 1)
       } else {
-        groupSelections.push({
-          groupId: group.id,
-          groupName: group.name,
-          subjectIds: [],
-          subjectNames: [],
-        })
+        groupSelections.push(entry)
       }
       return { ...prev, groupSelections, ...deriveFromGroups(prev, groupSelections) }
     })
@@ -242,12 +257,22 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       }
     }
     if (currentStep === 3) {
-      if (form.chosen.length === 0) {
-        errors.push('Sélectionnez au moins un groupe et une matière.')
-      }
-      const unassigned = form.chosen.filter((name) => !form.subjectDetails[name]?.group)
-      if (unassigned.length > 0) {
-        errors.push(`Groupe obligatoire pour : ${unassigned.join(', ')}.`)
+      if (isPackageLevel(catalog, form.level)) {
+        // Aucune matière à valider : le forfait couvre tout le niveau.
+        if ((form.groupSelections || []).length === 0) {
+          errors.push("Sélectionnez le groupe de l'élève.")
+        }
+        if (computeDuMois(form, catalog) <= 0) {
+          errors.push(`Aucun prix n'est défini pour ${form.level}. Renseignez-le dans Réglages > Structure académique.`)
+        }
+      } else {
+        if (form.chosen.length === 0) {
+          errors.push('Sélectionnez au moins un groupe et une matière.')
+        }
+        const unassigned = form.chosen.filter((name) => !form.subjectDetails[name]?.group)
+        if (unassigned.length > 0) {
+          errors.push(`Groupe obligatoire pour : ${unassigned.join(', ')}.`)
+        }
       }
     }
     return errors

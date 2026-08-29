@@ -190,7 +190,7 @@ export default function SalariesPage() {
       if (branchFilter) {
         teachersQuery = teachersQuery.eq('branch_id', branchFilter)
       }
-      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, studentSubjectsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
+      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
         teachersQuery,
         supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
         supabase.from('levels').select('id, name, cycle_id, fixed_price'),
@@ -198,7 +198,9 @@ export default function SalariesPage() {
         supabase.from('subjects').select('id, name'),
         groupsQuery,
         supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
+        supabase.from('teacher_groups').select('teacher_id, group_id'),
         supabase.from('student_group_subjects').select('group_id, student_id, subject_id'),
+        supabase.from('group_students').select('group_id, student_id'),
         supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id'),
         supabase.from('teacher_salaries').select('teacher_id').eq('month', month).eq('status', 'paid'),
         supabase.from('tariffs').select('level_id, subject_id, price'),
@@ -221,14 +223,19 @@ export default function SalariesPage() {
         if (!tariffsByLevelSubject[row.level_id]) tariffsByLevelSubject[row.level_id] = {}
         tariffsByLevelSubject[row.level_id][row.subject_id] = Number(row.price)
       }
+      // Cycles au forfait : le groupe rapporte le prix du niveau par élève,
+      // toutes matières comprises — il n'y a pas de tarif par matière à cumuler.
+      const isPackageGroup = (groupId) => {
+        const level = levelById[groupById[groupId]?.level_id]
+        return Boolean(cycleById[level?.cycle_id]?.has_fixed_price)
+      }
       const priceForGroup = (groupId, subjectId) => {
         const group = groupById[groupId]
         if (!group) return 0
+        const level = levelById[group.level_id]
+        if (isPackageGroup(groupId)) return level?.fixed_price != null ? Number(level.fixed_price) : 0
         const tariff = tariffsByLevelSubject[group.level_id]?.[subjectId || group.subject_id]
         if (tariff != null) return tariff
-        const level = levelById[group.level_id]
-        const cycle = cycleById[level?.cycle_id]
-        if (cycle?.has_fixed_price && level?.fixed_price != null) return Number(level.fixed_price)
         return 0
       }
 
@@ -240,6 +247,15 @@ export default function SalariesPage() {
         const key = `${row.group_id}:${subjectId || ''}`
         if (!assignmentsByTeacher[row.teacher_id].some((assignment) => assignment.key === key)) {
           assignmentsByTeacher[row.teacher_id].push({ groupId: row.group_id, subjectId, key })
+        }
+      }
+      // Affectations sans matière : le professeur assure tout le groupe.
+      for (const row of tgnRes.data || []) {
+        if (!row.teacher_id || !row.group_id) continue
+        if (!assignmentsByTeacher[row.teacher_id]) assignmentsByTeacher[row.teacher_id] = []
+        const key = `${row.group_id}:`
+        if (!assignmentsByTeacher[row.teacher_id].some((assignment) => assignment.key === key)) {
+          assignmentsByTeacher[row.teacher_id].push({ groupId: row.group_id, subjectId: null, key })
         }
       }
       const studentsByGroupSubject = {}
@@ -260,6 +276,23 @@ export default function SalariesPage() {
           studentsByGroupSubject[key].push({ id: row.student_id, name })
         }
       }
+      // Au forfait l'élève n'a pas de ligne par matière : son appartenance au
+      // groupe suffit à le compter pour le professeur qui en a la charge.
+      for (const row of groupStudentsRes.data || []) {
+        const group = groupById[row.group_id]
+        const student = studentRowById[row.student_id]
+        if (!group || !student || !isPackageGroup(row.group_id)) continue
+        const name = studentMap[row.student_id]
+        if (!name) continue
+        if (student.status !== 'active') continue
+        if (!isEnrolledInMonth({ registrationDate: student.registration_date, createdAt: student.created_at }, month)) continue
+        if (group.branch_id && student.branch_id && group.branch_id !== student.branch_id) continue
+        const key = `${row.group_id}:`
+        if (!studentsByGroupSubject[key]) studentsByGroupSubject[key] = []
+        if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
+          studentsByGroupSubject[key].push({ id: row.student_id, name })
+        }
+      }
 
       setTeachers(
         (teachersRes.data || []).map((t) => {
@@ -274,7 +307,9 @@ export default function SalariesPage() {
               return {
                 id: assignment.key,
                 name: group.name,
-                subject: subjectMap[group.subject_id] || '—',
+                subject: isPackageGroup(group.id)
+                  ? 'Toutes les matières'
+                  : subjectMap[assignment.subjectId || group.subject_id] || '—',
                 level: levelMap[group.level_id] || '—',
                 branch: branchMap[group.branch_id] || '—',
                 cycleId,

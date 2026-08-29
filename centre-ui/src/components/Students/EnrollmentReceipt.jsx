@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { initials } from './utils/studentHelpers'
-import { getPrice } from './enrollment/enrollmentApi'
+import { getPrice, isPackageLevel, packageAmount } from './enrollment/enrollmentApi'
 import { formatFrenchDate } from '../Accounting/monthUtils'
 import { safeFilename } from '../../utils/exportToPdf'
 import { downloadPdfDocument } from '../pdf/downloadPdf'
@@ -13,7 +13,9 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
     const details = form.subjectDetails?.[subject]
     return details?.priceType === 'manual' ? Number(details.manualPrice || 0) : getPrice(catalog, form.level, subject)
   }
-  const lines = form.chosen.map((subject) => ({ name: subject, amount: amountFor(subject) }))
+  const lines = isPackageLevel(catalog, form.level)
+    ? [{ name: `Forfait ${form.level} — toutes matières`, amount: packageAmount(form, catalog) }]
+    : form.chosen.map((subject) => ({ name: subject, amount: amountFor(subject) }))
   const total = lines.reduce((sum, line) => sum + line.amount, 0)
   const dateLabel = formatFrenchDate(form.registrationDate)
   const showFee = registrationFee != null

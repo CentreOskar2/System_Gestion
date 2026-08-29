@@ -1,4 +1,4 @@
-import { getPrice } from '../enrollmentApi'
+import { getPrice, isPackageLevel, packagePrice } from '../enrollmentApi'
 
 export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, toggleGroupSubject, setSubjectDetails, resetGroups }) {
   const cycles = catalog.cycles || []
@@ -7,6 +7,11 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
     ? (catalog.groupsByLevel?.[form.level] || [])
         .filter((g) => g.status === 'active')
     : []
+
+  // Préscolaire et primaire : l'élève suit tout le niveau pour un prix unique,
+  // il n'y a donc aucune matière à cocher — seulement son groupe.
+  const isPackage = isPackageLevel(catalog, form.level)
+  const forfait = packagePrice(catalog, form.level)
 
   const handleCycleChange = (e) => {
     set('cycle', e.target.value)
@@ -25,8 +30,12 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
 
   return (
     <>
-      <h2>Matières &amp; groupes</h2>
-      <p>Sélectionnez les groupes de l'élève et les matières suivies dans chaque groupe. La filière renseignée à l'étape précédente reste une information de l'élève.</p>
+      <h2>{isPackage ? 'Groupe' : 'Matières & groupes'}</h2>
+      <p>
+        {isPackage
+          ? "Choisissez le groupe de l'élève. À ce niveau, toutes les matières sont suivies par défaut et couvertes par un forfait mensuel unique."
+          : "Sélectionnez les groupes de l'élève et les matières suivies dans chaque groupe. La filière renseignée à l'étape précédente reste une information de l'élève."}
+      </p>
       <div className="enrollment-grid">
         <label>
           Cycle *
@@ -48,6 +57,17 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
         </label>
       </div>
 
+      {isPackage && form.level && (
+        <p className="enrollment-package-notice">
+          <b>Forfait tout inclus</b>
+          <span>
+            {forfait > 0
+              ? `${forfait.toLocaleString('fr-FR')} DH/mois pour ${form.level} — toutes les matières comprises.`
+              : `Aucun prix n'est encore défini pour ${form.level}. Renseignez-le dans Réglages > Structure académique.`}
+          </span>
+        </p>
+      )}
+
       <div className="enrollment-groups">
         {groups.map((group) => {
           const sel = selection.find((s) => s.groupId === group.id)
@@ -56,7 +76,12 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
           return (
             <article key={group.id} className={selected ? 'checked' : ''}>
               <label className="subject-toggle">
-                <input type="checkbox" checked={selected} onChange={() => toggleGroup(group)} />
+                <input
+                  type={isPackage ? 'radio' : 'checkbox'}
+                  name={isPackage ? 'package-group' : undefined}
+                  checked={selected}
+                  onChange={() => toggleGroup(group)}
+                />
                 <span>
                   <b>{group.name}</b>
                   <small>
@@ -65,7 +90,7 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
                   </small>
                 </span>
               </label>
-              {selected && (
+              {selected && !isPackage && (
                 <div className="group-subject-picker">
                   <strong>Matières suivies dans ce groupe</strong>
                   <div className="group-subject-grid">
@@ -87,7 +112,46 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
         })}
       </div>
 
-      {selection.length > 0 && form.chosen.length > 0 && (
+      {isPackage && selection.length > 0 && (
+        <fieldset className="enrollment-pricing">
+          <legend>Tarification</legend>
+          <div className="package-pricing-grid">
+            <div className="pricing-option-wrap">
+              <b className="pricing-subject-name">Forfait mensuel</b>
+              <label className={form.packagePriceType !== 'manual' ? 'pricing-option active' : 'pricing-option'}>
+                <input
+                  type="radio"
+                  name="package-pricing"
+                  checked={form.packagePriceType !== 'manual'}
+                  onChange={() => set('packagePriceType', 'standard')}
+                />
+                <span><b>Prix standard</b><small>{forfait} DH/mois</small></span>
+              </label>
+              <label className={form.packagePriceType === 'manual' ? 'pricing-option active' : 'pricing-option'}>
+                <input
+                  type="radio"
+                  name="package-pricing"
+                  checked={form.packagePriceType === 'manual'}
+                  onChange={() => set('packagePriceType', 'manual')}
+                />
+                <span>
+                  <b>Prix manuel</b>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Montant DH"
+                    disabled={form.packagePriceType !== 'manual'}
+                    value={form.packageManualPrice || ''}
+                    onChange={(e) => set('packageManualPrice', e.target.value)}
+                  />
+                </span>
+              </label>
+            </div>
+          </div>
+        </fieldset>
+      )}
+
+      {!isPackage && selection.length > 0 && form.chosen.length > 0 && (
         <fieldset className="enrollment-pricing">
           <legend>Tarification des matières</legend>
           <div className="group-subject-grid">

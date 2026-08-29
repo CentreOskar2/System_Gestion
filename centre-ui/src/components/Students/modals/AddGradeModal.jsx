@@ -17,34 +17,38 @@ export default function AddGradeModal({ student, onSaved, close }) {
 
   useEffect(() => {
     let cancelled = false
-    supabase
-      .from('student_subscriptions')
-      .select('subject_id, subjects(name)')
-      .eq('student_id', student.id)
-      .then(({ data, error: fetchError }) => {
-        if (cancelled) return
-        if (fetchError) {
-          console.error(fetchError)
-          setError(fetchError.message)
-          setSubjectOptions([])
+    async function loadSubjects() {
+      try {
+        // Au forfait l'élève suit toutes les matières du niveau : il n'a pas
+        // d'inscription par matière dont on pourrait déduire la liste.
+        if (student.isPackage) {
+          const { data, error: subjectsError } = await supabase.from('subjects').select('id, name').order('name')
+          if (subjectsError) throw new Error(subjectsError.message)
+          if (!cancelled) setSubjectOptions((data || []).map((s) => ({ id: s.id, name: s.name })))
           return
         }
+        const { data, error: fetchError } = await supabase
+          .from('student_subscriptions')
+          .select('subject_id, subjects(name)')
+          .eq('student_id', student.id)
+        if (fetchError) throw new Error(fetchError.message)
+        if (cancelled) return
         const seen = new Map()
         for (const sub of data || []) {
           if (!sub.subject_id || !sub.subjects?.name) continue
           if (!seen.has(sub.subject_id)) seen.set(sub.subject_id, sub.subjects.name)
         }
         setSubjectOptions([...seen.entries()].map(([id, name]) => ({ id, name })))
-      })
-      .catch((err) => {
-        if (cancelled) {
-          console.error(err)
-          setError(err.message || 'Erreur lors du chargement des matières')
-          setSubjectOptions([])
-        }
-      })
+      } catch (err) {
+        if (cancelled) return
+        console.error(err)
+        setError(err.message || 'Erreur lors du chargement des matières')
+        setSubjectOptions([])
+      }
+    }
+    loadSubjects()
     return () => { cancelled = true }
-  }, [student.id])
+  }, [student.id, student.isPackage])
 
   const stopPropagation = (e) => e.stopPropagation()
 

@@ -24,7 +24,7 @@ function Toast({ notice }) {
 async function fetchTeachersData(branchId) {
   let teachersQuery = supabase.from('teachers').select('*').order('created_at', { ascending: false })
   if (branchId && branchId !== 'all') teachersQuery = teachersQuery.eq('branch_id', branchId)
-  const [teachersRes, subjectsRes, levelsRes, branchesRes, cyclesRes, tsRes, tbRes, tlRes, tgRes, groupsRes] = await Promise.all([
+  const [teachersRes, subjectsRes, levelsRes, branchesRes, cyclesRes, tsRes, tbRes, tlRes, tgRes, tgnRes, groupsRes] = await Promise.all([
     teachersQuery,
     supabase.from('subjects').select('id, name'),
     supabase.from('levels').select('id, name, cycle_id'),
@@ -34,6 +34,7 @@ async function fetchTeachersData(branchId) {
     supabase.from('teacher_branches').select('teacher_id, branch_id'),
     supabase.from('teacher_levels').select('teacher_id, level_id'),
     supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
+    supabase.from('teacher_groups').select('teacher_id, group_id'),
     supabase.from('groups').select('id, name').order('name'),
   ])
   if (!teachersRes.data) return []
@@ -61,6 +62,13 @@ async function fetchTeachersData(branchId) {
       assignmentsByTeacher[row.teacher_id][row.group_id] = { group_id: row.group_id, subject_ids: [] }
     }
     assignmentsByTeacher[row.teacher_id][row.group_id].subject_ids.push(row.subject_id)
+  }
+  // Cycles au forfait : affectation au groupe entier, donc sans matière.
+  for (const row of tgnRes.data || []) {
+    if (!assignmentsByTeacher[row.teacher_id]) assignmentsByTeacher[row.teacher_id] = {}
+    if (!assignmentsByTeacher[row.teacher_id][row.group_id]) {
+      assignmentsByTeacher[row.teacher_id][row.group_id] = { group_id: row.group_id, subject_ids: [] }
+    }
   }
   return teachersRes.data.map((t) => {
     const subjectIds = subjectsByTeacher[t.id] || []
@@ -154,6 +162,32 @@ export default function TeachersPage() {
         toAdd.map((id) => ({ teacher_id: teacherId, [column]: id }))
       )
       if (error) throw new Error(error.message)
+    }
+  }
+
+  // Affectations sans matière (cycles au forfait) : le lien s'arrête au groupe.
+  async function syncTeacherGroups(teacherId, newGroupIds) {
+    const { data, error } = await supabase
+      .from('teacher_groups')
+      .select('group_id')
+      .eq('teacher_id', teacherId)
+    if (error) throw new Error(error.message)
+    const currentIds = (data || []).map((row) => row.group_id)
+    const toRemove = currentIds.filter((id) => !newGroupIds.includes(id))
+    const toAdd = newGroupIds.filter((id) => !currentIds.includes(id))
+    if (toRemove.length > 0) {
+      const { error: removeError } = await supabase
+        .from('teacher_groups')
+        .delete()
+        .eq('teacher_id', teacherId)
+        .in('group_id', toRemove)
+      if (removeError) throw new Error(removeError.message)
+    }
+    if (toAdd.length > 0) {
+      const { error: addError } = await supabase
+        .from('teacher_groups')
+        .insert(toAdd.map((group_id) => ({ teacher_id: teacherId, group_id })))
+      if (addError) throw new Error(addError.message)
     }
   }
 
@@ -254,14 +288,25 @@ export default function TeachersPage() {
     const selectedGroups = []
     const groupIds = form.groups || []
     if (groupIds.length > 0) {
-      const { data, error } = await supabase.from('groups').select('id, subject_id').in('id', groupIds)
+      const { data, error } = await supabase
+        .from('groups')
+        .select('id, subject_id, levels(cycles(has_fixed_price))')
+        .in('id', groupIds)
       if (error) throw new Error(error.message)
       selectedGroups.push(...(data || []))
     }
-    const newAssignments = selectedGroups.map((group) => {
-      const subjectId = group.subject_id || subjects[0]
-      return { group_id: group.id, subject_ids: subjectId ? [subjectId] : [] }
-    })
+    // Sur un cycle au forfait le professeur enseigne tout le niveau : son
+    // affectation se note dans teacher_groups, sans matière.
+    const isPackageGroup = (group) => Boolean(group.levels?.cycles?.has_fixed_price)
+    const packageGroupIds = selectedGroups.filter(isPackageGroup).map((group) => group.id)
+    const newAssignments = selectedGroups
+      .filter((group) => !isPackageGroup(group))
+      .map((group) => {
+        const subjectId = group.subject_id || subjects[0]
+        return { group_id: group.id, subject_ids: subjectId ? [subjectId] : [] }
+      })
+
+    await syncTeacherGroups(teacherId, packageGroupIds)
 
     const tgRes = await supabase
       .from('teacher_group_subjects')

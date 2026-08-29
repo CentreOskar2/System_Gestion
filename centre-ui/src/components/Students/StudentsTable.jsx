@@ -9,11 +9,9 @@ export default function StudentsTable({
   onOpenAttendance,
 }) {
   const subjectLabel = (student) => {
+    // Au forfait l'élève suit tout le niveau : compter ses matières n'a pas de sens.
     const cycle = catalog?.cycleByName?.[student.cycle]
-    if (cycle?.has_fixed_price) {
-      const level = catalog?.levelByName?.[student.level]
-      return `${Number(level?.fixed_price || 0).toLocaleString('fr-FR')} DH`
-    }
+    if (cycle?.has_fixed_price) return 'Toutes'
     return student.subjects
   }
   return (

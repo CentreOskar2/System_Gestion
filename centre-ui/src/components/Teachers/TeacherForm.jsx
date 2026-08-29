@@ -77,7 +77,7 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
     let cancelled = false
     async function load() {
       const [cyclesRes, levelsRes, subjectsRes] = await Promise.all([
-        supabase.from('cycles').select('id, name').order('name'),
+        supabase.from('cycles').select('id, name, has_fixed_price').order('name'),
         supabase.from('levels').select('id, name, cycle_id').order('name'),
         supabase.from('subjects').select('id, name').order('name'),
       ])
@@ -128,10 +128,18 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
     return grouped
   }, [levels, cycleName, form.cycles])
 
+  // Préscolaire et primaire : le professeur enseigne tout le niveau, il n'y a
+  // donc pas de matière à cocher — l'affectation s'arrête au groupe.
+  const packageCycleIds = useMemo(
+    () => new Set(cycles.filter((cycle) => cycle.has_fixed_price).map((cycle) => cycle.id)),
+    [cycles]
+  )
+  const teachesSubjectCycles = form.cycles.some((cycleId) => !packageCycleIds.has(cycleId))
+
   const canFetchGroups =
     form.cycles.length > 0 &&
     form.levels.length > 0 &&
-    form.subjects.length > 0
+    (!teachesSubjectCycles || form.subjects.length > 0)
 
   useEffect(() => {
     let cancelled = false
@@ -142,7 +150,9 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
         .from('groups')
         .select('id, name, subject_id, level_id, capacity, status, levels(name, cycles(name))')
         .eq('status', 'active')
-      query = query.or(`subject_id.in.(${form.subjects.join(',')}),subject_id.is.null`)
+      if (form.subjects.length > 0) {
+        query = query.or(`subject_id.in.(${form.subjects.join(',')}),subject_id.is.null`)
+      }
       query = query.or(`level_id.in.(${form.levels.join(',')}),level_id.is.null`)
       const { data, error } = await query
       if (cancelled) return
@@ -290,11 +300,17 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
               )}
             </fieldset>
 
-            {/* 3. Matières enseignées */}
+            {/* 3. Matières enseignées — sans objet sur les cycles au forfait */}
             <fieldset>
               <legend>Matières enseignées</legend>
               {loadingOptions ? (
                 <p className="teacher-options-loading">Chargement des matières...</p>
+              ) : !teachesSubjectCycles ? (
+                <p className="groups-placeholder">
+                  {form.cycles.length === 0
+                    ? "Sélectionnez d'abord un ou plusieurs cycles."
+                    : "Sur ces cycles le professeur enseigne toutes les matières du niveau : il n'y a pas de matière à choisir."}
+                </p>
               ) : (
                 <div className="choice-grid">
                   {subjects.map((subject) => (
@@ -311,7 +327,11 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
             <fieldset>
               <legend>Groupes</legend>
               {!canFetchGroups ? (
-                <p className="groups-placeholder">Complétez les champs ci-dessus (Cycles, Niveaux, Matières) pour voir les groupes disponibles</p>
+                <p className="groups-placeholder">
+                  {teachesSubjectCycles
+                    ? 'Complétez les champs ci-dessus (Cycles, Niveaux, Matières) pour voir les groupes disponibles'
+                    : 'Complétez les champs ci-dessus (Cycles, Niveaux) pour voir les groupes disponibles'}
+                </p>
               ) : groupsLoading ? (
                 <p className="teacher-options-loading">Chargement des groupes...</p>
               ) : availableGroups.length === 0 ? (

@@ -749,3 +749,4 @@
     padding: 0 10px;
   }
 }
+.edit-package{display:grid;gap:8px;padding:16px;border:1px solid #dce3ed;border-radius:12px;background:#f8faff}.edit-package label{display:grid;gap:6px;color:#34425b;font-size:.88rem;font-weight:650}.edit-package input{height:42px;padding:0 12px;border:1px solid #cbd5e6;border-radius:9px;font-size:1rem}.edit-package small{color:#647088;font-size:.83rem}

@@ -17,19 +17,34 @@ export default function GroupDetailsModal({ group, close }) {
     async function load() {
       setLoading(true)
       try {
-        const [teachersRes, studentSubjectsRes] = await Promise.all([
+        const none = Promise.resolve({ data: [], error: null })
+        const [teachersRes, studentSubjectsRes, packageTeachersRes, groupStudentsRes] = await Promise.all([
           group
             ? supabase
                 .from('teacher_group_subjects')
                 .select('teacher_id, subject_id, teachers(first_name, last_name), subjects(name)')
                 .eq('group_id', group.id)
-            : Promise.resolve({ data: [], error: null }),
+            : none,
           group
             ? supabase
                 .from('student_group_subjects')
                 .select('student_id, subject_id, students(first_name, last_name, registration_number)')
                 .eq('group_id', group.id)
-            : Promise.resolve({ data: [], error: null }),
+            : none,
+          // Cycles au forfait : professeurs et élèves sont rattachés au groupe
+          // entier, sans matière.
+          group
+            ? supabase
+                .from('teacher_groups')
+                .select('teacher_id, teachers(first_name, last_name)')
+                .eq('group_id', group.id)
+            : none,
+          group
+            ? supabase
+                .from('group_students')
+                .select('student_id, students(first_name, last_name, registration_number)')
+                .eq('group_id', group.id)
+            : none,
         ])
 
         if (cancelled) return
@@ -75,6 +90,32 @@ export default function GroupDetailsModal({ group, close }) {
             }
             const existingStudent = subject.students.find((item) => item.id === row.student_id)
             if (!existingStudent) subject.students.push(studentEntry)
+          }
+        }
+
+        // Affectations sans matière : un seul bloc « toutes les matières »,
+        // dont l'effectif est celui du groupe.
+        const roster = []
+        for (const row of groupStudentsRes.data || []) {
+          const student = row.students
+          if (!student || roster.some((item) => item.id === row.student_id)) continue
+          roster.push({
+            id: row.student_id,
+            first_name: student.first_name,
+            last_name: student.last_name,
+            registration_number: student.registration_number,
+          })
+        }
+        for (const row of packageTeachersRes.data || []) {
+          const teacherId = row.teacher_id
+          if (!teacherId) continue
+          const teacherName = row.teachers ? `${row.teachers.first_name} ${row.teachers.last_name}`.trim() : 'Professeur'
+          if (!teacherMap.has(teacherId)) {
+            teacherMap.set(teacherId, { id: teacherId, name: teacherName, subjects: [] })
+          }
+          const teacher = teacherMap.get(teacherId)
+          if (!teacher.subjects.some((subject) => subject.id === 'all')) {
+            teacher.subjects.push({ id: 'all', name: 'Toutes les matières', students: roster })
           }
         }
 
@@ -171,13 +212,15 @@ export default function GroupDetailsModal({ group, close }) {
                     teacher.subjects.map((subject) => (
                       <div className="group-teacher-subject-block" key={`${teacher.id}-${subject.id}`}>
                         <div className="group-teacher-subject-title">
-                          <span>Matière : {subject.name}</span>
+                          <span>{subject.id === 'all' ? subject.name : `Matière : ${subject.name}`}</span>
                         </div>
                         <div className="group-teacher-subject-header">
                           <strong>Élèves ({subject.students.length})</strong>
                         </div>
                         {subject.students.length === 0 ? (
-                          <p className="group-students-empty">Aucun élève associé à cette matière.</p>
+                          <p className="group-students-empty">
+                            {subject.id === 'all' ? 'Aucun élève dans ce groupe.' : 'Aucun élève associé à cette matière.'}
+                          </p>
                         ) : (
                           <div className="group-details-students-list group-details-subject-students">
                             {subject.students.map((student) => (
