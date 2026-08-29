@@ -14,8 +14,14 @@ export default defineConfig([
       reactRefresh.configs.vite,
     ],
     languageOptions: {
-      globals: globals.browser,
+      // __APP_VERSION__ est injecté au build par vite.config.js.
+      globals: { ...globals.browser, __APP_VERSION__: 'readonly' },
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
+  },
+  {
+    // Le service worker s'exécute hors de la fenêtre : self, clients, caches…
+    files: ['public/sw.js'],
+    languageOptions: { globals: globals.serviceworker },
   },
 ])

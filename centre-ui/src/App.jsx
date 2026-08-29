@@ -10,6 +10,7 @@ import Users from './components/Users/Users'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { BranchProvider } from './context/BranchContext'
 import ProtectedRoute from './components/ProtectedRoute'
+import OfflineBanner from './components/shared/OfflineBanner'
 import NoAccess from './components/NoAccess'
 import Settings from './components/Settings/Settings'
 import Teachers from './components/Teachers/TeachersPage'
@@ -111,6 +112,7 @@ function App() {
   return (
     <AuthProvider>
       <BranchProvider>
+        <OfflineBanner />
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<Navigate to="/login" replace />} />
