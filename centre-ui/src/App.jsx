@@ -4,7 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom
 import Sidebar from './components/SideBar/Sidebar'
 import Icon from './components/Icon'
 import Dashboard from './components/Dashboard/Dashboard'
-import Login from './components/Login/Login'
+import Login from './components/login/Login'
 import Branches from './components/Branches/Branches'
 import Users from './components/Users/Users'
 import { AuthProvider, useAuth } from './context/AuthContext'
