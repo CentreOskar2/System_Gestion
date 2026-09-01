@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Coins, TrendingUp, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
@@ -6,18 +6,38 @@ import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
 import { academicMonths, calendarMonthOptions, currentMonthKey, schoolYearOptions } from './monthUtils'
 import { subscribeFeesCache } from './feesApi'
+import { computeTeacherSalaries, fetchSalaryContext } from './salariesApi'
 import './NetProfitPage.css'
 
-const CHART_LABELS = ['Sept', 'Oct', 'Nov', 'Déc', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin']
+const CHART_LABELS = ['Sept', 'Oct', 'Nov', 'Déc', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
 const PAID_STATUSES = ['paid', 'validé']
+const UNASSIGNED = 'unassigned'
 
 const sum = (items, pick) => items.reduce((total, item) => total + (Number(pick(item)) || 0), 0)
 const sameMonth = (a, b) => String(a).slice(0, 7) === String(b).slice(0, 7)
 
-function aggregateFrom(d, monthKey) {
-  const ca = sum(d.paidPayments.filter((p) => sameMonth(p.month, monthKey)), (p) => p.amount)
-  const charges = sum(d.manualExpenses.filter((e) => sameMonth(e.month, monthKey)), (e) => e.amount)
-  const salaries = sum(d.validatedSalaries.filter((s) => sameMonth(s.month, monthKey)), (s) => s.amount)
+// `scope` vaut null pour le centre entier, un id de succursale, ou UNASSIGNED
+// pour ce qui n'est rattaché à aucune succursale active.
+function inScope(branchId, scope, knownBranchIds) {
+  if (!scope) return true
+  if (scope === UNASSIGNED) return !branchId || !knownBranchIds.has(branchId)
+  return branchId === scope
+}
+
+function aggregateFrom(d, monthKey, salaryRows, scope = null) {
+  const known = d.knownBranchIds
+  const ca = sum(
+    d.paidPayments.filter((p) => sameMonth(p.month, monthKey) && inScope(d.studentBranch[p.student_id], scope, known)),
+    (p) => p.amount
+  )
+  const charges = sum(
+    d.manualExpenses.filter((e) => sameMonth(e.month, monthKey) && inScope(e.branch_id, scope, known)),
+    (e) => e.amount
+  )
+  const salaries = sum(
+    (salaryRows || []).filter((s) => inScope(s.branch_id, scope, known)),
+    (s) => s.amount
+  )
   return { ca, charges, salaries, net: ca - charges - salaries }
 }
 
@@ -127,25 +147,21 @@ export default function NetProfitPage() {
     async function load() {
       let studentsQuery = supabase.from('students').select('id, branch_id')
       let expensesQuery = supabase.from('expenses').select('branch_id, month, amount, type')
-      let teachersQuery = supabase.from('teachers').select('id, branch_id')
       if (branchFilter) {
         studentsQuery = studentsQuery.eq('branch_id', branchFilter)
         expensesQuery = expensesQuery.eq('branch_id', branchFilter)
-        teachersQuery = teachersQuery.eq('branch_id', branchFilter)
       }
-      const [paymentsRes, studentsRes, expensesRes, salariesRes, teachersRes, branchesRes, feesRes] = await Promise.all([
+      const [paymentsRes, studentsRes, expensesRes, branchesRes, feesRes, salaryContext] = await Promise.all([
         supabase.from('student_payments').select('student_id, month, amount, status'),
         studentsQuery,
         expensesQuery,
-        supabase.from('teacher_salaries').select('teacher_id, month, amount, status'),
-        teachersQuery,
         supabase.from('branches').select('id, name, status'),
         supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid'),
+        fetchSalaryContext({ branchId: branchFilter }),
       ])
       if (cancelled) return
 
       const studentBranch = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s.branch_id]))
-      const teacherBranch = Object.fromEntries((teachersRes.data || []).map((t) => [t.id, t.branch_id]))
 
       // Registration fees count toward the month they were actually cashed in.
       const paidRegistrationFees = (feesRes.data || [])
@@ -161,27 +177,25 @@ export default function NetProfitPage() {
         ...(paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status)),
         ...paidRegistrationFees,
       ]
+      // Les charges de type « Auto » sont les salaires validés : elles sont
+      // déjà portées par le calcul de paie, les compter ici les doublerait.
       let manualExpenses = (expensesRes.data || []).filter((e) => e.type !== 'Auto')
-      let validatedSalaries = (salariesRes.data || []).filter((s) => s.status === 'paid' || s.status === 'validated')
       if (branchFilter) {
         paidPayments = paidPayments.filter((p) => studentBranch[p.student_id] === branchFilter)
         manualExpenses = manualExpenses.filter((e) => e.branch_id === branchFilter)
-        validatedSalaries = validatedSalaries.filter((s) => teacherBranch[s.teacher_id] === branchFilter)
       }
 
-      const chartMonths = academicMonths().slice(0, 10).map((m, index) => ({ ...m, label: CHART_LABELS[index] }))
-      const payload = {
-        paidPayments,
-        manualExpenses,
-        validatedSalaries,
-        studentBranch,
-        teacherBranch,
-        activeBranches: (branchesRes.data || []).filter((b) => b.status === 'active'),
-      }
-      const points = chartMonths.map((m) => ({ ...m, ...aggregateFrom(payload, m.key) }))
+      const activeBranches = (branchesRes.data || []).filter((b) => b.status === 'active')
 
       if (!cancelled) {
-        setData({ ...payload, points })
+        setData({
+          paidPayments,
+          manualExpenses,
+          studentBranch,
+          salaryContext,
+          activeBranches,
+          knownBranchIds: new Set(activeBranches.map((b) => b.id)),
+        })
         setLoading(false)
       }
     }
@@ -192,19 +206,66 @@ export default function NetProfitPage() {
     }
   }, [reload, branchFilter])
 
-  const current = data ? { key: selectedMonth, ...aggregateFrom(data, selectedMonth) } : null
-  const branches = data
-    ? data.activeBranches
-        .filter((b) => (branchFilter ? b.id === branchFilter : true))
-        .map((b) => {
-          const ca = sum(data.paidPayments.filter((p) => data.studentBranch[p.student_id] === b.id && sameMonth(p.month, selectedMonth)), (p) => p.amount)
-          const charges = sum(data.manualExpenses.filter((e) => e.branch_id === b.id && sameMonth(e.month, selectedMonth)), (e) => e.amount)
-          const salaries = sum(data.validatedSalaries.filter((s) => data.teacherBranch[s.teacher_id] === b.id && sameMonth(s.month, selectedMonth)), (s) => s.amount)
-          const net = ca - charges - salaries
-          const margin = ca > 0 ? Math.round((net / ca) * 100) : 0
-          return { id: b.id, name: b.name, ca, charges, salaries, net, margin }
-        })
-    : []
+  // Le graphique suit l'année scolaire choisie, et couvre ses douze mois :
+  // juillet et août portent eux aussi des encaissements.
+  const chartMonths = useMemo(
+    () => academicMonths(Number(selectedYear)).map((m, index) => ({ ...m, label: CHART_LABELS[index] })),
+    [selectedYear]
+  )
+
+  // Paie due pour un mois : le montant figé si elle a été validée, le calcul en
+  // cours sinon. Le contexte est rejoué en mémoire, sans requête supplémentaire.
+  const salariesByMonth = useMemo(() => {
+    if (!data?.salaryContext) return {}
+    const keys = new Set([selectedMonth, ...chartMonths.map((m) => m.key)])
+    const result = {}
+    for (const key of keys) {
+      const { teachers } = computeTeacherSalaries(data.salaryContext, key)
+      result[key.slice(0, 7)] = teachers.map((t) => ({
+        branch_id: t.branch_id,
+        amount: Number(t.effectiveAmount) || 0,
+      }))
+    }
+    return result
+  }, [data, selectedMonth, chartMonths])
+
+  const salaryRowsFor = (monthKey) => salariesByMonth[String(monthKey).slice(0, 7)] || []
+
+  const points = useMemo(
+    () => (data ? chartMonths.map((m) => ({ ...m, ...aggregateFrom(data, m.key, salaryRowsFor(m.key)) })) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, chartMonths, salariesByMonth]
+  )
+
+  const current = data ? { key: selectedMonth, ...aggregateFrom(data, selectedMonth, salaryRowsFor(selectedMonth)) } : null
+
+  const branches = useMemo(() => {
+    if (!data) return []
+    const salaryRows = salaryRowsFor(selectedMonth)
+    const withMargin = (scope, id, name) => {
+      const totals = aggregateFrom(data, selectedMonth, salaryRows, scope)
+      return {
+        id,
+        name,
+        ...totals,
+        // Une marge de 0 % sur un mois déficitaire serait un contresens : sans
+        // chiffre d'affaires il n'y a pas de marge à exprimer.
+        margin: totals.ca > 0 ? Math.round((totals.net / totals.ca) * 100) : null,
+      }
+    }
+    const rows = data.activeBranches
+      .filter((b) => (branchFilter ? b.id === branchFilter : true))
+      .map((b) => withMargin(b.id, b.id, b.name))
+
+    // Ce qui n'est rattaché à aucune succursale active (loyer du centre,
+    // succursale fermée…) : sans cette ligne, le tableau ne totalise pas le KPI.
+    if (!branchFilter) {
+      const orphan = withMargin(UNASSIGNED, UNASSIGNED, 'Centre (sans succursale)')
+      if (orphan.ca || orphan.charges || orphan.salaries) rows.push(orphan)
+    }
+    return rows
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, selectedMonth, salariesByMonth, branchFilter])
 
   useEffect(() => {
     const bump = () => setReload((count) => count + 1)
@@ -266,7 +327,7 @@ export default function NetProfitPage() {
             <section className="profit-formula">
               <span>FORMULE</span>
               <p>
-                <b>CA encaissé</b> − <em>Charges</em> − <em>Salaires Profs (validés)</em> = <strong>Bénéfice net</strong>
+                <b>CA encaissé</b> − <em>Charges</em> − <em>Salaires Profs (validés + en attente)</em> = <strong>Bénéfice net</strong>
               </p>
             </section>
             <section className="profit-stats">
@@ -286,7 +347,7 @@ export default function NetProfitPage() {
                 <i><Wallet size={22} /></i>
               </article>
             </section>
-            <ProfitChart points={data.points} />
+            <ProfitChart points={points} />
             <section className="profit-comparison">
               <h2>Comparatif par succursale</h2>
               <div className="profit-table-scroll">
@@ -309,7 +370,9 @@ export default function NetProfitPage() {
                         <td>{format(branch.charges)}</td>
                         <td>{format(branch.salaries)}</td>
                         <td className={branch.net < 0 ? 'negative' : 'positive'}><b>{signed(branch.net)}</b></td>
-                        <td className={branch.margin < 0 ? 'negative' : 'positive'}><b>{branch.margin} %</b></td>
+                        <td className={branch.margin != null && branch.margin < 0 ? 'negative' : 'positive'}>
+                          <b>{branch.margin == null ? '—' : `${branch.margin} %`}</b>
+                        </td>
                       </tr>
                     ))}
                   </tbody>

@@ -10,8 +10,8 @@ import SalaryJournalPdf from '../pdf/SalaryJournalPdf'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
-import { calendarMonthOptions, currentMonthKey, isEnrolledInMonth, monthLabelOf, schoolYearOptions } from './monthUtils'
-import { calculateSalary } from './salaryUtils'
+import { calendarMonthOptions, currentMonthKey, monthLabelOf, schoolYearOptions } from './monthUtils'
+import { fetchTeacherSalaries } from './salariesApi'
 import './SalariesPage.css'
 
 function buildSalaryMessage(teacher, monthLabel) {
@@ -185,169 +185,20 @@ export default function SalariesPage() {
     let cancelled = false
     async function load() {
       setLoading(true)
-      let teachersQuery = supabase.from('teachers').select('*').eq('status', 'active').order('last_name')
-      let groupsQuery = supabase.from('groups').select('id, name, subject_id, level_id, branch_id')
-      if (branchFilter) {
-        teachersQuery = teachersQuery.eq('branch_id', branchFilter)
+      try {
+        const { teachers: rows } = await fetchTeacherSalaries({ month, branchId: branchFilter })
+        if (cancelled) return
+        setTeachers(rows)
+        setValidated(rows.filter((t) => t.validated).map((t) => `${t.id}:${month}`))
+      } catch (err) {
+        if (cancelled) return
+        console.error(err)
+        setTeachers([])
+        setValidated([])
+        setNotice(err.message || 'Impossible de charger les salaires')
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
-        teachersQuery,
-        supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
-        supabase.from('levels').select('id, name, cycle_id, fixed_price'),
-        supabase.from('branches').select('id, name'),
-        supabase.from('subjects').select('id, name'),
-        groupsQuery,
-        supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
-        supabase.from('teacher_groups').select('teacher_id, group_id'),
-        supabase.from('student_group_subjects').select('group_id, student_id, subject_id'),
-        supabase.from('group_students').select('group_id, student_id'),
-        supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id'),
-        supabase.from('teacher_salaries').select('teacher_id').eq('month', month).eq('status', 'paid'),
-        supabase.from('tariffs').select('level_id, subject_id, price'),
-      ])
-      if (cancelled) return
-      setLoading(false)
-      if (teachersRes.error) return
-
-      const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
-      const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
-      const levelById = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l]))
-      const cycleById = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c]))
-      const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
-      const subjectMap = Object.fromEntries((subjectsRes.data || []).map((s) => [s.id, s.name]))
-      const groupById = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g]))
-      const studentMap = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, `${s.first_name} ${s.last_name}`.trim()]))
-      const studentRowById = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s]))
-      const tariffsByLevelSubject = {}
-      for (const row of tariffsRes.data || []) {
-        if (!tariffsByLevelSubject[row.level_id]) tariffsByLevelSubject[row.level_id] = {}
-        tariffsByLevelSubject[row.level_id][row.subject_id] = Number(row.price)
-      }
-      // Cycles au forfait : le groupe rapporte le prix du niveau par élève,
-      // toutes matières comprises — il n'y a pas de tarif par matière à cumuler.
-      const isPackageGroup = (groupId) => {
-        const level = levelById[groupById[groupId]?.level_id]
-        return Boolean(cycleById[level?.cycle_id]?.has_fixed_price)
-      }
-      const priceForGroup = (groupId, subjectId) => {
-        const group = groupById[groupId]
-        if (!group) return 0
-        const level = levelById[group.level_id]
-        if (isPackageGroup(groupId)) return level?.fixed_price != null ? Number(level.fixed_price) : 0
-        const tariff = tariffsByLevelSubject[group.level_id]?.[subjectId || group.subject_id]
-        if (tariff != null) return tariff
-        return 0
-      }
-
-      const assignmentsByTeacher = {}
-      for (const row of tgRes.data || []) {
-        if (!row.teacher_id || !row.group_id) continue
-        if (!assignmentsByTeacher[row.teacher_id]) assignmentsByTeacher[row.teacher_id] = []
-        const subjectId = row.subject_id || groupById[row.group_id]?.subject_id
-        const key = `${row.group_id}:${subjectId || ''}`
-        if (!assignmentsByTeacher[row.teacher_id].some((assignment) => assignment.key === key)) {
-          assignmentsByTeacher[row.teacher_id].push({ groupId: row.group_id, subjectId, key })
-        }
-      }
-      // Affectations sans matière : le professeur assure tout le groupe.
-      for (const row of tgnRes.data || []) {
-        if (!row.teacher_id || !row.group_id) continue
-        if (!assignmentsByTeacher[row.teacher_id]) assignmentsByTeacher[row.teacher_id] = []
-        const key = `${row.group_id}:`
-        if (!assignmentsByTeacher[row.teacher_id].some((assignment) => assignment.key === key)) {
-          assignmentsByTeacher[row.teacher_id].push({ groupId: row.group_id, subjectId: null, key })
-        }
-      }
-      const studentsByGroupSubject = {}
-      for (const row of studentSubjectsRes.data || []) {
-        const group = groupById[row.group_id]
-        const student = studentRowById[row.student_id]
-        if (!group || !student || !row.subject_id) continue
-        const name = studentMap[row.student_id]
-        if (!name) continue
-        if (student.status !== 'active') continue
-        if (!isEnrolledInMonth({ registrationDate: student.registration_date, createdAt: student.created_at }, month)) continue
-        if (group.branch_id && student.branch_id && group.branch_id !== student.branch_id) continue
-        // The teacher earns for every active enrolled student, including when
-        // the student's tuition payment is still pending or unpaid.
-        const key = `${row.group_id}:${row.subject_id}`
-        if (!studentsByGroupSubject[key]) studentsByGroupSubject[key] = []
-        if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
-          studentsByGroupSubject[key].push({ id: row.student_id, name })
-        }
-      }
-      // Au forfait l'élève n'a pas de ligne par matière : son appartenance au
-      // groupe suffit à le compter pour le professeur qui en a la charge.
-      for (const row of groupStudentsRes.data || []) {
-        const group = groupById[row.group_id]
-        const student = studentRowById[row.student_id]
-        if (!group || !student || !isPackageGroup(row.group_id)) continue
-        const name = studentMap[row.student_id]
-        if (!name) continue
-        if (student.status !== 'active') continue
-        if (!isEnrolledInMonth({ registrationDate: student.registration_date, createdAt: student.created_at }, month)) continue
-        if (group.branch_id && student.branch_id && group.branch_id !== student.branch_id) continue
-        const key = `${row.group_id}:`
-        if (!studentsByGroupSubject[key]) studentsByGroupSubject[key] = []
-        if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
-          studentsByGroupSubject[key].push({ id: row.student_id, name })
-        }
-      }
-
-      setTeachers(
-        (teachersRes.data || []).map((t) => {
-          const cycleIds = t.cycle_ids || []
-          const groups = (assignmentsByTeacher[t.id] || [])
-            .map((assignment) => {
-              const group = groupById[assignment.groupId]
-              if (!group) return null
-              const cycleId = levelById[group.level_id]?.cycle_id
-              const rate = t.remuneration_type === 'pourcentage' ? Number(t.cycle_rates?.[cycleId] ?? 0) : 0
-              const students = (studentsByGroupSubject[assignment.key] || []).map((entry) => entry.name)
-              return {
-                id: assignment.key,
-                name: group.name,
-                subject: isPackageGroup(group.id)
-                  ? 'Toutes les matières'
-                  : subjectMap[assignment.subjectId || group.subject_id] || '—',
-                level: levelMap[group.level_id] || '—',
-                branch: branchMap[group.branch_id] || '—',
-                cycleId,
-                rate,
-                price: priceForGroup(group.id, assignment.subjectId),
-                students,
-                studentsCount: students.length,
-              }
-            })
-            .filter(Boolean)
-          const levels = [...new Set(groups.map((g) => g.level).filter((level) => level !== '—'))]
-          return {
-            id: t.id,
-            name: `${t.first_name} ${t.last_name}`.trim(),
-            phone: t.phone || '',
-            branch_id: t.branch_id,
-            paymentType: t.remuneration_type,
-            type: t.remuneration_type === 'fixe' ? 'Fixe' : 'Pourcentage',
-            fixed_salary: t.fixed_salary,
-            remuneration_amount: t.remuneration_amount,
-            cycle_rates: t.cycle_rates || {},
-            cycles: cycleIds.map((id) => cycleMap[id]).filter(Boolean),
-            levels,
-            groups,
-            amount: calculateSalary(
-              {
-                paymentType: t.remuneration_type,
-                fixed_salary: t.fixed_salary,
-                remuneration_amount: t.remuneration_amount,
-                cycle_rates: t.cycle_rates || {},
-              },
-              groups
-            ),
-          }
-        })
-      )
-      const paidIds = new Set((salaryRes.data || []).map((r) => r.teacher_id))
-      setValidated((teachersRes.data || []).filter((t) => paidIds.has(t.id)).map((t) => `${t.id}:${month}`))
     }
     load()
     return () => { cancelled = true }

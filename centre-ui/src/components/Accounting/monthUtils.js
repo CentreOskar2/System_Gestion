@@ -46,8 +46,11 @@ export function currentMonthKey(now = new Date()) {
   return `${now.getFullYear()}-${String(month).padStart(2, '0')}-01`
 }
 
-export function academicMonths() {
-  const start = academicYearStart()
+// Les 12 mois d'une année scolaire, de septembre à août. L'année de départ est
+// paramétrable : sans cela, un écran filtré sur 2025-2026 afficherait quand
+// même les mois de l'année académique en cours.
+export function academicMonths(startYear = academicYearStart()) {
+  const start = Number(startYear) || academicYearStart()
   const months = []
   for (let i = 0; i < 12; i += 1) {
     const month = ((i + 8) % 12) + 1

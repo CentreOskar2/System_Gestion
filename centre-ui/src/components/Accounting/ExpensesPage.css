@@ -93,3 +93,4 @@
   color: #b42335;
   font-weight: 650;
 }
+.expense-pending{display:inline-block;margin-left:8px;padding:5px 12px;border:1px solid #f0d3a0;border-radius:10px;background:#fdf6e8;color:#9a6a12;font-size:.78rem;font-weight:700;white-space:nowrap;cursor:help}

@@ -5,12 +5,18 @@ import Header from '../shared/Header'
 import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
+import { useAuth } from '../../context/AuthContext'
 import { calendarMonthOptions, currentMonthKey, formatShortDate, schoolYearOptions } from './monthUtils'
+import { fetchTeacherSalaries } from './salariesApi'
 import './ExpensesPage.css'
 
 const formatAmount = (amount) => `${Number(amount || 0).toLocaleString('fr-FR')} DH`
 
 const TYPE_LABELS = { Auto: 'Auto', Manuel: 'Manuel', recurring_fixed: 'Fixe récurrente' }
+
+// La paie ne regarde que la direction : un secrétaire gère les charges du
+// centre sans jamais voir ce que gagnent les professeurs, fixe ou pourcentage.
+const SALARY_ROLES = ['super_admin', 'admin', 'director']
 
 function defaultFilters() {
   const key = currentMonthKey()
@@ -22,6 +28,8 @@ function defaultFilters() {
 
 export default function ExpensesPage() {
   const { selectedBranch } = useBranch()
+  const { role } = useAuth()
+  const canSeeSalaries = SALARY_ROLES.includes(role)
   const [tab, setTab] = useState('charges')
   const [expenses, setExpenses] = useState([])
   const [recurringCharges, setRecurringCharges] = useState([])
@@ -39,28 +47,38 @@ export default function ExpensesPage() {
 
   const branchFilter = selectedBranch && selectedBranch !== 'all' ? selectedBranch : null
 
+  // Mois sur lequel porte la paie affichée : celui du filtre, ou le mois réel
+  // quand aucun mois n'est filtré. Un salaire au pourcentage se recalcule mois
+  // par mois, il ne peut donc pas rester collé au mois en cours.
+  const salaryMonth = useMemo(() => {
+    const monthNumber = Number(filterMonth)
+    const yearStart = Number(filterYear)
+    if (!monthNumber || !yearStart) return currentMonthKey()
+    // L'année scolaire démarre en septembre : janvier–août tombent l'année civile suivante.
+    const calendarYear = yearStart + (monthNumber < 9 ? 1 : 0)
+    return `${calendarYear}-${String(monthNumber).padStart(2, '0')}-01`
+  }, [filterMonth, filterYear])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
-    const currentMonth = currentMonthKey()
+    // Rattrape les mois manquants des charges fixes (loyer, wifi…) avant de
+    // lire la table : une charge récurrente doit réapparaître chaque mois, et
+    // rien côté serveur ne la génère — pg_cron n'est pas activé.
+    const { error: recurringError } = await supabase.rpc('generate_recurring_charges')
+    if (recurringError) console.error(recurringError)
     let expensesQuery = supabase.from('expenses').select('*').order('charge_date', { ascending: false })
     let recurringQuery = supabase.from('recurring_charges').select('*').order('created_at', { ascending: false })
-    let teachersQuery = supabase
-      .from('teachers')
-      .select('id, first_name, last_name, branch_id, remuneration_type, fixed_salary, remuneration_amount')
-      .eq('status', 'active')
     if (branchFilter) {
       expensesQuery = expensesQuery.eq('branch_id', branchFilter)
       recurringQuery = recurringQuery.eq('branch_id', branchFilter)
-      teachersQuery = teachersQuery.eq('branch_id', branchFilter)
     }
-    const [branchesRes, expensesRes, recurringRes, teachersRes] = await Promise.all([
+    const [branchesRes, expensesRes, recurringRes] = await Promise.all([
       supabase.from('branches').select('id, name').order('name'),
       expensesQuery,
       recurringQuery,
-      teachersQuery,
     ])
-    const loadError = [branchesRes.error, expensesRes.error, recurringRes.error, teachersRes.error].find(Boolean)
+    const loadError = [branchesRes.error, expensesRes.error, recurringRes.error].find(Boolean)
     if (loadError) {
       setError(`Impossible de charger les charges : ${loadError.message}`)
       setLoading(false)
@@ -71,23 +89,6 @@ export default function ExpensesPage() {
     setRecurringCharges((recurringRes.data || []).map((r) => ({ ...r, branch: branchMap[r.branch_id] || '—' })))
 
     const rows = expensesRes.data || []
-    // Fixed-salary teachers not yet validated this month get a synthetic pending "Auto" row —
-    // always tied to the real current month, independent of whichever month/year is filtered.
-    const validatedTeacherIds = new Set(
-      rows.filter((e) => e.type === 'Auto' && e.teacher_id && e.month === currentMonth).map((e) => e.teacher_id)
-    )
-    const auto = (teachersRes.data || [])
-      .filter((t) => t.remuneration_type === 'fixe' && !validatedTeacherIds.has(t.id))
-      .map((t) => ({
-        id: `auto-${t.id}`,
-        title: `Salaire fixe – ${`${t.first_name} ${t.last_name}`.trim()}`,
-        amount: Number(t.fixed_salary || t.remuneration_amount || 0),
-        month: currentMonth,
-        charge_date: currentMonth,
-        branch: branchMap[t.branch_id] || '—',
-        type: 'Auto',
-      }))
-
     const persisted = rows.map((e) => ({
       id: e.id,
       title: e.title,
@@ -99,11 +100,44 @@ export default function ExpensesPage() {
       teacher_id: e.teacher_id,
       recurring_charge_id: e.recurring_charge_id,
       type: e.type,
+      // Une charge rattachée à un professeur est un salaire validé : son
+      // montant a été figé ce jour-là et fait foi pour ce mois.
+      isSalary: Boolean(e.teacher_id),
     }))
 
-    setExpenses([...auto, ...persisted])
+    // Salaires du mois consulté qui restent à valider — le fixe comme le
+    // pourcentage. Le pourcentage est recalculé à chaque ouverture de la page :
+    // une inscription ou une désactivation en fin de mois le fait bouger.
+    let pending = []
+    if (canSeeSalaries) {
+      try {
+        const { teachers } = await fetchTeacherSalaries({ month: salaryMonth, branchId: branchFilter })
+        const alreadyValidated = new Set(
+          rows.filter((e) => e.teacher_id && e.month === salaryMonth).map((e) => e.teacher_id)
+        )
+        pending = teachers
+          .filter((t) => !alreadyValidated.has(t.id) && t.amount > 0)
+          .map((t) => ({
+            id: `auto-${t.id}`,
+            title: `Salaire ${t.paymentType === 'fixe' ? 'fixe' : 'pourcentage'} – ${t.name}`,
+            amount: t.amount,
+            month: salaryMonth,
+            charge_date: salaryMonth,
+            branch: branchMap[t.branch_id] || '—',
+            branch_id: t.branch_id,
+            teacher_id: t.id,
+            type: 'Auto',
+            isSalary: true,
+            pending: true,
+          }))
+      } catch (salaryError) {
+        setError(`Charges affichées sans les salaires en attente : ${salaryError.message}`)
+      }
+    }
+
+    setExpenses(canSeeSalaries ? [...pending, ...persisted] : persisted.filter((item) => !item.isSalary))
     setLoading(false)
-  }, [branchFilter])
+  }, [branchFilter, canSeeSalaries, salaryMonth])
 
   useEffect(() => {
     let cancelled = false
@@ -166,7 +200,7 @@ export default function ExpensesPage() {
           if (salaryError) throw salaryError
         }
       } else if (form.recurring) {
-        const { data: template, error: templateError } = await supabase
+        const { error: templateError } = await supabase
           .from('recurring_charges')
           .insert({
             label: form.title.trim(),
@@ -175,13 +209,11 @@ export default function ExpensesPage() {
             day_of_month: Number(form.charge_date.slice(8, 10)),
             status: 'active',
           })
-          .select()
-          .single()
         if (templateError) throw templateError
-        const { error: insertError } = await supabase
-          .from('expenses')
-          .insert({ ...basePayload, type: 'recurring_fixed', recurring_charge_id: template.id })
-        if (insertError) throw insertError
+        // La charge du mois est produite par le générateur, pas ici : il est
+        // seul à savoir quels mois restent à créer, et évite ainsi le doublon.
+        const { error: generateError } = await supabase.rpc('generate_recurring_charges')
+        if (generateError) throw generateError
       } else {
         const { error: insertError } = await supabase.from('expenses').insert({ ...basePayload, type: 'Manuel' })
         if (insertError) throw insertError
@@ -244,7 +276,16 @@ export default function ExpensesPage() {
   }
 
   const toggleRecurringStatus = async (item) => {
-    await supabase.from('recurring_charges').update({ status: item.status === 'active' ? 'inactive' : 'active' }).eq('id', item.id)
+    const nextStatus = item.status === 'active' ? 'inactive' : 'active'
+    const payload = { status: nextStatus }
+    if (nextStatus === 'active') {
+      // Une charge qu'on réactive repart du mois en cours : les mois pendant
+      // lesquels elle était suspendue n'ont pas à être facturés après coup.
+      const now = new Date()
+      const previousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      payload.generated_through = `${previousMonth.getFullYear()}-${String(previousMonth.getMonth() + 1).padStart(2, '0')}-01`
+    }
+    await supabase.from('recurring_charges').update(payload).eq('id', item.id)
     load()
   }
 
@@ -344,6 +385,14 @@ export default function ExpensesPage() {
                           <span className={`expense-type ${item.type === 'Auto' ? 'auto' : item.type === 'recurring_fixed' ? 'recurring' : ''}`}>
                             {TYPE_LABELS[item.type] || item.type}
                           </span>
+                          {item.pending && (
+                            <span
+                              className="expense-pending"
+                              title="Salaire pas encore validé. Un salaire au pourcentage évolue jusqu'à la fin du mois, au fil des inscriptions et des désactivations."
+                            >
+                              En attente
+                            </span>
+                          )}
                         </td>
                         <td>
                           <div className="expense-row-actions">
