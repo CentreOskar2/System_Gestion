@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import Header from '../shared/Header'
 import TeacherForm from './TeacherForm'
 import TeachersToolbar from './TeachersToolbar'
@@ -112,13 +113,29 @@ async function fetchTeachersData(branchId) {
 }
 
 export default function TeachersPage() {
+  const location = useLocation()
   const { selectedBranch } = useBranch()
   const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(true)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(location.state?.query || '')
   const [formTeacher, setFormTeacher] = useState(undefined) // undefined: list, null: new, object: edit
   const [selectedTeacher, setSelectedTeacher] = useState(null)
   const [notice, setNotice] = useState(null)
+  // Professeur à ouvrir dès la liste chargée (arrivée depuis la recherche du bandeau).
+  const [pendingFocusId, setPendingFocusId] = useState(location.state?.focusTeacherId || null)
+  const [consumedNavKey, setConsumedNavKey] = useState(null)
+
+  // Terme et professeur transmis par la recherche du bandeau, appliqués pendant
+  // le rendu (motif React d'ajustement d'état) plutôt que dans un effet : la
+  // liste s'affiche déjà filtrée. `location.key` change à chaque navigation,
+  // la même recherche peut donc être relancée.
+  const navSearch = location.state?.query
+  const navFocusId = location.state?.focusTeacherId
+  if (consumedNavKey !== location.key && (typeof navSearch === 'string' || navFocusId)) {
+    setConsumedNavKey(location.key)
+    if (typeof navSearch === 'string') setQuery(navSearch)
+    setPendingFocusId(navFocusId || null)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -137,12 +154,27 @@ export default function TeachersPage() {
   const filteredTeachers = useMemo(
     () =>
       teachers.filter((teacher) =>
-        `${teacher.firstName} ${teacher.lastName}`
+        // Téléphone et CIN inclus : la recherche du bandeau les accepte aussi,
+        // la liste doit donc pouvoir se filtrer sur le même terme.
+        `${teacher.firstName} ${teacher.lastName} ${teacher.phone} ${teacher.cin}`
           .toLowerCase()
           .includes(query.toLowerCase())
       ),
     [teachers, query]
   )
+
+  // Fiche affichée : celle ouverte depuis le tableau, sinon celle demandée par
+  // la recherche du bandeau une fois la liste chargée.
+  const focusedTeacher =
+    !selectedTeacher && pendingFocusId && !loading
+      ? teachers.find((teacher) => teacher.id === pendingFocusId) || null
+      : null
+  const openTeacher = selectedTeacher || focusedTeacher
+
+  const closeProfile = () => {
+    setSelectedTeacher(null)
+    setPendingFocusId(null)
+  }
 
   const junctionColumn = {
     teacher_subjects: 'subject_id',
@@ -380,8 +412,8 @@ export default function TeachersPage() {
     )
   }
 
-  if (selectedTeacher) {
-    return <TeacherProfile teacher={selectedTeacher} onBack={() => setSelectedTeacher(null)} />
+  if (openTeacher) {
+    return <TeacherProfile teacher={openTeacher} onBack={closeProfile} />
   }
 
   return (

@@ -408,6 +408,7 @@ button.brand:focus-visible {
 }
 
 .searchbar {
+  position: relative;
   display: flex;
   flex: 1 1 240px;
   align-items: center;
@@ -418,6 +419,144 @@ button.brand:focus-visible {
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.88);
   box-shadow: 0 8px 24px rgba(38, 52, 84, 0.07), inset 0 0 0 1px rgba(221, 227, 236, 0.9);
+}
+
+/* Le `type="search"` natif affiche déjà une croix sur WebKit : on la masque
+   pour ne garder que la nôtre, qui referme aussi le panneau de résultats. */
+.searchbar input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.searchbar__clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #eef2f9;
+  color: #6b7486;
+  cursor: pointer;
+}
+
+.searchbar__clear:hover {
+  background: #e2e8f4;
+  color: #34425b;
+}
+
+.searchbar__clear svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Panneau de résultats de la recherche globale : ancré sur la barre elle-même,
+   au-dessus du contenu de la page (les menus du bandeau sont en z-index 40). */
+.search-results {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: 380px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #dce3ed;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 34px rgba(20, 32, 51, 0.16);
+}
+
+.search-results__status {
+  margin: 0;
+  padding: 12px;
+  color: #6b7486;
+  font-size: 0.85rem;
+}
+
+.search-results__group + .search-results__group {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #eef1f6;
+}
+
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-result.is-active,
+.search-result:hover {
+  background: #f4f7ff;
+}
+
+.search-result__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #edf3ff;
+  color: #2563eb;
+}
+
+.search-result__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.search-result__avatar svg {
+  width: 17px;
+  height: 17px;
+}
+
+.search-result__text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.search-result__text strong {
+  display: block;
+  overflow: hidden;
+  color: #172033;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result__text span {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  color: #6b7486;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-result__tag {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #fdecee;
+  color: #d33b4d;
+  font-size: 0.7rem;
+  font-weight: 700;
 }
 
 .searchbar input {

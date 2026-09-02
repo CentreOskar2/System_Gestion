@@ -30,6 +30,28 @@ export default function StudentsPage() {
   const [sheetStudent, setSheetStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
   const [isEnrolling, setIsEnrolling] = useState(location.state?.quick === 'enroll' || Boolean(location.state?.enroll))
+  // Élève à ouvrir dès que la liste est chargée (arrivée depuis la recherche du bandeau).
+  const [pendingFocusId, setPendingFocusId] = useState(location.state?.focusStudentId || null)
+  const [consumedNavKey, setConsumedNavKey] = useState(null)
+
+  // La recherche du bandeau transmet son terme (et l'élève à ouvrir) par l'état
+  // de navigation. Il est appliqué pendant le rendu — le motif React
+  // d'ajustement d'état — et non dans un effet : la liste s'affiche donc
+  // directement filtrée, sans passer par un rendu intermédiaire non filtré.
+  // `location.key` change à chaque navigation, y compris vers le même élève.
+  const navSearch = location.state?.query
+  const navFocusId = location.state?.focusStudentId
+  if (consumedNavKey !== location.key && (typeof navSearch === 'string' || navFocusId)) {
+    setConsumedNavKey(location.key)
+    if (typeof navSearch === 'string') {
+      setQuery(navSearch)
+      setActiveCycle('Tous')
+      setActiveLevel('Tous')
+      setActiveSubject('Tous')
+      setActiveGroup('')
+    }
+    setPendingFocusId(navFocusId || null)
+  }
 
   const refresh = async () => {
     setLoading(true)
@@ -142,8 +164,22 @@ export default function StudentsPage() {
     await refresh()
   }
 
-  const handleOpenEdit = (student) => {
+  // Fiche affichée : celle ouverte depuis le tableau, sinon celle demandée par
+  // la recherche du bandeau une fois la liste chargée. La déduire évite d'avoir
+  // à la « pousser » depuis un effet quand les élèves finissent d'arriver.
+  const focusedStudent =
+    !sheetStudent && pendingFocusId && !loading
+      ? items.find((student) => student.id === pendingFocusId) || null
+      : null
+  const openSheetStudent = sheetStudent || focusedStudent
+
+  const closeSheet = () => {
     setSheetStudent(null)
+    setPendingFocusId(null)
+  }
+
+  const handleOpenEdit = (student) => {
+    closeSheet()
     setAttendanceStudent(null)
     setEditingStudent(student)
   }
@@ -229,10 +265,10 @@ export default function StudentsPage() {
           close={() => setAttendanceStudent(null)}
         />
       )}
-      {sheetStudent && (
+      {openSheetStudent && (
         <StudentSheetModal
-          student={sheetStudent}
-          close={() => setSheetStudent(null)}
+          student={openSheetStudent}
+          close={closeSheet}
         />
       )}
     </div>

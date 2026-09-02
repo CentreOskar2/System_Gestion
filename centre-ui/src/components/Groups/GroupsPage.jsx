@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import Header from '../shared/Header'
 import GroupsToolbar from './GroupsToolbar'
 import GroupsFilters from './GroupsFilters'
@@ -19,14 +20,27 @@ function Toast({ notice }) {
 }
 
 export default function GroupsPage() {
+  const location = useLocation()
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedGroup, setSelectedGroup] = useState(undefined) // undefined: modal closed, null: new group, object: edit group
   const [viewingGroup, setViewingGroup] = useState(undefined)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(location.state?.query || '')
   const [filters, setFilters] = useState({ level: '', filiere: '' })
   const [options, setOptions] = useState({ levels: [], filieres: [] })
   const [notice, setNotice] = useState(null)
+
+  const [consumedNavKey, setConsumedNavKey] = useState(null)
+
+  // Terme envoyé par la recherche du bandeau, appliqué pendant le rendu (motif
+  // React d'ajustement d'état) : la liste s'affiche déjà filtrée. `location.key`
+  // change à chaque navigation, la même recherche peut donc être relancée.
+  const navSearch = location.state?.query
+  if (consumedNavKey !== location.key && typeof navSearch === 'string') {
+    setConsumedNavKey(location.key)
+    setSearch(navSearch)
+    setFilters({ level: '', filiere: '' })
+  }
 
   useEffect(() => { fetchAll() }, [])
 
