@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
 import { CalendarPlus, Check, Pencil, Printer, Search, TrendingUp, Users, Wallet } from 'lucide-react'
@@ -33,6 +33,7 @@ import {
   priceFor,
   studentLineItems,
   fetchFeesData,
+  fetchAccountingUsers,
   invalidateFeesCache,
 } from './feesApi'
 import './FeesPage.css'
@@ -59,6 +60,15 @@ function normalizeDateKey(value) {
   return accountingDayBucket(value)
 }
 
+// Les rôles qui voient la caisse du centre entier. Les autres (secrétaires) ne
+// voient que ce qu'ils ont eux-mêmes encaissé. Même liste que AuthContext.
+const CENTER_WIDE_ROLES = ['super_admin', 'admin', 'director']
+
+// Encaissements sans auteur : saisies antérieures à l'enregistrement de paid_by.
+// On les regroupe sous une clé dédiée plutôt que de les écarter, sinon le total
+// par utilisateur ne retomberait pas sur le total du jour.
+const UNASSIGNED_USER = 'unassigned'
+
 function aggregateDailyRows(payments, studentsById, schoolYearStart) {
   const start = Number(schoolYearStart) || 0
   if (!start) return []
@@ -72,10 +82,23 @@ function aggregateDailyRows(payments, studentsById, schoolYearStart) {
     if (dayKey < schoolStart.slice(0, 10) || dayKey > schoolEnd.slice(0, 10)) continue
     const student = studentsById[payment.student_id]
     if (!student) continue
-    const current = byDay.get(dayKey) || { date: dayKey, total: 0, studentIds: new Set(), paymentIds: [] }
+    const current = byDay.get(dayKey) || {
+      date: dayKey,
+      total: 0,
+      studentIds: new Set(),
+      paymentIds: [],
+      byUser: new Map(),
+    }
     current.total += toNumber(payment.amount)
     current.studentIds.add(payment.student_id)
     current.paymentIds.push(payment.id || `${payment.student_id}:${payment.month}:${dayKey}`)
+
+    const userKey = payment.paid_by || UNASSIGNED_USER
+    const userRow = current.byUser.get(userKey) || { userId: userKey, total: 0, studentIds: new Set() }
+    userRow.total += toNumber(payment.amount)
+    userRow.studentIds.add(payment.student_id)
+    current.byUser.set(userKey, userRow)
+
     byDay.set(dayKey, current)
   }
   return [...byDay.values()]
@@ -84,19 +107,37 @@ function aggregateDailyRows(payments, studentsById, schoolYearStart) {
       total: row.total,
       count: row.studentIds.size,
       paymentIds: row.paymentIds,
+      // Le plus gros encaisseur en tête : c'est l'ordre utile pour lire une journée.
+      users: [...row.byUser.values()]
+        .map((entry) => ({ userId: entry.userId, total: entry.total, count: entry.studentIds.size }))
+        .sort((a, b) => b.total - a.total),
     }))
     .sort((a, b) => b.date.localeCompare(a.date))
 }
 
-function exportDailyHistoryToExcel(rows, schoolYearStart, branchId) {
+function exportDailyHistoryToExcel(rows, schoolYearStart, branchId, { perUser = false, userLabel } = {}) {
   const workbook = XLSX.utils.book_new()
-  const worksheet = XLSX.utils.json_to_sheet(
-    rows.map((row) => ({
-      Date: formatAccountingDay(row.date),
-      'Montant total encaissé': Number(row.total || 0),
-      'Élèves facturés / payés': Number(row.count || 0),
-    }))
-  )
+  const lines = perUser
+    ? rows.flatMap((row) => [
+        {
+          Date: formatAccountingDay(row.date),
+          Utilisateur: 'Total du jour',
+          'Montant total encaissé': Number(row.total || 0),
+          'Élèves facturés / payés': Number(row.count || 0),
+        },
+        ...row.users.map((entry) => ({
+          Date: formatAccountingDay(row.date),
+          Utilisateur: userLabel(entry.userId),
+          'Montant total encaissé': Number(entry.total || 0),
+          'Élèves facturés / payés': Number(entry.count || 0),
+        })),
+      ])
+    : rows.map((row) => ({
+        Date: formatAccountingDay(row.date),
+        'Montant total encaissé': Number(row.total || 0),
+        'Élèves facturés / payés': Number(row.count || 0),
+      }))
+  const worksheet = XLSX.utils.json_to_sheet(lines)
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Historique journalier')
   const fileName = `historique-journalier-${schoolYearStart}-${branchId || 'toutes-succursales'}.xlsx`
   XLSX.writeFile(workbook, fileName)
@@ -438,8 +479,9 @@ function AdvanceReceiptsModal({ receipts, close, onPrint }) {
 }
 
 export default function FeesPage() {
-  const { user } = useAuth()
+  const { user, role } = useAuth()
   const { selectedBranch } = useBranch()
+  const isCenterWide = CENTER_WIDE_ROLES.includes(role)
   const [students, setStudents] = useState([])
   const [paymentsByStudent, setPaymentsByStudent] = useState({})
   const [payments, setPayments] = useState([])
@@ -450,6 +492,8 @@ export default function FeesPage() {
   const [schoolYearStart, setSchoolYearStart] = useState(String(currentMonthKey().slice(0, 4)))
   const [activeView, setActiveView] = useState('calendar')
   const [historyMode, setHistoryMode] = useState('month')
+  const [historyUser, setHistoryUser] = useState('all')
+  const [accountingUsers, setAccountingUsers] = useState([])
   const [historyMonth, setHistoryMonth] = useState('')
   const [historyFrom, setHistoryFrom] = useState('')
   const [historyTo, setHistoryTo] = useState('')
@@ -525,6 +569,23 @@ export default function FeesPage() {
     }
   }, [])
 
+  // Seul un rôle « centre » a besoin des noms : une secrétaire ne voit que ses
+  // propres encaissements, il n'y a personne à nommer dans son historique.
+  useEffect(() => {
+    // Les noms ne servent qu'à la vue centre : hors de ce rôle, la liste reste
+    // vide et aucune requête n'est émise.
+    if (!isCenterWide) return undefined
+    let active = true
+    fetchAccountingUsers()
+      .then((rows) => {
+        if (active) setAccountingUsers(rows)
+      })
+      .catch((err) => console.error(err))
+    return () => {
+      active = false
+    }
+  }, [isCenterWide])
+
   useEffect(() => {
     let active = true
     fetchRegistrationFees(schoolYearKeyLabel)
@@ -550,6 +611,9 @@ export default function FeesPage() {
         amount: fee.amount,
         paid_at: fee.paid_at,
         status: 'paid',
+        // Sur les frais d'inscription, l'encaisseur s'appelle validated_by ; on
+        // l'aligne sur paid_by pour que les deux flux se comptent pareil.
+        paid_by: fee.validated_by || null,
       }))
     return [...payments, ...feePayments].filter(
       (payment) =>
@@ -558,15 +622,56 @@ export default function FeesPage() {
     )
   }, [payments, registrationFees, students])
 
+  // Portée des encaissements : un rôle « centre » voit toute la caisse, les autres
+  // ne voient que ce qu'ils ont eux-mêmes validé. C'est un filtre d'affichage :
+  // les lignes restent lisibles côté base, comme partout ailleurs dans l'app.
+  const scopedPayments = useMemo(
+    () => (isCenterWide ? allPayments : allPayments.filter((payment) => payment.paid_by === user?.id)),
+    [allPayments, isCenterWide, user?.id]
+  )
+
+  // Le filtre « utilisateur » de l'historique n'a de sens que pour un rôle centre :
+  // une secrétaire n'a qu'elle-même à afficher.
+  const historyPayments = useMemo(() => {
+    if (!isCenterWide || historyUser === 'all') return scopedPayments
+    return scopedPayments.filter((payment) => (payment.paid_by || UNASSIGNED_USER) === historyUser)
+  }, [scopedPayments, isCenterWide, historyUser])
+
   const dailyHistory = useMemo(
     () =>
       aggregateDailyRows(
-        allPayments,
+        historyPayments,
         Object.fromEntries(students.map((student) => [student.id, student])),
         schoolYearStart
       ),
-    [allPayments, students, schoolYearStart]
+    [historyPayments, students, schoolYearStart]
   )
+
+  const usersById = useMemo(
+    () =>
+      Object.fromEntries(
+        accountingUsers.map((row) => [row.id, `${row.first_name || ''} ${row.last_name || ''}`.trim()])
+      ),
+    [accountingUsers]
+  )
+
+  const userLabelOf = useCallback(
+    (userId) => {
+      if (!userId || userId === UNASSIGNED_USER) return 'Non attribué'
+      return usersById[userId] || 'Utilisateur supprimé'
+    },
+    [usersById]
+  )
+
+  // Le menu ne liste que les personnes qui ont réellement encaissé sur l'année
+  // affichée : inutile de proposer un utilisateur dont l'historique est vide.
+  const historyUserOptions = useMemo(() => {
+    const ids = new Set()
+    for (const payment of scopedPayments) ids.add(payment.paid_by || UNASSIGNED_USER)
+    return [...ids]
+      .map((id) => ({ id, label: userLabelOf(id) }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'fr'))
+  }, [scopedPayments, userLabelOf])
 
   const shown = useMemo(
     () => students.filter((s) => `${s.name} ${s.code}`.toLowerCase().includes(query.toLowerCase())),
@@ -579,9 +684,23 @@ export default function FeesPage() {
   const schoolMonths = useMemo(() => buildSchoolMonths(schoolYearStart), [schoolYearStart])
   const currentDayKey = normalizeDateKey(new Date(nowTick))
   const currentDayPayments = useMemo(
-    () => allPayments.filter((payment) => normalizeDateKey(payment.paid_at || payment.month) === currentDayKey),
-    [allPayments, currentDayKey]
+    () => scopedPayments.filter((payment) => normalizeDateKey(payment.paid_at || payment.month) === currentDayKey),
+    [scopedPayments, currentDayKey]
   )
+  // Élèves réellement encaissés durant le mois comptable en cours, dédoublonnés :
+  // un élève qui règle deux mensualités le même mois ne compte qu'une fois.
+  const currentMonthCollectedStudents = useMemo(() => {
+    const monthPrefix = currentDayKey.slice(0, 7)
+    if (!monthPrefix) return 0
+    const studentIds = new Set()
+    for (const payment of scopedPayments) {
+      const dayKey = normalizeDateKey(payment.paid_at || payment.month)
+      if (dayKey && dayKey.slice(0, 7) === monthPrefix) studentIds.add(payment.student_id)
+    }
+    return studentIds.size
+  }, [scopedPayments, currentDayKey])
+  // Le dû mensuel reste une prévision à l'échelle du centre : il ne dépend d'aucun
+  // encaissement, donc d'aucun utilisateur.
   const currentMonthBillableStudents = useMemo(
     () =>
       students.filter(
@@ -609,10 +728,10 @@ export default function FeesPage() {
     const monthlyDue = currentMonthBillableStudents.reduce((sum, student) => sum + toNumber(student.du_mois), 0)
     return {
       totalCollected,
-      billed: currentMonthBillableStudents.length,
+      billed: currentMonthCollectedStudents,
       dueTotal: monthlyDue,
     }
-  }, [currentDayPayments, currentMonthBillableStudents])
+  }, [currentDayPayments, currentMonthBillableStudents, currentMonthCollectedStudents])
 
   const stateOf = (student, index) => {
     const key = monthDate(index, Number(schoolYearStart))
@@ -868,12 +987,12 @@ export default function FeesPage() {
         </div>
         <section className="fee-stats">
           <article>
-            <span>Total encaissé aujourd'hui</span>
+            <span>{isCenterWide ? "Total encaissé aujourd'hui" : "Mes encaissements aujourd'hui"}</span>
             <strong>{stats.totalCollected.toLocaleString('fr-FR')} DH</strong>
             <i className="fee-stat-icon fee-stat-icon--green"><TrendingUp size={20} /></i>
           </article>
           <article>
-            <span>Élèves facturés ce mois</span>
+            <span>{isCenterWide ? 'Élèves encaissés ce mois' : 'Mes élèves encaissés ce mois'}</span>
             <strong>{stats.billed}</strong>
             <i className="fee-stat-icon"><Users size={20} /></i>
           </article>
@@ -895,8 +1014,29 @@ export default function FeesPage() {
                 <button className={historyMode === 'month' ? 'active' : ''} onClick={() => setHistoryMode('month')}>Par mois</button>
                 <button className={historyMode === 'range' ? 'active' : ''} onClick={() => setHistoryMode('range')}>Par plage</button>
               </div>
-              <button className="history-export" onClick={() => exportDailyHistoryToExcel(filteredDailyHistory, schoolYearStart, selectedBranch)}>Exporter</button>
+              <button
+                className="history-export"
+                onClick={() =>
+                  exportDailyHistoryToExcel(filteredDailyHistory, schoolYearStart, selectedBranch, {
+                    perUser: isCenterWide,
+                    userLabel: userLabelOf,
+                  })
+                }
+              >
+                Exporter
+              </button>
             </div>
+            {isCenterWide && (
+              <label className="daily-history-user">
+                <span>Utilisateur</span>
+                <select value={historyUser} onChange={(e) => setHistoryUser(e.target.value)}>
+                  <option value="all">Tous les utilisateurs</option>
+                  {historyUserOptions.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             {historyMode === 'month' ? (
               <label className="daily-history-month">
                 <span>Mois</span>
@@ -921,20 +1061,48 @@ export default function FeesPage() {
                 <thead>
                   <tr>
                     <th>Date</th>
+                    {isCenterWide && <th>Utilisateur</th>}
                     <th>Montant total encaissé</th>
                     <th>Élèves facturés / payés</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredDailyHistory.length === 0 ? (
-                    <tr><td colSpan={3} className="daily-history-empty">Aucune donnée pour ce filtre.</td></tr>
-                  ) : filteredDailyHistory.map((row) => (
-                    <tr key={row.date} className={row.date === currentDayKey ? 'current-day' : ''}>
-                      <td>{formatAccountingDay(row.date)}</td>
-                      <td>{Number(row.total || 0).toLocaleString('fr-FR')} DH</td>
-                      <td>{row.count}</td>
+                    <tr>
+                      <td colSpan={isCenterWide ? 4 : 3} className="daily-history-empty">Aucune donnée pour ce filtre.</td>
                     </tr>
-                  ))}
+                  ) : isCenterWide ? (
+                    // Vue centre : la journée en tête, puis le détail par encaisseur.
+                    filteredDailyHistory.map((row) => (
+                      <Fragment key={row.date}>
+                        <tr className={`daily-history-day${row.date === currentDayKey ? ' current-day' : ''}`}>
+                          <td>{formatAccountingDay(row.date)}</td>
+                          <td>Total du jour</td>
+                          <td>{Number(row.total || 0).toLocaleString('fr-FR')} DH</td>
+                          <td>{row.count}</td>
+                        </tr>
+                        {row.users.map((entry) => (
+                          <tr
+                            key={`${row.date}:${entry.userId}`}
+                            className={`daily-history-user-row${row.date === currentDayKey ? ' current-day' : ''}`}
+                          >
+                            <td />
+                            <td>{userLabelOf(entry.userId)}</td>
+                            <td>{Number(entry.total || 0).toLocaleString('fr-FR')} DH</td>
+                            <td>{entry.count}</td>
+                          </tr>
+                        ))}
+                      </Fragment>
+                    ))
+                  ) : (
+                    filteredDailyHistory.map((row) => (
+                      <tr key={row.date} className={row.date === currentDayKey ? 'current-day' : ''}>
+                        <td>{formatAccountingDay(row.date)}</td>
+                        <td>{Number(row.total || 0).toLocaleString('fr-FR')} DH</td>
+                        <td>{row.count}</td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>

@@ -66,6 +66,22 @@ export function studentLineItems(student, catalog) {
   return student.chosen.map((name) => ({ name, amount: priceFor(catalog, student, name) }))
 }
 
+// Les encaissements portent l'identifiant de qui les a validés (paid_by pour les
+// mensualités, validated_by pour les frais d'inscription). L'historique de l'admin
+// doit afficher un nom, pas un UUID : on charge la liste des utilisateurs pour la
+// jointure côté client.
+//
+// Une secrétaire n'a pas forcément le droit de lire la table users ; ce n'est pas
+// bloquant, elle ne voit que ses propres lignes et n'a donc aucun nom à résoudre.
+export async function fetchAccountingUsers() {
+  const { data, error } = await supabase.from('users').select('id, first_name, last_name')
+  if (error) {
+    console.error(error)
+    return []
+  }
+  return data || []
+}
+
 export async function recordFirstMonthPayment({ studentId, month, amount, userId = null }) {
   const { error } = await supabase.from('student_payments').upsert(
     { student_id: studentId, month, amount, status: 'paid', paid_at: new Date().toISOString(), paid_by: userId },

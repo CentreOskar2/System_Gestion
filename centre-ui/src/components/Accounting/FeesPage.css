@@ -457,6 +457,45 @@
   background: #f4f7ff;
 }
 
+/* Vue admin : la ligne du jour porte le total, les lignes suivantes le détail
+   par encaisseur. Le retrait et le trait de gauche rattachent visuellement le
+   détail à sa journée. */
+.daily-history-table tr.daily-history-day td {
+  font-weight: 750;
+  color: #172033;
+  border-top: 1px solid #dce3ed;
+}
+
+.daily-history-table tr.daily-history-user-row td {
+  border-bottom-color: #eef1f6;
+  color: #48546c;
+}
+
+.daily-history-table tr.daily-history-user-row td:nth-child(2) {
+  padding-left: 26px;
+  border-left: 3px solid #dce3ed;
+}
+
+.daily-history-user {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  color: #34425b;
+  font-size: .88rem;
+  font-weight: 700;
+}
+
+.daily-history-user select {
+  min-height: 44px;
+  max-width: 280px;
+  padding: 0 12px;
+  border: 1px solid #dce3ed;
+  border-radius: 11px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+}
+
 .daily-history-empty {
   text-align: center !important;
   color: #647088;
