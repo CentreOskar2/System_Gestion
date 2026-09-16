@@ -186,7 +186,7 @@ export default function SalariesPage() {
     async function load() {
       setLoading(true)
       try {
-        const { teachers: rows } = await fetchTeacherSalaries({ month, branchId: branchFilter })
+        const { teachers: rows } = await fetchTeacherSalaries({ month })
         if (cancelled) return
         setTeachers(rows)
         setValidated(rows.filter((t) => t.validated).map((t) => `${t.id}:${month}`))
@@ -269,6 +269,7 @@ export default function SalariesPage() {
         </div>
         <nav className="accounting-tabs">
           <Link to="/accounting/fees">Frais de scolarité</Link>
+          <Link to="/accounting/formations">Frais de formation</Link>
           <Link to="/accounting/delinquencies">Retards & Impayés</Link>
           <Link className="active" to="/accounting/salaries">Salaires Profs</Link>
           <Link to="/accounting/expenses">Charges</Link>

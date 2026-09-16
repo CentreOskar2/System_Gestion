@@ -15,12 +15,12 @@ import { calculateSalary } from './salaryUtils'
 // est commun. Le contexte est donc chargé une fois, puis rejoué mois par mois
 // — sinon un écran couvrant l'année scolaire déclencherait douze fois ces
 // treize requêtes.
-export async function fetchSalaryContext({ branchId = null } = {}) {
-  let teachersQuery = supabase.from('teachers').select('*').eq('status', 'active').order('last_name')
-  const groupsQuery = supabase.from('groups').select('id, name, subject_id, level_id, branch_id')
-  if (branchId) {
-    teachersQuery = teachersQuery.eq('branch_id', branchId)
-  }
+export async function fetchSalaryContext() {
+  // Un professeur n'appartient a aucune succursale : il enseigne dans plusieurs
+  // cycles et dans plusieurs succursales. On charge donc toujours tout le corps
+  // enseignant, et `branchId` ne sert plus qu'aux ecrans appelants.
+  const teachersQuery = supabase.from('teachers').select('*').eq('status', 'active').order('last_name')
+  const groupsQuery = supabase.from('groups').select('id, name, subject_id, level_id, branch_id, formation_level_id')
 
   const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
     teachersQuery,
@@ -57,15 +57,30 @@ export async function fetchSalaryContext({ branchId = null } = {}) {
     tariffsByLevelSubject[row.level_id][row.subject_id] = Number(row.price)
   }
 
+  // Tarifs des niveaux de formation : un groupe de formation rapporte le prix
+  // de son niveau par élève, comme un groupe au forfait. Table absente tant que
+  // la migration 031 n'a pas été passée — les salaires se calculent alors comme
+  // avant, sans les formations.
+  const formationLevelsRes = await supabase.from('formation_levels').select('id, price')
+  if (formationLevelsRes.error) console.error(formationLevelsRes.error)
+  const formationPriceByLevel = Object.fromEntries(
+    (formationLevelsRes.data || []).map((row) => [row.id, Number(row.price || 0)])
+  )
+
   // Cycles au forfait : le groupe rapporte le prix du niveau par élève,
   // toutes matières comprises — il n'y a pas de tarif par matière à cumuler.
   const isPackageGroup = (groupId) => {
-    const level = levelById[groupById[groupId]?.level_id]
+    const group = groupById[groupId]
+    // Un groupe de formation se facture comme un forfait : un prix par élève,
+    // sans matière à cumuler.
+    if (group?.formation_level_id) return true
+    const level = levelById[group?.level_id]
     return Boolean(cycleById[level?.cycle_id]?.has_fixed_price)
   }
   const priceForGroup = (groupId, subjectId) => {
     const group = groupById[groupId]
     if (!group) return 0
+    if (group.formation_level_id) return formationPriceByLevel[group.formation_level_id] || 0
     const level = levelById[group.level_id]
     if (isPackageGroup(groupId)) return level?.fixed_price != null ? Number(level.fixed_price) : 0
     const tariff = tariffsByLevelSubject[group.level_id]?.[subjectId || group.subject_id]
@@ -234,7 +249,7 @@ export function computeTeacherSalaries(context, month) {
 }
 
 // Raccourci pour les écrans qui n'ont besoin que d'un mois.
-export async function fetchTeacherSalaries({ month, branchId = null }) {
-  const context = await fetchSalaryContext({ branchId })
+export async function fetchTeacherSalaries({ month }) {
+  const context = await fetchSalaryContext()
   return computeTeacherSalaries(context, month)
 }

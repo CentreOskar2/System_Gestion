@@ -8,7 +8,8 @@ import { useBranch } from '../../context/BranchContext'
 import { supabase } from '../../supabaseClient'
 import { buildDebtors } from '../Accounting/delinquenciesApi'
 import { subscribeFeesCache } from '../Accounting/feesApi'
-import { academicYearStart, currentMonthKey, isEnrolledInMonth, monthLabelOf } from '../Accounting/monthUtils'
+import { academicYearStart, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
+import { fetchFormationRevenue } from '../Formations/formationsApi'
 import './Dashboard.css'
 
 const MONTHS_SHORT = ['Sept', 'Oct', 'Nov', 'Déc', 'Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
@@ -245,15 +246,16 @@ export default function Dashboard() {
       let paymentsQuery = supabase.from('student_payments').select('student_id, month, amount, status')
       let salariesQuery = supabase.from('teacher_salaries').select('teacher_id, month, amount, status')
       let expensesQuery = supabase.from('expenses').select('id, title, amount, month, branch_id, type')
-      let teachersQuery = supabase.from('teachers').select('id, first_name, last_name, branch_id, status')
+      // Un professeur n'appartient a aucune succursale : on charge tout le corps
+      // enseignant, quelle que soit la succursale affichee.
+      const teachersQuery = supabase.from('teachers').select('id, first_name, last_name, status')
       if (branchFilter) {
         studentsQuery = studentsQuery.eq('branch_id', branchFilter)
         expensesQuery = expensesQuery.eq('branch_id', branchFilter)
-        teachersQuery = teachersQuery.eq('branch_id', branchFilter)
       }
 
       try {
-        const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes, feesRes] = await Promise.all([
+        const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes, feesRes, formationRevenue] = await Promise.all([
           studentsQuery,
           paymentsQuery,
           salariesQuery,
@@ -263,6 +265,7 @@ export default function Dashboard() {
           supabase.from('cycles').select('id, name'),
           supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
           supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid'),
+          fetchFormationRevenue(),
         ])
         if (cancelled) return
 
@@ -281,7 +284,13 @@ export default function Dashboard() {
 
         setData({
           students: studentsRes.data || [],
-          payments: [...(paymentsRes.data || []), ...registrationFeePayments],
+          // Les encaissements de formation sont une recette du centre : sans eux,
+          // le chiffre d'affaires du tableau de bord ignorerait tout un produit.
+          payments: [...(paymentsRes.data || []), ...registrationFeePayments, ...formationRevenue],
+          // Les mensualités seules. Elles seules soldent un mois de scolarité : un
+          // élève qui n'a réglé que ses frais d'inscription reste débiteur de son
+          // mois. Mélanger les deux listes ferait passer ce débiteur pour à jour.
+          tuitionPayments: paymentsRes.data || [],
           salaries: salariesRes.data || [],
           expenses: expensesRes.data || [],
           teachers: teachersRes.data || [],
@@ -319,6 +328,7 @@ export default function Dashboard() {
 
   const students = useMemo(() => data?.students || [], [data])
   const payments = useMemo(() => data?.payments || [], [data])
+  const tuitionPayments = useMemo(() => data?.tuitionPayments || [], [data])
   const salaries = useMemo(() => data?.salaries || [], [data])
   const expenses = useMemo(() => data?.expenses || [], [data])
   const teachers = useMemo(() => data?.teachers || [], [data])
@@ -331,7 +341,6 @@ export default function Dashboard() {
   }, [branchFilter, branches])
 
   const studentBranch = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s.branch_id])), [students])
-  const teacherBranch = useMemo(() => Object.fromEntries(teachers.map((t) => [t.id, t.branch_id])), [teachers])
 
   const yearStart = Number(String(year).split('-')[0])
   const monthsFor = useMemo(() => monthsForYear(yearStart), [yearStart])
@@ -369,35 +378,53 @@ export default function Dashboard() {
   const expected = useMemo(() => sum(activeStudents, (s) => s.du_mois), [activeStudents])
   const pending = Math.max(0, expected - collected)
 
-  const lateCount = useMemo(() => {
-    const paidIds = new Set()
-    for (const payment of payments) {
-      if (!isPaid(payment)) continue
-      if (String(payment.month).slice(0, 7) !== monthPrefix) continue
-      if (branchId && studentBranch[payment.student_id] !== branchId) continue
-      paidIds.add(payment.student_id)
+  // Les impayés sont calculés par buildDebtors, exactement comme sur la page
+  // Retards & Impayés : même échéance ancrée sur le jour d'inscription de chaque
+  // élève, même jour de grâce, même cumul des mois en retard. Les deux écrans
+  // doivent annoncer le même nombre, sinon on ne sait plus lequel croire.
+  //
+  // On lui passe tuitionPayments et non payments : seules les mensualités soldent
+  // un mois de scolarité. L'ancienne version prenait toute la liste, si bien qu'un
+  // élève n'ayant réglé que ses frais d'inscription était compté comme à jour.
+  const debtors = useMemo(() => {
+    const debtorStudents = branchStudents.map((s) => ({
+      id: s.id,
+      name: `${s.first_name} ${s.last_name}`.trim(),
+      active: s.status === 'active',
+      du_mois: s.du_mois,
+      registrationDate: s.registration_date || (s.created_at || '').slice(0, 10),
+      createdAt: s.created_at || '',
+    }))
+    const byStudent = {}
+    for (const payment of tuitionPayments) {
+      if (!byStudent[payment.student_id]) byStudent[payment.student_id] = []
+      byStudent[payment.student_id].push({
+        month: payment.month,
+        amount: Number(payment.amount) || 0,
+        status: payment.status,
+      })
     }
-    return activeStudents.filter((s) => {
-      if ((Number(s.du_mois) || 0) <= 0) return false
-      if (paidIds.has(s.id)) return false
-      return isEnrolledInMonth({ registrationDate: s.registration_date, createdAt: s.created_at }, `${monthPrefix}-01`)
-    }).length
-  }, [payments, activeStudents, monthPrefix, branchId, studentBranch])
+    return buildDebtors(debtorStudents, byStudent)
+  }, [branchStudents, tuitionPayments])
 
-  const branchTeachers = useMemo(
-    () => (branchId ? teachers.filter((t) => t.branch_id === branchId) : teachers),
-    [teachers, branchId]
-  )
+  const lateCount = debtors.length
+
+  // L'effectif enseignant est celui du centre : un professeur intervient dans
+  // plusieurs succursales, le repartir entre elles n'aurait pas de sens.
+  const branchTeachers = teachers
   const teacherCount = branchTeachers.length
   const teacherActive = useMemo(() => branchTeachers.filter((t) => t.status === 'active').length, [branchTeachers])
 
+  // La paie est une charge du centre : elle ne s'impute a aucune succursale.
+  // Sur une succursale precise elle vaut donc 0, et la note sous le KPI affiche
+  // « salaires 0 DH » pour que ce soit lisible a l'ecran.
   const monthSalaries = useMemo(
-    () => salaries.filter(
-      (s) => PAID_STATUSES.includes(s.status)
-        && String(s.month).slice(0, 7) === monthPrefix
-        && (!branchId || teacherBranch[s.teacher_id] === branchId)
-    ),
-    [salaries, monthPrefix, branchId, teacherBranch]
+    () => (branchId
+      ? []
+      : salaries.filter(
+          (s) => PAID_STATUSES.includes(s.status) && String(s.month).slice(0, 7) === monthPrefix
+        )),
+    [salaries, monthPrefix, branchId]
   )
   const salaryTotal = useMemo(() => sum(monthSalaries, (s) => s.amount), [monthSalaries])
 
@@ -426,12 +453,8 @@ export default function Dashboard() {
         if (studentBranch[payment.student_id] !== branch.id) return total
         return total + (Number(payment.amount) || 0)
       }, 0)
-      const salary = salaries.reduce((total, record) => {
-        if (!PAID_STATUSES.includes(record.status)) return total
-        if (String(record.month).slice(0, 7) !== monthPrefix) return total
-        if (teacherBranch[record.teacher_id] !== branch.id) return total
-        return total + (Number(record.amount) || 0)
-      }, 0)
+      // Charge du centre : aucune succursale ne porte de salaire.
+      const salary = 0
       const expense = expenses.reduce((total, record) => {
         if (record.type === 'Auto') return total
         if (String(record.month).slice(0, 7) !== monthPrefix) return total
@@ -450,25 +473,12 @@ export default function Dashboard() {
       .filter((b) => b.status === 'active')
       .map(compute)
       .filter((item) => item.revenue > 0 || item.salary > 0 || item.expense > 0 || item.net !== 0)
-  }, [payments, salaries, expenses, branches, branchId, studentBranch, teacherBranch, monthPrefix])
+  }, [payments, expenses, branches, branchId, studentBranch, monthPrefix])
 
-  const notificationCount = useMemo(() => {
-    if (!data) return 0
-    const debtorStudents = students.map((s) => ({
-      id: s.id,
-      name: `${s.first_name} ${s.last_name}`.trim(),
-      active: s.status === 'active',
-      du_mois: s.du_mois,
-      registrationDate: s.registration_date || (s.created_at || '').slice(0, 10),
-      createdAt: s.created_at || '',
-    }))
-    const byStudent = {}
-    for (const payment of payments) {
-      if (!byStudent[payment.student_id]) byStudent[payment.student_id] = []
-      byStudent[payment.student_id].push({ month: payment.month, amount: Number(payment.amount) || 0, status: payment.status })
-    }
-    return buildDebtors(debtorStudents, byStudent).length
-  }, [data, students, payments])
+  // Le badge de notifications comptait les mêmes débiteurs, mais à partir de la
+  // liste polluée : il souffrait donc du même défaut que le KPI. Les deux lisent
+  // désormais le même calcul.
+  const notificationCount = debtors.length
 
   const greetingName = `${profile?.first_name || ''}`.trim() || 'Directeur'
   const subtitle = `${monthLabel} — Année scolaire ${year}`

@@ -178,6 +178,19 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
         }))
       )
       setGroupsLoading(false)
+
+      // Décocher un niveau retire ses groupes de la liste affichée, mais ils
+      // restaient cochés dans le formulaire : invisibles à l'écran, et pourtant
+      // réenregistrés à la validation. Le professeur continuait donc d'enseigner
+      // un niveau qu'on venait de lui retirer — visible sur la page Salaires,
+      // qui déduit les niveaux des groupes et non de la liste des niveaux.
+      //
+      // On aligne donc la sélection sur ce que l'écran propose réellement.
+      const allowed = new Set((data || []).map((group) => group.id))
+      setForm((current) => {
+        const kept = (current.groups || []).filter((id) => allowed.has(id))
+        return kept.length === (current.groups || []).length ? current : { ...current, groups: kept }
+      })
     }
     load()
     return () => { cancelled = true }

@@ -1,5 +1,21 @@
 import { supabase } from '../../../supabaseClient'
 import { uploadImage } from '../../../utils/storage'
+import { syncStudentFormations, formationRowPrice } from '../../Formations/formationsApi'
+
+// Les lignes de formation du formulaire, traduites pour la couche d'accès aux
+// données. Le prix mensuel est résolu ici : standard figé à la sélection, ou
+// prix manuel accordé à cet élève.
+function formationRowsOf(form) {
+  return (form?.formations || [])
+    .filter((row) => row?.formationLevelId)
+    .map((row) => ({
+      formationLevelId: row.formationLevelId,
+      groupId: row.groupId || null,
+      teacherId: row.teacherId || null,
+      priceType: row.priceType === 'manual' ? 'manual' : 'standard',
+      monthlyPrice: formationRowPrice(row),
+    }))
+}
 
 export async function fetchCatalog() {
   const [cycles, levels, studyBranches, subjects, teachers, teacherSubjects, teacherLevels, teacherGroupSubjects, groups, groupStudents, tariffs, branches, userBranches] =
@@ -452,6 +468,7 @@ export async function createEnrollment(form, catalog) {
   if (error) throw new Error(error.message)
 
   await syncGroupSelections(data.id, form, catalog)
+  await syncStudentFormations(data.id, formationRowsOf(form), { enrolledAt: form.registrationDate || null })
 
   let photoUrl = null
   if (form.photoFile) {
@@ -481,6 +498,7 @@ export async function updateEnrollment(studentId, form, catalog, status = 'activ
   if (error) throw new Error(error.message)
 
   await syncGroupSelections(studentId, form, catalog)
+  await syncStudentFormations(studentId, formationRowsOf(form), { enrolledAt: form.registrationDate || null })
 
   if (form.photoFile) {
     const photoUrl = await uploadImage({ entity: 'students', id: studentId, file: form.photoFile })
@@ -543,6 +561,30 @@ export async function fetchStudents(branchId = null) {
     subsByStudent[sub.student_id].push(sub)
   }
 
+  // Inscriptions aux formations, remises dans la forme attendue par
+  // FormationPicker pour que la modification d'un élève les restitue telles
+  // quelles. Absentes tant que la migration 031 n'a pas été passée : l'erreur
+  // est absorbée, la fiche élève reste utilisable sans son volet formations.
+  const { data: studentFormations, error: formationsError } = await supabase
+    .from('student_formations')
+    .select('student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, formation_levels(name, price, formations(name))')
+  if (formationsError) console.error(formationsError)
+
+  const formationsByStudent = {}
+  for (const row of studentFormations || []) {
+    if (!formationsByStudent[row.student_id]) formationsByStudent[row.student_id] = []
+    formationsByStudent[row.student_id].push({
+      formationLevelId: row.formation_level_id,
+      formationName: row.formation_levels?.formations?.name || '',
+      levelName: row.formation_levels?.name || '',
+      standardPrice: Number(row.formation_levels?.price || 0),
+      groupId: row.group_id || '',
+      teacherId: row.teacher_id || '',
+      priceType: row.pricing_type === 'manual' ? 'manual' : 'standard',
+      manualPrice: row.pricing_type === 'manual' ? String(row.monthly_price ?? '') : '',
+    })
+  }
+
   return (data || []).map((s) => {
     const list = subsByStudent[s.id] || []
     const chosen = list.map((x) => x.subjects?.name).filter(Boolean)
@@ -598,6 +640,9 @@ export async function fetchStudents(branchId = null) {
       subjectDetails,
       groupSelections,
       groupFiliere,
+      formations: formationsByStudent[s.id] || [],
+      // Sans niveau scolaire, l'élève n'existe que par ses formations.
+      formationOnly: !s.level_id,
       cycle_id: s.cycle_id,
       level_id: s.level_id,
       filiere_id: s.filiere_id,

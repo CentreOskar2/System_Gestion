@@ -2,6 +2,18 @@ export default function Step2Classification({ form, set, catalog }) {
   const cycles = catalog.cycles || []
   const levels = (catalog.levelsByCycle && catalog.levelsByCycle[form.cycle]) || []
   const filieres = (catalog.branchesByLevel && catalog.branchesByLevel[form.level]) || []
+  const formationOnly = Boolean(form.formationOnly)
+
+  // Bascule « formation seule » : l'élève n'a alors ni cycle, ni niveau, ni
+  // filière. On vide ces champs pour ne pas enregistrer un parcours fantôme.
+  const toggleFormationOnly = (checked) => {
+    set('formationOnly', checked)
+    if (checked) {
+      set('cycle', '')
+      set('level', '')
+      set('track', '')
+    }
+  }
 
   const handleCycleChange = (e) => {
     const newCycle = e.target.value
@@ -20,10 +32,23 @@ export default function Step2Classification({ form, set, catalog }) {
     <>
       <h2>Classification</h2>
       <p>Choisissez le parcours scolaire de l'élève.</p>
+
+      <label className="enrollment-formation-only">
+        <input
+          type="checkbox"
+          checked={formationOnly}
+          onChange={(e) => toggleFormationOnly(e.target.checked)}
+        />
+        <span>
+          <b>Formation seule</b>
+          <small>L'élève ne suit aucun cycle scolaire — uniquement une ou plusieurs formations.</small>
+        </span>
+      </label>
+
       <div className="enrollment-grid">
         <label>
-          Cycle *
-          <select value={form.cycle} onChange={handleCycleChange} required>
+          Cycle {formationOnly ? '' : '*'}
+          <select value={form.cycle} onChange={handleCycleChange} disabled={formationOnly} required={!formationOnly}>
             <option value="">— Sélectionner cycle —</option>
             {cycles.map((cycle) => (
               <option key={cycle.id} value={cycle.name}>{cycle.name}</option>
@@ -31,15 +56,15 @@ export default function Step2Classification({ form, set, catalog }) {
           </select>
         </label>
         <label>
-          Niveau *
-          <select value={form.level} onChange={handleLevelChange} required>
+          Niveau {formationOnly ? '' : '*'}
+          <select value={form.level} onChange={handleLevelChange} disabled={formationOnly} required={!formationOnly}>
             <option value="">— Sélectionner niveau —</option>
             {levels.map((level) => (
               <option key={level} value={level}>{level}</option>
             ))}
           </select>
         </label>
-        {filieres.length > 0 && (
+        {!formationOnly && filieres.length > 0 && (
           <label>
             Filière *
             <select

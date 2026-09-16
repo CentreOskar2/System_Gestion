@@ -1,5 +1,6 @@
 import { supabase } from '../../supabaseClient'
 import { fetchFeesData } from '../Accounting/feesApi'
+import { fetchFormationRevenue } from '../Formations/formationsApi'
 import { calculateSalary } from '../Accounting/salaryUtils'
 import { academicMonths, academicYearStart, formatShortDate, isEnrolledInMonth, schoolYearLabel } from '../Accounting/monthUtils'
 
@@ -96,10 +97,11 @@ export async function buildGroupsReport({ branchId, branchName, monthKey, slug }
 // 2. Professeurs
 // ---------------------------------------------------------------------------
 export async function buildTeachersReport({ branchId, branchName, monthKey, slug }) {
-  let teachersQuery = supabase.from('teachers').select('*').eq('status', 'active').order('last_name')
+  const teachersQuery = supabase.from('teachers').select('*').eq('status', 'active').order('last_name')
   let groupsQuery = supabase.from('groups').select('id, level_id, subject_id, branch_id')
+  // Un professeur n'appartient a aucune succursale : la liste reste globale,
+  // seuls les groupes se filtrent.
   if (branchId) {
-    teachersQuery = teachersQuery.eq('branch_id', branchId)
     groupsQuery = groupsQuery.eq('branch_id', branchId)
   }
 
@@ -200,7 +202,7 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     )
 
     const subjectNames = [...(subjectIdsByTeacher[t.id] || [])].map((id) => subjectMap[id]).filter(Boolean).join(', ')
-    const branchIds = branchIdsByTeacher[t.id]?.size ? [...branchIdsByTeacher[t.id]] : [t.branch_id].filter(Boolean)
+    const branchIds = [...(branchIdsByTeacher[t.id] || [])]
     const branchNames = branchIds.map((id) => branchMap[id]).filter(Boolean).join(', ')
     const rateLabel = t.remuneration_type === 'fixe'
       ? `${Number(t.fixed_salary || t.remuneration_amount || 0).toLocaleString('fr-FR')} DH (fixe)`
@@ -232,32 +234,35 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
 export async function buildNetProfitReport({ branchId, branchName, monthKey }) {
   let studentsQuery = supabase.from('students').select('id, branch_id')
   let expensesQuery = supabase.from('expenses').select('branch_id, month, amount, type')
-  let teachersQuery = supabase.from('teachers').select('id, branch_id')
   if (branchId) {
     studentsQuery = studentsQuery.eq('branch_id', branchId)
     expensesQuery = expensesQuery.eq('branch_id', branchId)
-    teachersQuery = teachersQuery.eq('branch_id', branchId)
   }
 
-  const [paymentsRes, studentsRes, expensesRes, salariesRes, teachersRes, branchesRes] = await Promise.all([
+  const [paymentsRes, studentsRes, expensesRes, salariesRes, branchesRes, formationRevenue] = await Promise.all([
     supabase.from('student_payments').select('student_id, month, amount, status'),
     studentsQuery,
     expensesQuery,
     supabase.from('teacher_salaries').select('teacher_id, month, amount, status'),
-    teachersQuery,
     supabase.from('branches').select('id, name, status'),
+    fetchFormationRevenue(),
   ])
 
   const studentBranch = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s.branch_id]))
-  const teacherBranch = Object.fromEntries((teachersRes.data || []).map((t) => [t.id, t.branch_id]))
 
-  let paidPayments = (paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status))
+  // Scolarité et formation forment un seul chiffre d'affaires : le salaire du
+  // professeur de formation est déjà compté en charge juste en dessous.
+  let paidPayments = [
+    ...(paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status)),
+    ...formationRevenue,
+  ]
   let manualExpenses = (expensesRes.data || []).filter((e) => e.type !== 'Auto')
   let validatedSalaries = (salariesRes.data || []).filter((s) => s.status === 'paid' || s.status === 'validated')
   if (branchId) {
     paidPayments = paidPayments.filter((p) => studentBranch[p.student_id] === branchId)
     manualExpenses = manualExpenses.filter((e) => e.branch_id === branchId)
-    validatedSalaries = validatedSalaries.filter((s) => teacherBranch[s.teacher_id] === branchId)
+    // La paie est une charge du centre : sur une succursale precise, elle vaut 0.
+    validatedSalaries = []
   }
 
   const aggregate = (mKey) => {
@@ -279,7 +284,7 @@ export async function buildNetProfitReport({ branchId, branchName, monthKey }) {
   const branchRows = activeBranches.map((b) => {
     const ca = sum(paidPayments.filter((p) => studentBranch[p.student_id] === b.id && sameMonth(p.month, monthKey)), (p) => p.amount)
     const charges = sum(manualExpenses.filter((e) => e.branch_id === b.id && sameMonth(e.month, monthKey)), (e) => e.amount)
-    const salaries = sum(validatedSalaries.filter((s) => teacherBranch[s.teacher_id] === b.id && sameMonth(s.month, monthKey)), (s) => s.amount)
+    const salaries = 0
     return { Succursale: b.name, 'CA encaissé': ca, 'Total charges': charges, 'Total salaires': salaries, 'Bénéfice net': ca - charges - salaries }
   })
 
@@ -334,13 +339,12 @@ export async function buildTuitionReport({ branchId, branchName, monthKey, slug 
 // ---------------------------------------------------------------------------
 export async function buildExpensesReport({ branchId, branchName, monthKey, slug }) {
   let expensesQuery = supabase.from('expenses').select('*').eq('month', monthKey)
-  let teachersQuery = supabase
+  const teachersQuery = supabase
     .from('teachers')
-    .select('id, first_name, last_name, branch_id, remuneration_type, fixed_salary, remuneration_amount')
+    .select('id, first_name, last_name, remuneration_type, fixed_salary, remuneration_amount')
     .eq('status', 'active')
   if (branchId) {
     expensesQuery = expensesQuery.eq('branch_id', branchId)
-    teachersQuery = teachersQuery.eq('branch_id', branchId)
   }
 
   const [expensesRes, teachersRes, branchesRes] = await Promise.all([

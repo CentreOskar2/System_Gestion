@@ -111,7 +111,7 @@ export default function ExpensesPage() {
     let pending = []
     if (canSeeSalaries) {
       try {
-        const { teachers } = await fetchTeacherSalaries({ month: salaryMonth, branchId: branchFilter })
+        const { teachers } = await fetchTeacherSalaries({ month: salaryMonth })
         const alreadyValidated = new Set(
           rows.filter((e) => e.teacher_id && e.month === salaryMonth).map((e) => e.teacher_id)
         )
@@ -299,6 +299,7 @@ export default function ExpensesPage() {
         </div>
         <nav className="accounting-tabs">
           <Link to="/accounting/fees">Frais de scolarité</Link>
+          <Link to="/accounting/formations">Frais de formation</Link>
           <Link to="/accounting/delinquencies">Retards & Impayés</Link>
           <Link to="/accounting/salaries">Salaires Profs</Link>
           <Link className="active" to="/accounting/expenses">Charges</Link>

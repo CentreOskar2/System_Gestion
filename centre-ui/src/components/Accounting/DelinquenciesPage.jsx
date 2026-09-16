@@ -125,6 +125,7 @@ export default function DelinquenciesPage() {
         <div className="fees-heading"><h1>Comptabilité</h1><p>Gestion financière du centre.</p></div>
         <nav className="accounting-tabs">
           <Link to="/accounting/fees">Frais de scolarité</Link>
+          <Link to="/accounting/formations">Frais de formation</Link>
           <Link className="active" to="/accounting/delinquencies">Retards & Impayés</Link>
           <Link to="/accounting/salaries">Salaires Profs</Link>
           <Link to="/accounting/expenses">Charges</Link>

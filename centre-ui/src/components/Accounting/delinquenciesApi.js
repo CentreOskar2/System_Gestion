@@ -153,7 +153,10 @@ export async function fetchDelinquenciesData(branchId = null, schoolYearStart = 
   if (templatesRes.error) throw new Error(templatesRes.error.message)
   if (settingsRes.error) throw new Error(settingsRes.error.message)
 
-  const debtors = buildDebtors(fees.students, fees.paymentsByStudent, new Date(), schoolYearStart)
+  // Les inscrits « formation seule » n'ont pas de scolarité à devoir : leurs
+  // impayés se lisent sur le calendrier des formations, pas ici.
+  const academicStudents = fees.students.filter((student) => student.level_id)
+  const debtors = buildDebtors(academicStudents, fees.paymentsByStudent, new Date(), schoolYearStart)
   return {
     debtors,
     stats: summarizeDebtors(debtors),

@@ -46,15 +46,21 @@ export default function GroupsPage() {
 
   async function fetchAll() {
     setLoading(true)
-    const [groupsRes, levelsRes, filieresRes, gsRes] = await Promise.all([
+    const [groupsRes, levelsRes, filieresRes, gsRes, formationLevelsRes] = await Promise.all([
       supabase.from('groups').select('*').order('created_at', { ascending: false }),
       supabase.from('levels').select('id, name').order('name'),
       supabase.from('study_branches').select('id, name, level_id').order('name'),
       supabase.from('group_students').select('group_id, student_id'),
+      // Avant la migration 031 cette table n'existe pas : l'erreur est absorbée
+      // et les groupes s'affichent comme avant, sans colonne formation.
+      supabase.from('formation_levels').select('id, name, formations(name)'),
     ])
     if (groupsRes.data) {
       const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
       const filiereMap = Object.fromEntries((filieresRes.data || []).map((f) => [f.id, f.name]))
+      const formationMap = Object.fromEntries(
+        (formationLevelsRes.data || []).map((l) => [l.id, `${l.formations?.name || ''} · ${l.name}`.trim()])
+      )
       const studentsByGroup = {}
       for (const row of gsRes.data || []) {
         studentsByGroup[row.group_id] = [...(studentsByGroup[row.group_id] || []), row.student_id]
@@ -66,10 +72,16 @@ export default function GroupsPage() {
           level_id: g.level_id,
           filiere_id: g.filiere_id,
           subject_id: g.subject_id,
+          formation_level_id: g.formation_level_id || null,
           teacher_id: g.teacher_id,
           branch_id: g.branch_id,
-          level: levelMap[g.level_id] || '',
+          // Un groupe de formation n'a pas de niveau scolaire : on affiche son
+          // rattachement formation dans la même colonne, plutôt qu'une case vide.
+          level: g.formation_level_id
+            ? formationMap[g.formation_level_id] || 'Formation'
+            : levelMap[g.level_id] || '',
           filiere: filiereMap[g.filiere_id] || '',
+          isFormation: Boolean(g.formation_level_id),
           student_ids: studentsByGroup[g.id] || [],
           studentIds: studentsByGroup[g.id] || [],
           capacity: g.capacity,
@@ -98,11 +110,16 @@ export default function GroupsPage() {
   )
 
   async function saveGroup(form, editing) {
+    // Les deux rattachements s'excluent : un groupe de formation n'a ni niveau
+    // scolaire ni filière, et inversement. On vide explicitement l'autre côté
+    // pour qu'un groupe converti ne garde pas son ancien rattachement.
+    const isFormation = form.kind === 'formation'
     const payload = {
       name: form.name,
-      level_id: form.level_id || null,
-      filiere_id: form.filiere_id || null,
-      subject_id: form.subject_id || null,
+      level_id: isFormation ? null : form.level_id || null,
+      filiere_id: isFormation ? null : form.filiere_id || null,
+      subject_id: isFormation ? null : form.subject_id || null,
+      formation_level_id: isFormation ? form.formation_level_id || null : null,
       teacher_id: form.teacher_id || null,
       capacity: form.capacity != null && form.capacity !== '' ? Number(form.capacity) : null,
       // Groups are shared by the whole centre, not owned by a branch.

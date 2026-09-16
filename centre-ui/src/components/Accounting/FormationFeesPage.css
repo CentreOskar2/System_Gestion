@@ -1,0 +1,105 @@
+/* Calendrier des frais de formation. Réutilise l'essentiel de FeesPage.css
+   (fee-stats, fees-table, payment-dot) ; seuls la modale d'encaissement et
+   quelques détails propres aux formations sont définis ici. */
+
+.formation-no-group {
+  color: #a06a1f;
+}
+
+/* Élève qui suit aussi un cursus : ses frais d'inscription se règlent sur la
+   page Scolarité. On le dit sans en faire une action cliquable. */
+.registration-elsewhere {
+  color: #8a94a6;
+  font-size: .86rem;
+  white-space: nowrap;
+}
+
+.formation-fee-note {
+  margin: -14px 0 26px !important;
+  padding: 14px 18px !important;
+  border-left: 3px solid #315fec;
+  background: #f4f7ff !important;
+  color: #48546c;
+  font-size: .9rem;
+  line-height: 1.55;
+}
+
+.fee-modal-bg {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #111827bf;
+}
+
+.fee-modal {
+  width: min(520px, 100%);
+  padding: 30px 32px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 22px 70px #0005;
+}
+
+.fee-modal h2 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.fee-modal > p {
+  margin: 18px 0 26px;
+  padding: 18px;
+  border-radius: 12px;
+  background: #f0f3f7;
+  color: #48546c;
+  line-height: 1.6;
+}
+
+.fee-modal > p b {
+  color: #172033;
+}
+
+.fee-modal footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.fee-modal footer button {
+  min-height: 48px;
+  padding: 0 20px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  background: #fff;
+  color: #273041;
+  font: inherit;
+  font-weight: 750;
+}
+
+.fee-modal footer .fee-validate {
+  border-color: #315fec;
+  background: #315fec;
+  color: #fff;
+  box-shadow: 0 4px 8px #315fec44;
+}
+
+.fee-modal footer .fee-danger {
+  border-color: #fa2437;
+  background: #fff;
+  color: #fa2437;
+}
+
+.fee-modal footer button:disabled {
+  opacity: .6;
+}
+
+@media (max-width: 560px) {
+  .fee-modal footer {
+    flex-direction: column-reverse;
+  }
+
+  .fee-modal footer button {
+    width: 100%;
+  }
+}

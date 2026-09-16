@@ -17,6 +17,7 @@ import Teachers from './components/Teachers/TeachersPage'
 import Groups from './components/Groups/GroupsPage'
 import Students from './components/Students/StudentsPage'
 import FeesPage from './components/Accounting/FeesPage'
+import FormationFeesPage from './components/Accounting/FormationFeesPage'
 import DelinquenciesPage from './components/Accounting/DelinquenciesPage'
 import SalariesPage from './components/Accounting/SalariesPage'
 import ExpensesPage from './components/Accounting/ExpensesPage'
@@ -39,6 +40,9 @@ const sidebarSections = [
         requiredPerm: ['tuition', 'late_payments', 'teacher_salaries', 'expenses', 'net_profit'],
         children: [
           { label: 'Frais de scolarité', path: '/accounting/fees', requiredPerm: 'tuition' },
+          // Les formations partagent la permission « tuition » : c'est le même
+          // métier d'encaissement, aucune colonne de user_permissions à ajouter.
+          { label: 'Frais de formation', path: '/accounting/formations', requiredPerm: 'tuition' },
           { label: 'Retards & Impayés', path: '/accounting/delinquencies', requiredPerm: 'late_payments' },
           { label: 'Salaires Profs', path: '/accounting/salaries', requiredPerm: 'teacher_salaries' },
           { label: 'Charges', path: '/accounting/expenses', requiredPerm: 'expenses' },
@@ -124,6 +128,7 @@ function App() {
                 <Route path="/groups" element={<ProtectedRoute requiredPerm="groups"><Groups /></ProtectedRoute>} />
                 <Route path="/teachers" element={<ProtectedRoute requiredPerm="teachers"><Teachers /></ProtectedRoute>} />
                 <Route path="/accounting/fees" element={<ProtectedRoute requiredPerm="tuition"><FeesPage /></ProtectedRoute>} />
+                <Route path="/accounting/formations" element={<ProtectedRoute requiredPerm="tuition"><FormationFeesPage /></ProtectedRoute>} />
                 <Route path="/accounting/delinquencies" element={<ProtectedRoute requiredPerm="late_payments"><DelinquenciesPage /></ProtectedRoute>} />
                 <Route path="/accounting/salaries" element={<ProtectedRoute requiredPerm="teacher_salaries"><SalariesPage /></ProtectedRoute>} />
                 <Route path="/accounting/expenses" element={<ProtectedRoute requiredPerm="expenses"><ExpensesPage /></ProtectedRoute>} />

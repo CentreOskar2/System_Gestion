@@ -1,6 +1,10 @@
 import { getPrice, isPackageLevel, packagePrice } from '../enrollmentApi'
+import FormationPicker from '../../../Formations/FormationPicker'
 
 export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, toggleGroupSubject, setSubjectDetails, resetGroups }) {
+  // Formation seule : aucun cycle n'a été choisi, tout le bloc scolaire de cette
+  // étape n'a plus d'objet. Seules les formations restent à sélectionner.
+  const formationOnly = Boolean(form.formationOnly)
   const cycles = catalog.cycles || []
   const levels = (catalog.levelsByCycle && catalog.levelsByCycle[form.cycle]) || []
   const groups = form.level
@@ -27,6 +31,16 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
   }
 
   const selection = form.groupSelections || []
+
+  if (formationOnly) {
+    return (
+      <FormationPicker
+        rows={form.formations || []}
+        onChange={(rows) => set('formations', rows)}
+        required
+      />
+    )
+  }
 
   return (
     <>
@@ -175,6 +189,15 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
           </div>
         </fieldset>
       )}
+
+      <hr className="enrollment-separator" />
+
+      {/* Les formations se cumulent avec le parcours scolaire et sont facturées
+          sur leur propre calendrier : elles n'entrent pas dans le dû mensuel. */}
+      <FormationPicker
+        rows={form.formations || []}
+        onChange={(rows) => set('formations', rows)}
+      />
     </>
   )
 }

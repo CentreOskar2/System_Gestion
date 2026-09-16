@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import Header from '../shared/Header'
 import Icon from '../Icon'
 import { deactivateAllStudents, reactivateAllStudents } from '../Students/enrollment/enrollmentApi'
+import FormationsSettings from '../Formations/FormationsSettings'
 import { normalizePhoneInput, phoneValidationMessage } from '../../utils/validators'
 import { fetchAppSettings, saveAppSettings } from '../../appSettings'
 import { schoolYearLabel, academicYearStart } from '../Accounting/monthUtils'
@@ -947,7 +948,7 @@ export default function Settings() {
         <p>Configuration générale de la plateforme.</p>
 
         <nav className="settings-tabs">
-          {[['general', '▦ Général'], ['academic', '≡ Structure académique'], ['pricing', '⛓ Grille tarifaire'], ['whatsapp', '□ Template WhatsApp']].map(([id, label]) => (
+          {[['general', '▦ Général'], ['academic', '≡ Structure académique'], ['formations', '◈ Formations'], ['pricing', '⛓ Grille tarifaire'], ['whatsapp', '□ Template WhatsApp']].map(([id, label]) => (
             <button className={tab === id ? 'active' : ''} onClick={() => setTab(id)} key={id}>{label}</button>
           ))}
         </nav>
@@ -1080,6 +1081,8 @@ export default function Settings() {
               </div>}
           </section>
         )}
+
+        {tab === 'formations' && <FormationsSettings notify={notify} />}
 
         {tab === 'pricing' && (
           <>

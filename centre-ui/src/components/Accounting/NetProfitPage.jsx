@@ -7,6 +7,7 @@ import { useBranch } from '../../context/BranchContext'
 import { academicMonths, calendarMonthOptions, currentMonthKey, schoolYearOptions } from './monthUtils'
 import { subscribeFeesCache } from './feesApi'
 import { computeTeacherSalaries, fetchSalaryContext } from './salariesApi'
+import { fetchFormationRevenue } from '../Formations/formationsApi'
 import './NetProfitPage.css'
 
 const CHART_LABELS = ['Sept', 'Oct', 'Nov', 'Déc', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
@@ -34,10 +35,10 @@ function aggregateFrom(d, monthKey, salaryRows, scope = null) {
     d.manualExpenses.filter((e) => sameMonth(e.month, monthKey) && inScope(e.branch_id, scope, known)),
     (e) => e.amount
   )
-  const salaries = sum(
-    (salaryRows || []).filter((s) => inScope(s.branch_id, scope, known)),
-    (s) => s.amount
-  )
+  // Un professeur n'appartient a aucune succursale : sa paie est une charge du
+  // centre. Elle n'apparait donc que dans la vue globale et sur la ligne
+  // « Centre (sans succursale) », jamais imputee a une succursale donnee.
+  const salaries = scope && scope !== UNASSIGNED ? 0 : sum(salaryRows || [], (s) => s.amount)
   return { ca, charges, salaries, net: ca - charges - salaries }
 }
 
@@ -151,13 +152,14 @@ export default function NetProfitPage() {
         studentsQuery = studentsQuery.eq('branch_id', branchFilter)
         expensesQuery = expensesQuery.eq('branch_id', branchFilter)
       }
-      const [paymentsRes, studentsRes, expensesRes, branchesRes, feesRes, salaryContext] = await Promise.all([
+      const [paymentsRes, studentsRes, expensesRes, branchesRes, feesRes, salaryContext, formationRevenue] = await Promise.all([
         supabase.from('student_payments').select('student_id, month, amount, status'),
         studentsQuery,
         expensesQuery,
         supabase.from('branches').select('id, name, status'),
         supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid'),
-        fetchSalaryContext({ branchId: branchFilter }),
+        fetchSalaryContext(),
+        fetchFormationRevenue(),
       ])
       if (cancelled) return
 
@@ -173,9 +175,13 @@ export default function NetProfitPage() {
           month: `${String(fee.paid_at).slice(0, 7)}-01`,
         }))
 
+      // Les encaissements de formation sont une recette du centre au même titre
+      // que la scolarité. Sans eux, le salaire du professeur de formation entrait
+      // en charge sans que sa recette entre en face : le résultat était faussé.
       let paidPayments = [
         ...(paymentsRes.data || []).filter((p) => PAID_STATUSES.includes(p.status)),
         ...paidRegistrationFees,
+        ...formationRevenue,
       ]
       // Les charges de type « Auto » sont les salaires validés : elles sont
       // déjà portées par le calcul de paie, les compter ici les doublerait.
@@ -297,6 +303,7 @@ export default function NetProfitPage() {
         </div>
         <nav className="accounting-tabs">
           <Link to="/accounting/fees">Frais de scolarité</Link>
+          <Link to="/accounting/formations">Frais de formation</Link>
           <Link to="/accounting/delinquencies">Retards & Impayés</Link>
           <Link to="/accounting/salaries">Salaires Profs</Link>
           <Link to="/accounting/expenses">Charges</Link>

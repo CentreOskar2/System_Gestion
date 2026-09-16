@@ -8,8 +8,7 @@ import TeachersTable from './TeachersTable'
 import TeacherProfile from './TeacherProfile'
 import { supabase } from '../../supabaseClient'
 import { uploadImage } from '../../utils/storage'
-import { fetchCurrentUserBranchId } from '../../utils/currentUserBranch'
-import { useBranch } from '../../context/BranchContext'
+import { invalidateFeesCache } from '../Accounting/feesApi'
 import './Teachers.css'
 
 function Toast({ notice }) {
@@ -22,9 +21,11 @@ function Toast({ notice }) {
   )
 }
 
-async function fetchTeachersData(branchId) {
-  let teachersQuery = supabase.from('teachers').select('*').order('created_at', { ascending: false })
-  if (branchId && branchId !== 'all') teachersQuery = teachersQuery.eq('branch_id', branchId)
+// Un professeur n'appartient a aucune succursale : il peut enseigner dans
+// plusieurs cycles et dans plusieurs succursales a la fois. La liste est donc
+// toujours celle du centre entier, quelle que soit la succursale affichee.
+async function fetchTeachersData() {
+  const teachersQuery = supabase.from('teachers').select('*').order('created_at', { ascending: false })
   const [teachersRes, subjectsRes, levelsRes, branchesRes, cyclesRes, tsRes, tbRes, tlRes, tgRes, tgnRes, groupsRes] = await Promise.all([
     teachersQuery,
     supabase.from('subjects').select('id, name'),
@@ -114,7 +115,6 @@ async function fetchTeachersData(branchId) {
 
 export default function TeachersPage() {
   const location = useLocation()
-  const { selectedBranch } = useBranch()
   const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState(location.state?.query || '')
@@ -139,15 +139,15 @@ export default function TeachersPage() {
 
   useEffect(() => {
     let cancelled = false
-    fetchTeachersData(selectedBranch)
+    fetchTeachersData()
       .then((mapped) => { if (!cancelled) setTeachers(mapped) })
       .finally(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
-  }, [selectedBranch])
+  }, [])
 
   const refreshTeachers = async () => {
     setLoading(true)
-    setTeachers(await fetchTeachersData(selectedBranch))
+    setTeachers(await fetchTeachersData())
     setLoading(false)
   }
 
@@ -261,7 +261,6 @@ export default function TeachersPage() {
   }
 
   async function saveTeacher(form, editing) {
-    const branchId = await fetchCurrentUserBranchId()
     const fixedSalary = form.fixed_salary === '' || form.fixed_salary == null ? null : Number(form.fixed_salary)
     const payload = {
       first_name: form.first_name,
@@ -278,8 +277,6 @@ export default function TeachersPage() {
       cycle_ids: form.cycles || [],
       cycle_rates: form.cycle_rates || {},
     }
-
-    if (!editing) payload.branch_id = branchId
 
     const subjects = form.subjects || []
     const levels = form.levels || []
@@ -322,17 +319,19 @@ export default function TeachersPage() {
     if (groupIds.length > 0) {
       const { data, error } = await supabase
         .from('groups')
-        .select('id, subject_id, levels(cycles(has_fixed_price))')
+        .select('id, subject_id, formation_level_id, levels(cycles(has_fixed_price))')
         .in('id', groupIds)
       if (error) throw new Error(error.message)
       selectedGroups.push(...(data || []))
     }
     // Sur un cycle au forfait le professeur enseigne tout le niveau : son
-    // affectation se note dans teacher_groups, sans matière.
-    const isPackageGroup = (group) => Boolean(group.levels?.cycles?.has_fixed_price)
-    const packageGroupIds = selectedGroups.filter(isPackageGroup).map((group) => group.id)
+    // affectation se note dans teacher_groups, sans matière. Un groupe de
+    // formation suit la même règle — il n'a aucune matière à rattacher.
+    const isWholeGroup = (group) =>
+      Boolean(group.levels?.cycles?.has_fixed_price) || Boolean(group.formation_level_id)
+    const packageGroupIds = selectedGroups.filter(isWholeGroup).map((group) => group.id)
     const newAssignments = selectedGroups
-      .filter((group) => !isPackageGroup(group))
+      .filter((group) => !isWholeGroup(group))
       .map((group) => {
         const subjectId = group.subject_id || subjects[0]
         return { group_id: group.id, subject_ids: subjectId ? [subjectId] : [] }
@@ -381,6 +380,11 @@ export default function TeachersPage() {
     }
 
     await refreshTeachers()
+    // Un professeur porte son tarif : le modifier change les salaires, donc le
+    // bénéfice net et le tableau de bord. Ce signal réveille les écrans abonnés
+    // dans les autres onglets du même navigateur, qui sinon garderaient leur
+    // copie jusqu'au prochain retour de focus.
+    invalidateFeesCache()
     setFormTeacher(undefined)
     setNotice({
       type: 'success',
@@ -399,6 +403,9 @@ export default function TeachersPage() {
           item.id === teacherId ? { ...item, active: newStatus === 'active', status: newStatus } : item
         )
       )
+      // Désactiver un professeur le retire du calcul des salaires : même signal
+      // que pour une modification.
+      invalidateFeesCache()
     }
   }
 

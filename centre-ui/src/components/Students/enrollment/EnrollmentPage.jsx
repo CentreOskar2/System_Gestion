@@ -34,6 +34,8 @@ const createInitialForm = (student) => {
       level: '',
       filiere: '',
       track: '',
+      formationOnly: false,
+      formations: [],
       chosen: [],
       subjectDetails: {},
       groupSelections: [],
@@ -63,6 +65,9 @@ const createInitialForm = (student) => {
     level: student.level || '',
     filiere: student.track || '',
     track: student.track || '',
+    // Un élève sans niveau scolaire est forcément un inscrit « formation seule ».
+    formationOnly: Boolean(student.formationOnly ?? !student.level),
+    formations: student.formations || [],
     chosen: student.chosen || [],
     subjectDetails: student.subjectDetails || {},
     groupSelections: student.groupSelections || [],
@@ -249,14 +254,21 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
         phone2: form.phone2.trim() && !isValidPhoneNumber(form.phone2) ? phoneValidationMessage(form.phone2) : '',
       })
     }
-    if (currentStep === 2) {
+    if (currentStep === 2 && !form.formationOnly) {
       if (!form.cycle) errors.push('Le cycle est obligatoire.')
       if (!form.level) errors.push('Le niveau est obligatoire.')
       if ((catalog.branchesByLevel?.[form.level]?.length || 0) > 0 && !form.track) {
         errors.push('La filière est obligatoire.')
       }
     }
-    if (currentStep === 3) {
+    if (currentStep === 3 && form.formationOnly) {
+      // Sans cycle, la formation est la seule chose qui rattache l'élève au
+      // centre : au moins une est donc obligatoire.
+      if ((form.formations || []).length === 0) {
+        errors.push('Sélectionnez au moins un niveau de formation.')
+      }
+    }
+    if (currentStep === 3 && !form.formationOnly) {
       if (isPackageLevel(catalog, form.level)) {
         // Aucune matière à valider : le forfait couvre tout le niveau.
         if ((form.groupSelections || []).length === 0) {
@@ -299,7 +311,9 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
             userId: user?.id || null,
           })
         }
-        if (form.firstMonthPaidNow) {
+        // Une inscription en formation seule n'a pas de dû mensuel de scolarité :
+        // le 1er mois se règle sur le calendrier des formations.
+        if (form.firstMonthPaidNow && !form.formationOnly) {
           await recordFirstMonthPayment({
             studentId: result.id,
             month: normalizeMonthKey(form.registrationDate),
