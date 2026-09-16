@@ -86,32 +86,82 @@ export default function StudentsPage() {
     }
   }, [selectedBranch])
 
-  const shownStudents = useMemo(
+  // Élèves retenus par le cycle, le niveau et la matière — mais pas encore par
+  // le groupe ni par la recherche. C'est ce périmètre qui alimente la liste des
+  // groupes proposés : filtrer aussi sur le groupe la réduirait au seul groupe
+  // choisi, et filtrer sur la recherche la ferait fondre à chaque frappe.
+  const scopedStudents = useMemo(
     () =>
       items.filter(
         (student) =>
           (activeCycle === 'Tous' || student.cycle === activeCycle) &&
           (activeLevel === 'Tous' || student.level === activeLevel) &&
-          (activeSubject === 'Tous' || student.chosen?.includes(activeSubject)) &&
-          (!activeGroup || student.groupSelections?.some((group) => group.groupId === activeGroup)) &&
+          (activeSubject === 'Tous' || student.chosen?.includes(activeSubject))
+      ),
+    [items, activeCycle, activeLevel, activeSubject]
+  )
+
+  const shownStudents = useMemo(
+    () =>
+      scopedStudents.filter(
+        (student) =>
+          (!activeGroup || student.groupIds?.includes(activeGroup)) &&
           `${student.name} ${student.code} ${student.phone}`
             .toLowerCase()
             .includes(query.toLowerCase())
       ),
-    [items, query, activeCycle, activeLevel, activeSubject, activeGroup]
+    [scopedStudents, query, activeGroup]
   )
 
+  // Groupes proposés au filtre : TOUS les groupes du niveau choisi, lus dans le
+  // catalogue — pas seulement ceux où se trouvent les élèves déjà affichés.
+  // Un groupe vide reste une information utile, et le masquer donnait
+  // l'impression que des groupes manquaient.
+  //
+  // Le rattachement testé est celui DU GROUPE (`group.level_id`), pas celui des
+  // élèves : un élève de 2 BAC inscrit dans un groupe de 3 AC ne doit pas faire
+  // remonter ce groupe ici.
   const groups = useMemo(() => {
-    const uniqueGroups = new Map()
-    for (const student of items) {
-      for (const group of student.groupSelections || []) {
-        if (group.groupId && group.groupName) uniqueGroups.set(group.groupId, group.groupName)
-      }
-    }
-    return [...uniqueGroups]
-      .map(([id, name]) => ({ id, name }))
+    const levelsById = Object.fromEntries((catalog?.levels || []).map((level) => [level.id, level]))
+    const selectedLevelId = activeLevel !== 'Tous' ? catalog?.levelByName?.[activeLevel]?.id : null
+    const selectedCycleId = activeCycle !== 'Tous' ? catalog?.cycleByName?.[activeCycle]?.id : null
+
+    const list = (catalog?.groups || []).filter((group) => {
+      // Les groupes de formation ont leur propre écran : ils n'ont pas de
+      // niveau scolaire et n'ont rien à faire dans ce filtre.
+      if (group.formation_level_id) return false
+      if (selectedLevelId) return group.level_id === selectedLevelId
+      if (selectedCycleId) return levelsById[group.level_id]?.cycle_id === selectedCycleId
+      return true
+    })
+
+    // Plusieurs groupes peuvent porter le même nom — « 2 BAC PC 2 » existe en
+    // actif et en désactivé, « Groupe 1 » en trois exemplaires. Sans distinction
+    // le menu propose des options identiques et on ne sait pas laquelle on choisit.
+    const timesUsed = new Map()
+    for (const group of list) timesUsed.set(group.name, (timesUsed.get(group.name) || 0) + 1)
+
+    return list
+      .map((group) => {
+        const parts = [group.name]
+        if (timesUsed.get(group.name) > 1) {
+          const discriminant =
+            catalog?.filiereById?.[group.filiere_id]?.name || levelsById[group.level_id]?.name
+          if (discriminant) parts.push(discriminant)
+        }
+        if (group.status && group.status !== 'active') parts.push('inactif')
+        return { id: group.id, name: parts.join(' · ') }
+      })
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
-  }, [items])
+  }, [catalog, activeLevel, activeCycle])
+
+  // Changer de niveau peut faire disparaître le groupe sélectionné. Sans cela il
+  // resterait actif mais introuvable dans le menu, et viderait le tableau sans
+  // qu'on comprenne pourquoi. Ajustement pendant le rendu, comme ailleurs dans
+  // l'application, plutôt que dans un effet.
+  if (activeGroup && !groups.some((group) => group.id === activeGroup)) {
+    setActiveGroup('')
+  }
 
   const cycleTabs = useMemo(() => {
     const all = [{ name: 'Tous', count: items.length }]

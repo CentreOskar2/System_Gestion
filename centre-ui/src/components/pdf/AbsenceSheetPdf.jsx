@@ -4,6 +4,12 @@ import { colors, BRAND_NAME, LOGO_SRC, PDF_FONT_FAMILY } from './pdfStyles'
 const ACADEMIC_YEAR = '2026 – 2027'
 const sessions = Array.from({ length: 18 }, (_, index) => `S${index + 1}`)
 
+// Lignes vierges ajoutees sous la liste : de quoi inscrire a la main un eleve
+// arrive en cours d'annee sans reimprimer la fiche. La numerotation se poursuit
+// (11, 12...) pour que le professeur garde un decompte continu.
+const BLANK_ROWS = 8
+const blankRows = Array.from({ length: BLANK_ROWS }, (_, index) => index)
+
 const styles = StyleSheet.create({
   page: {
     padding: 24,
@@ -95,12 +101,6 @@ const styles = StyleSheet.create({
   colReg: { width: 55 },
   colNote: { width: 26, textAlign: 'center' },
   colSession: { width: 29, textAlign: 'center' },
-  empty: {
-    padding: 20,
-    textAlign: 'center',
-    color: colors.muted,
-    fontSize: 9,
-  },
   help: {
     marginTop: 10,
     fontSize: 8,
@@ -168,22 +168,30 @@ export default function AbsenceSheetPdf({ meta, students }) {
               <Text style={[styles.cell, styles.headCell, styles.colSession]} key={session}>{session}</Text>
             ))}
           </View>
-          {students.length === 0 ? (
-            <Text style={styles.empty}>Aucun élève inscrit dans ce groupe.</Text>
-          ) : (
-            students.map((student, index) => (
-              <View style={styles.row} key={student.id} wrap={false}>
-                <Text style={[styles.cell, styles.colIndex]}>{index + 1}</Text>
-                <Text style={[styles.cell, styles.colStudent]}>{student.name}</Text>
-                <Text style={[styles.cell, styles.colReg]}>{student.registration_number || ''}</Text>
-                <Text style={[styles.cell, styles.colNote]} />
-                <Text style={[styles.cell, styles.colNote]} />
-                {sessions.map((session) => (
-                  <Text style={[styles.cell, styles.colSession]} key={session} />
-                ))}
-              </View>
-            ))
-          )}
+          {students.map((student, index) => (
+            <View style={styles.row} key={student.id} wrap={false}>
+              <Text style={[styles.cell, styles.colIndex]}>{index + 1}</Text>
+              <Text style={[styles.cell, styles.colStudent]}>{student.name}</Text>
+              <Text style={[styles.cell, styles.colReg]}>{student.registration_number || ''}</Text>
+              <Text style={[styles.cell, styles.colNote]} />
+              <Text style={[styles.cell, styles.colNote]} />
+              {sessions.map((session) => (
+                <Text style={[styles.cell, styles.colSession]} key={session} />
+              ))}
+            </View>
+          ))}
+          {blankRows.map((offset) => (
+            <View style={styles.row} key={`blank-${offset}`} wrap={false}>
+              <Text style={[styles.cell, styles.colIndex]}>{students.length + offset + 1}</Text>
+              <Text style={[styles.cell, styles.colStudent]} />
+              <Text style={[styles.cell, styles.colReg]} />
+              <Text style={[styles.cell, styles.colNote]} />
+              <Text style={[styles.cell, styles.colNote]} />
+              {sessions.map((session) => (
+                <Text style={[styles.cell, styles.colSession]} key={session} />
+              ))}
+            </View>
+          ))}
         </View>
 
         <Text style={styles.help}>Cocher P pour présent, A pour absent, R pour retard.</Text>

@@ -561,6 +561,23 @@ export async function fetchStudents(branchId = null) {
     subsByStudent[sub.student_id].push(sub)
   }
 
+  // Appartenance reelle aux groupes. `groupSelections` ci-dessous est deduit des
+  // abonnements par matiere (student_subscriptions) : il sert au formulaire
+  // d'inscription et ne doit pas changer. Mais un eleve ajoute a un groupe
+  // depuis la page Groupes n'a pas d'abonnement, il etait donc introuvable par
+  // le filtre « groupe » de la liste des eleves. group_students fait foi sur la
+  // question « qui est dans ce groupe ».
+  const { data: memberships, error: membershipsError } = await supabase
+    .from('group_students')
+    .select('group_id, student_id')
+  if (membershipsError) throw new Error(membershipsError.message)
+
+  const groupIdsByStudent = {}
+  for (const row of memberships || []) {
+    if (!groupIdsByStudent[row.student_id]) groupIdsByStudent[row.student_id] = new Set()
+    groupIdsByStudent[row.student_id].add(row.group_id)
+  }
+
   // Inscriptions aux formations, remises dans la forme attendue par
   // FormationPicker pour que la modification d'un élève les restitue telles
   // quelles. Absentes tant que la migration 031 n'a pas été passée : l'erreur
@@ -639,6 +656,14 @@ export async function fetchStudents(branchId = null) {
       chosen,
       subjectDetails,
       groupSelections,
+      // Union de l'appartenance reelle et des groupes deduits des abonnements :
+      // c'est la liste sur laquelle filtrer, jamais groupSelections seul.
+      groupIds: [
+        ...new Set([
+          ...(groupIdsByStudent[s.id] || []),
+          ...groupSelections.map((selection) => selection.groupId),
+        ]),
+      ].filter(Boolean),
       groupFiliere,
       formations: formationsByStudent[s.id] || [],
       // Sans niveau scolaire, l'élève n'existe que par ses formations.

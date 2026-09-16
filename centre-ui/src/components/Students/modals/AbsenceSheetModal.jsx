@@ -10,6 +10,11 @@ import './AttendancePdf.css'
 const ACADEMIC_YEAR = '2026 – 2027'
 const sessions = Array.from({ length: 18 }, (_, index) => `S${index + 1}`)
 
+// Memes lignes vierges que sur le PDF : l'apercu doit montrer exactement ce
+// qui sera imprime.
+const BLANK_ROWS = 8
+const blankRows = Array.from({ length: BLANK_ROWS }, (_, index) => index)
+
 function AbsenceSheet({ meta, students, close }) {
   const [isExporting, setIsExporting] = useState(false)
   const downloadPdf = async () => {
@@ -63,20 +68,26 @@ function AbsenceSheet({ meta, students, close }) {
             </tr>
           </thead>
           <tbody>
-            {students.length === 0 ? (
-              <tr><td colSpan={5 + sessions.length} style={{ height: 60, color: '#53647e' }}>Aucun élève inscrit dans ce groupe.</td></tr>
-            ) : (
-              students.map((student, index) => (
-                <tr key={student.id}>
-                  <td>{index + 1}</td>
-                  <td>{student.name}</td>
-                  <td>{student.registration_number || ''}</td>
-                  <td />
-                  <td />
-                  {sessions.map((session) => <td key={session} />)}
-                </tr>
-              ))
-            )}
+            {students.map((student, index) => (
+              <tr key={student.id}>
+                <td>{index + 1}</td>
+                <td>{student.name}</td>
+                <td>{student.registration_number || ''}</td>
+                <td />
+                <td />
+                {sessions.map((session) => <td key={session} />)}
+              </tr>
+            ))}
+            {blankRows.map((offset) => (
+              <tr key={`blank-${offset}`}>
+                <td>{students.length + offset + 1}</td>
+                <td />
+                <td />
+                <td />
+                <td />
+                {sessions.map((session) => <td key={session} />)}
+              </tr>
+            ))}
           </tbody>
         </table>
         <p className="absence-help">Cocher <b>P</b> pour présent, <b>A</b> pour absent, <b>R</b> pour retard.</p>
