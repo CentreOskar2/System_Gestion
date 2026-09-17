@@ -14,6 +14,12 @@ import { calendarMonthOptions, currentMonthKey, monthLabelOf, schoolYearOptions 
 import { fetchTeacherSalaries } from './salariesApi'
 import './SalariesPage.css'
 
+// Total réellement facturé au groupe. `revenue` est la somme des prix payés par
+// chaque élève : une remise accordée à l'un d'eux s'y reflète, ce que
+// « effectif × tarif standard » ignorait.
+const groupRevenue = (group) =>
+  Number.isFinite(group.revenue) ? group.revenue : group.studentsCount * group.price
+
 function buildSalaryMessage(teacher, monthLabel) {
   const percentage = teacher.type === 'Pourcentage'
   const lines = []
@@ -24,7 +30,7 @@ function buildSalaryMessage(teacher, monthLabel) {
   if (teacher.groups.length > 0) {
     lines.push('*تفاصيل المجموعات:*')
     teacher.groups.forEach((group) => {
-      const groupTotal = group.studentsCount * group.price
+      const groupTotal = groupRevenue(group)
       const net = percentage ? Math.round((groupTotal * group.rate) / 100) : groupTotal
       lines.push('')
       lines.push(`▪️ *${group.name}* (${group.subject} · ${group.level})`)
@@ -60,10 +66,10 @@ function Journal({ teacher, monthLabel, close }) {
   const [isExporting, setIsExporting] = useState(false)
   const percentage = teacher.type === 'Pourcentage'
 
-  const groupTotals = teacher.groups.map((group) => group.studentsCount * group.price)
+  const groupTotals = teacher.groups.map(groupRevenue)
   const totalSalary = percentage
     ? teacher.amount
-    : teacher.groups.reduce((sum, group) => sum + group.studentsCount * group.price, 0)
+    : teacher.groups.reduce((sum, group) => sum + groupRevenue(group), 0)
 
   const downloadPdf = async () => {
     setIsExporting(true)
@@ -109,10 +115,16 @@ function Journal({ teacher, monthLabel, close }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {(group.students.length > 0 ? group.students : Array.from({ length: group.studentsCount }, (_, i) => `Élève ${i + 1}`)).map((student, i) => (
-                    <tr key={`${student}-${i}`}>
-                      <td>{student}</td>
-                      <td>{group.price} DH</td>
+                  {(group.studentPrices?.length > 0
+                    ? group.studentPrices
+                    : group.students.length > 0
+                      ? group.students.map((name) => ({ name, price: group.price }))
+                      : Array.from({ length: group.studentsCount }, (_, i) => ({ name: `Élève ${i + 1}`, price: group.price }))
+                  ).map((entry, i) => (
+                    <tr key={`${entry.name}-${i}`}>
+                      <td>{entry.name}</td>
+                      {/* Le prix payé par CET élève, remise comprise. */}
+                      <td>{Number(entry.price).toLocaleString('fr-FR')} DH</td>
                     </tr>
                   ))}
                 </tbody>

@@ -333,8 +333,16 @@ export default function TeachersPage() {
     const newAssignments = selectedGroups
       .filter((group) => !isWholeGroup(group))
       .map((group) => {
-        const subjectId = group.subject_id || subjects[0]
-        return { group_id: group.id, subject_ids: subjectId ? [subjectId] : [] }
+        // Un groupe dédié à une matière ne concerne que celle-là. Sinon le
+        // professeur y enseigne TOUTES les matières qu'on lui a cochées :
+        // « 2 BAC ECO » accueille COMPTA, ECONOMIE et ORGA avec le même
+        // professeur, et il doit apparaître pour les trois.
+        //
+        // L'ancienne version ne retenait qu'une seule matière (`subjects[0]`) :
+        // les élèves inscrits dans le groupe pour les autres matières
+        // n'apparaissaient ni dans son journal, ni dans son effectif.
+        const subjectIds = group.subject_id ? [group.subject_id] : subjects
+        return { group_id: group.id, subject_ids: (subjectIds || []).filter(Boolean) }
       })
 
     await syncTeacherGroups(teacherId, packageGroupIds)

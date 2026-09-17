@@ -731,9 +731,19 @@ export default function FeesPage() {
       chosen: e.chosen.includes(subject) ? e.chosen.filter((s) => s !== subject) : [...e.chosen, subject],
       subjectDetails: {
         ...e.subjectDetails,
-        [subject]: e.subjectDetails?.[subject] || { teacher: '', group: '', priceType: 'standard', manualPrice: '' },
+        [subject]: e.subjectDetails?.[subject] || { teacher: '', group_id: '', group: '', priceType: 'standard', manualPrice: '' },
       },
     }))
+
+  // Les groupes proposés pour une matière, plus celui déjà enregistré s'il n'y
+  // figure pas — un groupe sans matière propre n'apparaît sinon nulle part, le
+  // menu s'affiche vide, et l'enregistrement détache l'élève de son groupe.
+  const groupOptionsFor = (subject, details) => {
+    const options = [...(catalog?.groupsBySubject?.[subject] || [])]
+    const current = details?.group_id ? catalog?.groupsById?.[details.group_id] : null
+    if (current && !options.some((group) => group.id === current.id)) options.unshift(current)
+    return options
+  }
 
   const setSubjectDetails = (subject, changes) =>
     setEditing((e) => ({ ...e, subjectDetails: { ...e.subjectDetails, [subject]: { ...e.subjectDetails?.[subject], ...changes } } }))
@@ -768,6 +778,21 @@ export default function FeesPage() {
 
   const saveEdit = async () => {
     if (!editing || saving) return
+
+    // Une matière sans groupe s'enregistre avec group_id à null. La
+    // synchronisation retire alors l'élève de ce groupe : il disparaît de la
+    // fiche d'absence et du journal du professeur, sans que rien ne le signale.
+    // On refuse donc l'enregistrement plutôt que de le détacher en silence.
+    if (!editIsPackage) {
+      const sansGroupe = (editing.chosen || []).filter(
+        (name) => !editing.subjectDetails?.[name]?.group_id && !editing.subjectDetails?.[name]?.group
+      )
+      if (sansGroupe.length > 0) {
+        setError(`Choisissez un groupe pour : ${sansGroupe.join(', ')}.`)
+        return
+      }
+    }
+
     setSaving(true)
     setError('')
     try {
@@ -1017,7 +1042,7 @@ export default function FeesPage() {
             <div className="edit-subjects">
               {availableSubjects.map((subject) => {
                 const isSelected = editing.chosen.includes(subject)
-                const details = editing.subjectDetails?.[subject] || { teacher: '', group: '', priceType: 'standard', manualPrice: '' }
+                const details = editing.subjectDetails?.[subject] || { teacher: '', group_id: '', group: '', priceType: 'standard', manualPrice: '' }
                 return (
                   <article key={subject} className={isSelected ? 'selected' : ''}>
                     <label className="edit-subject-toggle">
@@ -1040,10 +1065,19 @@ export default function FeesPage() {
                         </label>
                         <label>
                           Groupe
-                          <select value={details.group} onChange={(e) => setSubjectDetails(subject, { group: e.target.value })}>
+                          <select
+                            value={details.group_id || ''}
+                            onChange={(e) => {
+                              const id = e.target.value
+                              setSubjectDetails(subject, {
+                                group_id: id,
+                                group: catalog.groupsById?.[id]?.name || '',
+                              })
+                            }}
+                          >
                             <option value="">Choisir un groupe</option>
-                            {(catalog.groupsBySubject?.[subject] || []).map((group) => (
-                              <option key={group.id} value={group.name}>{group.name}</option>
+                            {groupOptionsFor(subject, details).map((group) => (
+                              <option key={group.id} value={group.id}>{group.name}</option>
                             ))}
                           </select>
                         </label>

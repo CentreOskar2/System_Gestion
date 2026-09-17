@@ -22,7 +22,7 @@ export async function fetchSalaryContext() {
   const teachersQuery = supabase.from('teachers').select('*').eq('status', 'active').order('last_name')
   const groupsQuery = supabase.from('groups').select('id, name, subject_id, level_id, branch_id, formation_level_id')
 
-  const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
+  const [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, subscriptionsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes] = await Promise.all([
     teachersQuery,
     supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
     supabase.from('levels').select('id, name, cycle_id, fixed_price'),
@@ -32,13 +32,16 @@ export async function fetchSalaryContext() {
     supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
     supabase.from('teacher_groups').select('teacher_id, group_id'),
     supabase.from('student_group_subjects').select('group_id, student_id, subject_id'),
+    // Le prix réellement facturé à chaque élève. Un prix manuel (une remise)
+    // ne figure QUE là : la table tariffs ne connaît que le prix standard.
+    supabase.from('student_subscriptions').select('student_id, group_id, subject_id, monthly_price'),
     supabase.from('group_students').select('group_id, student_id'),
     supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id'),
     supabase.from('teacher_salaries').select('teacher_id, month, amount').eq('status', 'paid'),
     supabase.from('tariffs').select('level_id, subject_id, price'),
   ])
 
-  const firstError = [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes].find((r) => r.error)
+  const firstError = [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, subscriptionsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes].find((r) => r.error)
   if (firstError) throw new Error(firstError.error.message)
 
   const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
@@ -117,9 +120,21 @@ export async function fetchSalaryContext() {
     validatedByMonth[key][row.teacher_id] = Number(row.amount) || 0
   }
 
+  // Prix réellement facturé, par (élève, groupe, matière). Un prix manuel — une
+  // remise accordée à l'inscription — n'existe que dans student_subscriptions ;
+  // la table tariffs ne porte que le prix standard du niveau.
+  const priceByStudentGroupSubject = {}
+  for (const row of subscriptionsRes.data || []) {
+    if (!row.group_id) continue
+    const amount = Number(row.monthly_price)
+    if (!Number.isFinite(amount)) continue
+    priceByStudentGroupSubject[`${row.student_id}:${row.group_id}:${row.subject_id || ''}`] = amount
+  }
+
   return {
     teacherRows: teachersRes.data || [],
     studentSubjectRows: studentSubjectsRes.data || [],
+    priceByStudentGroupSubject,
     groupStudentRows: groupStudentsRes.data || [],
     validatedByMonth,
     cycleMap,
@@ -142,7 +157,7 @@ export async function fetchSalaryContext() {
 // cours sinon.
 export function computeTeacherSalaries(context, month) {
   const {
-    teacherRows, studentSubjectRows, groupStudentRows, validatedByMonth,
+    teacherRows, studentSubjectRows, groupStudentRows, priceByStudentGroupSubject, validatedByMonth,
     cycleMap, levelMap, levelById, branchMap, subjectMap, groupById,
     studentMap, studentRowById, isPackageGroup, priceForGroup, assignmentsByTeacher,
   } = context
@@ -164,7 +179,11 @@ export function computeTeacherSalaries(context, month) {
     const key = `${row.group_id}:${row.subject_id}`
     if (!studentsByGroupSubject[key]) studentsByGroupSubject[key] = []
     if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
-      studentsByGroupSubject[key].push({ id: row.student_id, name })
+      // Prix réellement facturé à CET élève. Repli sur le tarif standard pour un
+      // élève rattaché au groupe sans abonnement — sinon il compterait pour zéro.
+      const billed = priceByStudentGroupSubject[`${row.student_id}:${row.group_id}:${row.subject_id}`]
+      const price = Number.isFinite(billed) ? billed : priceForGroup(row.group_id, row.subject_id)
+      studentsByGroupSubject[key].push({ id: row.student_id, name, price })
     }
   }
   // Au forfait l'élève n'a pas de ligne par matière : son appartenance au
@@ -181,7 +200,8 @@ export function computeTeacherSalaries(context, month) {
     const key = `${row.group_id}:`
     if (!studentsByGroupSubject[key]) studentsByGroupSubject[key] = []
     if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
-      studentsByGroupSubject[key].push({ id: row.student_id, name })
+      // Au forfait le prix est celui du niveau, le même pour tout le groupe.
+      studentsByGroupSubject[key].push({ id: row.student_id, name, price: priceForGroup(row.group_id) })
     }
   }
 
@@ -193,7 +213,12 @@ export function computeTeacherSalaries(context, month) {
         if (!group) return null
         const cycleId = levelById[group.level_id]?.cycle_id
         const rate = t.remuneration_type === 'pourcentage' ? Number(t.cycle_rates?.[cycleId] ?? 0) : 0
-        const students = (studentsByGroupSubject[assignment.key] || []).map((entry) => entry.name)
+        const roster = studentsByGroupSubject[assignment.key] || []
+        const students = roster.map((entry) => entry.name)
+        // Somme des prix réellement facturés. C'est elle qui sert au calcul du
+        // salaire, et non « nombre d'élèves × tarif standard » : une remise
+        // accordée à un élève doit se répercuter sur la part du professeur.
+        const revenue = roster.reduce((sum, entry) => sum + (Number(entry.price) || 0), 0)
         return {
           id: assignment.key,
           name: group.name,
@@ -207,6 +232,10 @@ export function computeTeacherSalaries(context, month) {
           price: priceForGroup(group.id, assignment.subjectId),
           students,
           studentsCount: students.length,
+          revenue,
+          // Prix par élève, pour le journal imprimé : il doit montrer ce que
+          // l'élève paie vraiment, pas le tarif du catalogue.
+          studentPrices: roster.map((entry) => ({ name: entry.name, price: Number(entry.price) || 0 })),
         }
       })
       .filter(Boolean)

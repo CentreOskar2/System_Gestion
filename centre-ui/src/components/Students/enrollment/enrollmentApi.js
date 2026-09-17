@@ -255,9 +255,14 @@ async function ensureFiliere(levelId, name) {
 function subjectDetailsFor(form, catalog, subjectName) {
   const details = form.subjectDetails?.[subjectName] || {}
   const teacher = details.teacher ? catalog.teachersByName[details.teacher] : null
-  const group = details.group
-    ? Object.values(catalog.groupsById || {}).find((g) => g.name === details.group)
-    : null
+  // Le groupe est identifié par son id dès qu'on l'a. La recherche par nom ne
+  // reste qu'un repli pour les données anciennes : plusieurs groupes peuvent
+  // porter le même nom, et `find` renverrait alors le mauvais.
+  const group = details.group_id
+    ? catalog.groupsById?.[details.group_id] || null
+    : details.group
+      ? Object.values(catalog.groupsById || {}).find((g) => g.name === details.group) || null
+      : null
   const subject = catalog.subjectsByName[subjectName]
   const standardPrice = getPrice(catalog, form.level, subjectName)
   const monthlyPrice = details.priceType === 'manual' ? Number(details.manualPrice || 0) : standardPrice
@@ -613,6 +618,7 @@ export async function fetchStudents(branchId = null) {
       if (subjectName) {
         subjectDetails[subjectName] = {
           teacher: x.teachers ? `${x.teachers.first_name} ${x.teachers.last_name}` : '',
+          group_id: x.group_id || '',
           group: x.groups?.name || '',
           priceType: x.pricing_type,
           manualPrice: x.pricing_type === 'manual' ? Number(x.monthly_price) : undefined,

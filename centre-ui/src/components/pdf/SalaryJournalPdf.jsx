@@ -77,7 +77,11 @@ const styles = StyleSheet.create({
 
 export default function SalaryJournalPdf({ teacher, monthLabel }) {
   const percentage = teacher.type === 'Pourcentage'
-  const groupTotals = teacher.groups.map((group) => group.studentsCount * group.price)
+  // Total réellement facturé au groupe. `revenue` tient compte des prix manuels
+  // accordés élève par élève ; « effectif × tarif » les ignorait.
+  const groupTotals = teacher.groups.map((group) =>
+    Number.isFinite(group.revenue) ? group.revenue : group.studentsCount * group.price
+  )
   const totalSalary = teacher.amount
 
   return (
@@ -110,13 +114,19 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
                 <Text style={styles.studentCol}>Élève</Text>
                 <Text style={styles.priceCol}>Prix matière</Text>
               </View>
-              {(group.students.length > 0
-                ? group.students
-                : Array.from({ length: group.studentsCount }, (_, i) => `Élève ${i + 1}`)
-              ).map((student, i) => (
-                <View style={pdfStyles.tableRow} key={`${student}-${i}`}>
-                  <Text style={styles.studentCol}>{student}</Text>
-                  <Text style={styles.priceCol}>{formatMoney(group.price)}</Text>
+              {(group.studentPrices?.length > 0
+                ? group.studentPrices
+                : group.students.length > 0
+                  ? group.students.map((name) => ({ name, price: group.price }))
+                  : Array.from({ length: group.studentsCount }, (_, i) => ({
+                      name: `Élève ${i + 1}`,
+                      price: group.price,
+                    }))
+              ).map((entry, i) => (
+                <View style={pdfStyles.tableRow} key={`${entry.name}-${i}`}>
+                  <Text style={styles.studentCol}>{entry.name}</Text>
+                  {/* Le prix payé par CET élève : une remise doit se lire ici. */}
+                  <Text style={styles.priceCol}>{formatMoney(entry.price)}</Text>
                 </View>
               ))}
               <View style={styles.groupTotalRow}>

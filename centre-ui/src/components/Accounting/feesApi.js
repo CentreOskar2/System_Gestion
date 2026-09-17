@@ -132,6 +132,9 @@ export async function fetchFeesData(branchId = null) {
       subjectDetails[subjectName] = {
         subject_id: x.subject_id,
         teacher: x.teachers ? `${x.teachers.first_name} ${x.teachers.last_name}` : '',
+        // L'id fait foi : plusieurs groupes portent le même nom, une recherche
+        // par nom prendrait le premier venu. Le nom reste pour l'affichage.
+        group_id: x.group_id || '',
         group: x.groups?.name || '',
         priceType: x.pricing_type || 'standard',
         manualPrice: x.pricing_type === 'manual' ? Number(x.monthly_price) : undefined,
