@@ -131,10 +131,37 @@ export async function fetchSalaryContext() {
     priceByStudentGroupSubject[`${row.student_id}:${row.group_id}:${row.subject_id || ''}`] = amount
   }
 
+  // Repli, sans le groupe : le prix d'un élève POUR UNE MATIÈRE.
+  //
+  // L'abonnement et l'appartenance au groupe ne pointent pas toujours sur le
+  // même group_id — un même nom de groupe existe parfois en double, et
+  // d'anciennes écritures résolvaient le groupe par son nom. La recherche
+  // exacte échoue alors et le calcul retombait sur le tarif du catalogue,
+  // ignorant la remise accordée à l'élève.
+  //
+  // Un élève n'a qu'un seul prix par matière : ce repli est donc sans
+  // ambiguïté. Par prudence, une matière facturée à deux prix différents au
+  // même élève est écartée du repli plutôt que d'en choisir un au hasard.
+  const priceByStudentSubject = {}
+  const ambiguousStudentSubject = new Set()
+  for (const row of subscriptionsRes.data || []) {
+    if (!row.subject_id) continue
+    const amount = Number(row.monthly_price)
+    if (!Number.isFinite(amount)) continue
+    const key = `${row.student_id}:${row.subject_id}`
+    if (key in priceByStudentSubject && priceByStudentSubject[key] !== amount) {
+      ambiguousStudentSubject.add(key)
+      continue
+    }
+    priceByStudentSubject[key] = amount
+  }
+  for (const key of ambiguousStudentSubject) delete priceByStudentSubject[key]
+
   return {
     teacherRows: teachersRes.data || [],
     studentSubjectRows: studentSubjectsRes.data || [],
     priceByStudentGroupSubject,
+    priceByStudentSubject,
     groupStudentRows: groupStudentsRes.data || [],
     validatedByMonth,
     cycleMap,
@@ -157,7 +184,8 @@ export async function fetchSalaryContext() {
 // cours sinon.
 export function computeTeacherSalaries(context, month) {
   const {
-    teacherRows, studentSubjectRows, groupStudentRows, priceByStudentGroupSubject, validatedByMonth,
+    teacherRows, studentSubjectRows, groupStudentRows,
+    priceByStudentGroupSubject, priceByStudentSubject, validatedByMonth,
     cycleMap, levelMap, levelById, branchMap, subjectMap, groupById,
     studentMap, studentRowById, isPackageGroup, priceForGroup, assignmentsByTeacher,
   } = context
@@ -181,8 +209,16 @@ export function computeTeacherSalaries(context, month) {
     if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
       // Prix réellement facturé à CET élève. Repli sur le tarif standard pour un
       // élève rattaché au groupe sans abonnement — sinon il compterait pour zéro.
-      const billed = priceByStudentGroupSubject[`${row.student_id}:${row.group_id}:${row.subject_id}`]
-      const price = Number.isFinite(billed) ? billed : priceForGroup(row.group_id, row.subject_id)
+      // 1. le prix de cet élève dans CE groupe pour CETTE matière ;
+      // 2. sinon son prix pour cette matière, quel que soit le groupe ;
+      // 3. sinon le tarif du catalogue.
+      const exact = priceByStudentGroupSubject[`${row.student_id}:${row.group_id}:${row.subject_id}`]
+      const bySubject = priceByStudentSubject[`${row.student_id}:${row.subject_id}`]
+      const price = Number.isFinite(exact)
+        ? exact
+        : Number.isFinite(bySubject)
+          ? bySubject
+          : priceForGroup(row.group_id, row.subject_id)
       studentsByGroupSubject[key].push({ id: row.student_id, name, price })
     }
   }

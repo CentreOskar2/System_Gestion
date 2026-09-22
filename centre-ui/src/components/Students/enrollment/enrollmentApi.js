@@ -219,19 +219,29 @@ export function getPrice(catalog, levelName, subjectName) {
   return 0
 }
 
+// Le calcul se faisait avant côté client : lire tous les élèves, prendre le
+// plus grand suffixe, ajouter 1. Deux défauts, l'un dépendant de l'autre :
+//
+//   - la lecture passe par les règles de sécurité de la table students, qui
+//     limitent un compte non-admin à sa propre succursale (à raison — un
+//     élève appartient réellement à une succursale). Chaque succursale
+//     calculait donc "son" maximum sans jamais voir celui de l'autre, et les
+//     deux retombaient sans arrêt sur les mêmes numéros ;
+//   - même sans ça, deux inscriptions lancées à quelques secondes d'écart
+//     pouvaient lire le même maximum avant que l'une des deux n'ait fini
+//     d'écrire, et recevoir le même numéro suivant.
+//
+// La migration 033 déplace ce calcul dans une fonction en base (compteur
+// dédié, incrémenté par un UPDATE ... RETURNING) : atomique par construction
+// — deux appels simultanés sont sérialisés par PostgreSQL lui-même — et
+// exécutée avec les droits du propriétaire de la fonction, donc indépendante
+// de la succursale de qui l'appelle. Une contrainte d'unicité sur la colonne
+// rend en plus toute collision structurellement impossible, même si un bug
+// venait à réapparaître ailleurs.
 export async function nextRegistrationNumber() {
-  const year = new Date().getFullYear()
-  const prefix = `REG-${year}-`
-  const { data, error } = await supabase.from('students').select('registration_number')
+  const { data, error } = await supabase.rpc('next_registration_number')
   if (error) throw new Error(error.message)
-  let max = 999
-  for (const row of data || []) {
-    const suffix = row.registration_number?.startsWith(prefix)
-      ? parseInt(row.registration_number.slice(prefix.length), 10)
-      : NaN
-    if (!Number.isNaN(suffix) && suffix > max) max = suffix
-  }
-  return `${prefix}${max + 1}`
+  return data
 }
 
 async function ensureFiliere(levelId, name) {
@@ -517,6 +527,73 @@ export async function updateEnrollment(studentId, form, catalog, status = 'activ
   }
 
   return { id: studentId }
+}
+
+// Suppression définitive d'un élève, avec tout ce qui lui est rattaché.
+//
+// Les lignes filles sont retirées explicitement, dans l'ordre, plutôt que de
+// compter sur un ON DELETE CASCADE : selon que la migration 030 a été appliquée
+// ou non, les clés étrangères sont en cascade ou en NO ACTION, et dans le second
+// cas PostgreSQL refuserait la suppression. Cette façon de faire marche dans les
+// deux cas.
+//
+// student_formations est supprimée en dernier des filles : ses paiements
+// (formation_payments) partent en cascade avec elle, comme le déclare la
+// migration 031.
+const STUDENT_CHILD_TABLES = [
+  'student_events',
+  'student_grades',
+  'payment_reminders',
+  'student_payments',
+  'registration_fees',
+  'student_group_subjects',
+  'student_subscriptions',
+  'group_students',
+  'student_formations',
+]
+
+export async function deleteStudentCompletely(studentId) {
+  if (!studentId) throw new Error('Élève introuvable.')
+
+  for (const table of STUDENT_CHILD_TABLES) {
+    const { error } = await supabase.from(table).delete().eq('student_id', studentId)
+    // Une table absente (migration non passée) ne doit pas bloquer la
+    // suppression ; toute autre erreur, si.
+    if (error && !/does not exist|schema cache/i.test(error.message)) {
+      throw new Error(`Suppression impossible (${table}) : ${error.message}`)
+    }
+  }
+
+  const { error } = await supabase.from('students').delete().eq('id', studentId)
+  if (error) throw new Error(error.message)
+}
+
+// Recherche destinée à l'écran de suppression : on renvoie de quoi distinguer
+// deux homonymes — matricule, niveau, succursale, date d'inscription.
+export async function searchStudentsForDeletion(term) {
+  const cleaned = String(term || '').trim()
+  if (cleaned.length < 2) return []
+
+  // `%` et `_` sont les jokers de ILIKE : on les neutralise pour qu'une
+  // recherche contenant un souligné ne renvoie pas n'importe quoi.
+  const escaped = cleaned.replace(/[%_]/g, (char) => '\\' + char)
+  const { data, error } = await supabase
+    .from('students')
+    .select('id, first_name, last_name, registration_number, registration_date, created_at, status, levels(name), branches(name)')
+    .or(`first_name.ilike.%${escaped}%,last_name.ilike.%${escaped}%,registration_number.ilike.%${escaped}%`)
+    .order('last_name')
+    .limit(25)
+  if (error) throw new Error(error.message)
+
+  return (data || []).map((row) => ({
+    id: row.id,
+    name: `${row.first_name || ''} ${row.last_name || ''}`.trim(),
+    code: row.registration_number || '',
+    level: row.levels?.name || '',
+    branch: row.branches?.name || '',
+    active: row.status === 'active',
+    registeredAt: row.registration_date || (row.created_at || '').slice(0, 10),
+  }))
 }
 
 export async function setStudentStatus(studentId, status) {

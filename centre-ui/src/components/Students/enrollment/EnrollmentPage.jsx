@@ -172,12 +172,20 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
     for (const sel of groupSelections) {
       for (const name of sel.subjectNames) {
         if (!chosen.includes(name)) chosen.push(name)
-        if (!subjectDetails[name]?.group) {
-          subjectDetails[name] = {
-            ...(subjectDetails[name] || {}),
-            group: sel.groupName,
-            teacher: teacherForGroupSubject(catalog, sel.groupId, name),
-          }
+        // Le groupe est TOUJOURS réaligné sur la sélection de cette étape, qui
+        // fait foi. L'ancienne version ne le renseignait que s'il était vide :
+        // déplacer une matière vers un autre groupe ne changeait donc rien à
+        // l'enregistrement, et l'abonnement restait accroché à l'ancien groupe
+        // alors que l'appartenance suivait le nouveau. C'est ce décalage qui
+        // faisait retomber le journal du professeur sur le tarif du catalogue.
+        //
+        // Le prix (standard ou manuel) est préservé par la copie : seul le
+        // rattachement est recalculé.
+        subjectDetails[name] = {
+          ...(subjectDetails[name] || {}),
+          group_id: sel.groupId,
+          group: sel.groupName,
+          teacher: teacherForGroupSubject(catalog, sel.groupId, name),
         }
       }
     }

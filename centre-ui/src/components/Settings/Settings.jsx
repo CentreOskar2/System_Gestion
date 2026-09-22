@@ -7,6 +7,7 @@ import Header from '../shared/Header'
 import Icon from '../Icon'
 import { deactivateAllStudents, reactivateAllStudents } from '../Students/enrollment/enrollmentApi'
 import FormationsSettings from '../Formations/FormationsSettings'
+import StudentDeletion from './StudentDeletion'
 import { normalizePhoneInput, phoneValidationMessage } from '../../utils/validators'
 import { fetchAppSettings, saveAppSettings } from '../../appSettings'
 import { schoolYearLabel, academicYearStart } from '../Accounting/monthUtils'
@@ -1009,6 +1010,10 @@ export default function Settings() {
                 </button>
               </div>
             </section>
+
+            {/* Suppression définitive : réservée au super administrateur, qui
+                seul doit pouvoir effacer un dossier et son historique. */}
+            {isSuperAdmin && <StudentDeletion notify={notify} />}
           </>
         )}
 
