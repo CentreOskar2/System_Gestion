@@ -260,11 +260,11 @@ export default function AbsenceSheetModal({ close }) {
       const rosterQuery = packageGroup
         ? supabase
             .from('group_students')
-            .select('student_id, students(first_name, last_name, registration_number)')
+            .select('student_id, students(first_name, last_name, registration_number, status)')
             .eq('group_id', groupId)
         : supabase
             .from('student_group_subjects')
-            .select('student_id, subject_id, students(first_name, last_name, registration_number)')
+            .select('student_id, subject_id, students(first_name, last_name, registration_number, status)')
             .eq('group_id', groupId)
             .eq('subject_id', subjectId)
 
@@ -276,6 +276,11 @@ export default function AbsenceSheetModal({ close }) {
       const roster = []
       for (const row of rows || []) {
         if (!row.students || seen.has(row.student_id)) continue
+        // Un élève désactivé reste dans le groupe (on ne le désinscrit pas),
+        // mais il n'est plus facturé ni convoqué en classe : il n'a donc rien
+        // à faire sur une fiche d'absence. Même règle que le journal des
+        // salaires, qui l'exclut déjà pour la même raison.
+        if (row.students.status !== 'active') continue
         seen.add(row.student_id)
         const s = row.students
         roster.push({
