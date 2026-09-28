@@ -789,3 +789,94 @@
   }
 }
 .edit-package{display:grid;gap:8px;padding:16px;border:1px solid #dce3ed;border-radius:12px;background:#f8faff}.edit-package label{display:grid;gap:6px;color:#34425b;font-size:.88rem;font-weight:650}.edit-package input{height:42px;padding:0 12px;border:1px solid #cbd5e6;border-radius:9px;font-size:1rem}.edit-package small{color:#647088;font-size:.83rem}
+
+/* Calendrier de paiement segmenté par matière : un repère par matière au
+   lieu d'un seul rond, coloré individuellement selon ce qui est réglé. */
+.payment-segments {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.payment-segments.disabled,
+.payment-segments.inactive {
+  cursor: not-allowed;
+}
+
+.payment-segment {
+  width: 8px;
+  height: 24px;
+  border-radius: 3px;
+  background: #cbd5e1;
+}
+
+.payment-segment.paid {
+  background: #3fc553;
+}
+
+.payment-segment.due,
+.payment-segment.unpaid {
+  background: #fa2437;
+}
+
+.payment-segment.pending {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #dbe2eb;
+}
+
+.payment-segment.disabled,
+.payment-segment.inactive {
+  background: #eef1f6;
+}
+
+/* Sélection des matières payées dans la modale de validation. */
+.payment-subjects-hint {
+  margin: 0 0 16px;
+  color: #647088;
+  font-size: 0.85rem;
+}
+
+.payment-subjects-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.payment-subject-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #dce3ed;
+  border-radius: 11px;
+  cursor: pointer;
+}
+
+.payment-subject-row.checked {
+  border-color: #9cb5ff;
+  background: #f4f7ff;
+}
+
+.payment-subject-row input {
+  width: 19px;
+  height: 19px;
+  accent-color: #315fec;
+}
+
+.payment-subject-row b {
+  color: #315fec;
+}
+
+.payment-amount small {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.95rem;
+  color: #9aa4b6;
+}

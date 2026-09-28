@@ -46,15 +46,16 @@
 --      Toute ambiguïté (plusieurs candidats) ou tout désaccord entre les
 --      deux sources laisse la ligne INTACTE — elle rejoint le tas à
 --      vérifier à la main plutôt que d'être devinée.
---   4. Garde-fou avant d'écrire : si aucune ligne n'est réparable (0) ou
---      si le nombre trouvé dépasse le nombre de lignes incohérentes
---      détectées (impossible si la logique est correcte), la migration
---      s'arrête avec une exception avant de toucher à student_subscriptions.
---      Le nombre réellement trouvé est affiché avec raise notice pour
---      être comparé à ce qu'on a vérifié ensemble avant de lancer.
---   5. Idempotente : à la deuxième exécution, les lignes déjà réparées ne
---      correspondent plus aux critères (leur groupe est déjà du bon
---      niveau), rien ne bouge, aucune erreur.
+--   4. Garde-fou avant d'écrire : si le nombre de lignes NOUVELLEMENT
+--      réparées à ce passage dépasse le nombre de lignes incohérentes
+--      détectées ce même passage (impossible si la logique est correcte),
+--      la migration s'arrête avec une exception avant de toucher à
+--      student_subscriptions. Zéro nouvelle ligne n'est pas une erreur —
+--      c'est le résultat normal d'un passage où tout était déjà réparé.
+--   5. Idempotente et rejouable à volonté : chaque relance ne repère et ne
+--      sauvegarde que ce qui est nouvellement réparable à cet instant
+--      (par exemple après une correction manuelle faite entre-temps dans
+--      l'application) ; les lignes déjà bonnes ne bougent pas.
 -- ============================================================
 
 -- ------------------------------------------------------------
@@ -76,95 +77,21 @@ create table if not exists public.student_subscriptions_repair_20260923 (
 alter table public.student_subscriptions_repair_20260923 enable row level security;
 
 -- ------------------------------------------------------------
--- 2) Repérage des lignes réparables + sauvegarde de leur état "avant"
--- ------------------------------------------------------------
-with cible as (
-  select
-    sub.id as subscription_id,
-    sub.student_id,
-    sub.subject_id,
-    sub.group_id as old_group_id,
-    l.id as level_id
-  from public.student_subscriptions sub
-  join public.students s on s.id = sub.student_id
-  join public.levels l   on l.id = s.level_id
-  left join public.groups g_faux on g_faux.id = sub.group_id
-  where g_faux.level_id is distinct from l.id
-),
-via_matiere as (
-  -- Un seul candidat exigé, exactement comme via_groupe ci-dessous : si
-  -- deux groupes différents du bon niveau existent pour la même matière,
-  -- on ne choisit pas au hasard, la ligne devient non résolue.
-  select c.subscription_id, (array_agg(sgs.group_id))[1] as group_id
-  from cible c
-  join public.student_group_subjects sgs
-    on sgs.student_id = c.student_id
-   and sgs.subject_id = c.subject_id
-  join public.groups g_bon
-    on g_bon.id = sgs.group_id
-   and g_bon.level_id = c.level_id
-  group by c.subscription_id
-  having count(distinct sgs.group_id) = 1
-),
-candidats_groupe as (
-  select gs.student_id, g2.level_id, gs.group_id
-  from public.group_students gs
-  join public.groups g2 on g2.id = gs.group_id
-  group by gs.student_id, g2.level_id, gs.group_id
-),
-via_groupe as (
-  select c.subscription_id, (array_agg(cg.group_id))[1] as group_id
-  from cible c
-  join candidats_groupe cg
-    on cg.student_id = c.student_id
-   and cg.level_id = c.level_id
-  group by c.subscription_id
-  having count(distinct cg.group_id) = 1
-),
-a_reparer as (
-  -- Cas a : student_group_subjects répond, et si group_students répond
-  -- aussi, les deux sont d'accord (ou group_students n'a rien à dire).
-  select
-    c.subscription_id, c.student_id, c.subject_id, c.old_group_id,
-    vm.group_id as new_group_id,
-    'student_group_subjects' as source
-  from cible c
-  join via_matiere vm on vm.subscription_id = c.subscription_id
-  left join via_groupe vg on vg.subscription_id = c.subscription_id
-  where vg.group_id is null or vg.group_id = vm.group_id
-
-  union all
-
-  -- Cas b : student_group_subjects n'a rien, mais group_students donne
-  -- une réponse unique.
-  select
-    c.subscription_id, c.student_id, c.subject_id, c.old_group_id,
-    vg.group_id as new_group_id,
-    'group_students' as source
-  from cible c
-  join via_groupe vg on vg.subscription_id = c.subscription_id
-  where not exists (
-    select 1 from via_matiere vm where vm.subscription_id = c.subscription_id
-  )
-)
-insert into public.student_subscriptions_repair_20260923
-  (subscription_id, student_id, subject_id, old_group_id, new_group_id, source)
-select subscription_id, student_id, subject_id, old_group_id, new_group_id, source
-from a_reparer
-on conflict (subscription_id) do nothing;
-
--- ------------------------------------------------------------
--- 3) Garde-fou : on s'arrête ici si quelque chose d'impossible est trouvé,
---    avant de toucher à quoi que ce soit
+-- 2) et 3) Repérage des lignes réparables, sauvegarde de leur état "avant"
+--    et garde-fou, dans le même bloc pour comparer le nombre de
+--    lignes NOUVELLEMENT réparées à ce passage (pas le cumul historique
+--    de la table de sauvegarde, qui grandit à chaque relance) au nombre
+--    de lignes incohérentes trouvées CE passage-ci. Comparer le cumul
+--    historique à l'instantané actuel n'a pas de sens dès le deuxième
+--    passage : la table de sauvegarde s'accumule, mais l'incohérence
+--    restante diminue à mesure qu'on répare — les deux ne sont plus sur
+--    la même échelle après le premier passage.
 -- ------------------------------------------------------------
 do $$
 declare
-  nb_sauvegardees integer;
   nb_incoherentes_avant integer;
+  nb_nouvelles integer;
 begin
-  select count(*) into nb_sauvegardees
-  from public.student_subscriptions_repair_20260923;
-
   select count(*) into nb_incoherentes_avant
   from public.student_subscriptions sub
   join public.students s on s.id = sub.student_id
@@ -172,15 +99,81 @@ begin
   left join public.groups g_faux on g_faux.id = sub.group_id
   where g_faux.level_id is distinct from l.id;
 
-  if nb_sauvegardees = 0 then
-    raise exception 'Aucune ligne réparable trouvée — arrêt avant toute modification. À examiner avant de relancer.';
+  with cible as (
+    select
+      sub.id as subscription_id,
+      sub.student_id,
+      sub.subject_id,
+      sub.group_id as old_group_id,
+      l.id as level_id
+    from public.student_subscriptions sub
+    join public.students s on s.id = sub.student_id
+    join public.levels l   on l.id = s.level_id
+    left join public.groups g_faux on g_faux.id = sub.group_id
+    where g_faux.level_id is distinct from l.id
+  ),
+  via_matiere as (
+    select c.subscription_id, (array_agg(sgs.group_id))[1] as group_id
+    from cible c
+    join public.student_group_subjects sgs
+      on sgs.student_id = c.student_id
+     and sgs.subject_id = c.subject_id
+    join public.groups g_bon
+      on g_bon.id = sgs.group_id
+     and g_bon.level_id = c.level_id
+    group by c.subscription_id
+    having count(distinct sgs.group_id) = 1
+  ),
+  candidats_groupe as (
+    select gs.student_id, g2.level_id, gs.group_id
+    from public.group_students gs
+    join public.groups g2 on g2.id = gs.group_id
+    group by gs.student_id, g2.level_id, gs.group_id
+  ),
+  via_groupe as (
+    select c.subscription_id, (array_agg(cg.group_id))[1] as group_id
+    from cible c
+    join candidats_groupe cg
+      on cg.student_id = c.student_id
+     and cg.level_id = c.level_id
+    group by c.subscription_id
+    having count(distinct cg.group_id) = 1
+  ),
+  a_reparer as (
+    select
+      c.subscription_id, c.student_id, c.subject_id, c.old_group_id,
+      vm.group_id as new_group_id,
+      'student_group_subjects' as source
+    from cible c
+    join via_matiere vm on vm.subscription_id = c.subscription_id
+    left join via_groupe vg on vg.subscription_id = c.subscription_id
+    where vg.group_id is null or vg.group_id = vm.group_id
+
+    union all
+
+    select
+      c.subscription_id, c.student_id, c.subject_id, c.old_group_id,
+      vg.group_id as new_group_id,
+      'group_students' as source
+    from cible c
+    join via_groupe vg on vg.subscription_id = c.subscription_id
+    where not exists (
+      select 1 from via_matiere vm where vm.subscription_id = c.subscription_id
+    )
+  )
+  insert into public.student_subscriptions_repair_20260923
+    (subscription_id, student_id, subject_id, old_group_id, new_group_id, source)
+  select subscription_id, student_id, subject_id, old_group_id, new_group_id, source
+  from a_reparer
+  on conflict (subscription_id) do nothing;
+
+  get diagnostics nb_nouvelles = row_count;
+
+  if nb_nouvelles > nb_incoherentes_avant then
+    raise exception 'Incohérence interne : % nouvelles lignes réparées pour % lignes incohérentes détectées ce passage — arrêt avant toute modification.', nb_nouvelles, nb_incoherentes_avant;
   end if;
 
-  if nb_sauvegardees > nb_incoherentes_avant then
-    raise exception 'Incohérence interne : % lignes sauvegardées pour % lignes incohérentes détectées — arrêt avant toute modification.', nb_sauvegardees, nb_incoherentes_avant;
-  end if;
-
-  raise notice '% lignes réparables trouvées et sauvegardées, sur % lignes incohérentes au total.', nb_sauvegardees, nb_incoherentes_avant;
+  raise notice '% nouvelles lignes réparables trouvées et sauvegardées à ce passage, sur % lignes incohérentes détectées avant réparation.', nb_nouvelles, nb_incoherentes_avant;
 end $$;
 
 -- ------------------------------------------------------------

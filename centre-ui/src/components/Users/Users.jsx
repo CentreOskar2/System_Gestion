@@ -177,6 +177,25 @@ export default function Users() {
       const { error: permError } = await supabase.from('user_permissions').upsert(permRow)
       if (permError) throw new Error(permError.message)
 
+      // Changer un mot de passe existant nécessite la clé service (l'API
+      // d'administration Supabase, pas une simple mise à jour de table) —
+      // d'où l'appel à cette fonction serveur, comme pour la création.
+      if (form.password) {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/update-user-password`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+          },
+          body: JSON.stringify({ user_id: form.id, password: form.password })
+        })
+        if (!res.ok) {
+          let msg = 'Failed to update password'
+          try { const err = await res.json(); msg = err.error || msg } catch { /* invalid response body */ }
+          throw new Error(msg)
+        }
+      }
+
       await fetchAll()
       setOpen(false)
       return

@@ -26,13 +26,15 @@ function Toast({ notice }) {
 // toujours celle du centre entier, quelle que soit la succursale affichee.
 async function fetchTeachersData() {
   const teachersQuery = supabase.from('teachers').select('*').order('created_at', { ascending: false })
-  const [teachersRes, subjectsRes, levelsRes, branchesRes, cyclesRes, tsRes, tbRes, tlRes, tgRes, tgnRes, groupsRes] = await Promise.all([
+  const [teachersRes, subjectsRes, levelsRes, branchesRes, cyclesRes, tlsRes, tbRes, tlRes, tgRes, tgnRes, groupsRes] = await Promise.all([
     teachersQuery,
     supabase.from('subjects').select('id, name'),
     supabase.from('levels').select('id, name, cycle_id'),
     supabase.from('branches').select('id, name'),
     supabase.from('cycles').select('id, name'),
-    supabase.from('teacher_subjects').select('teacher_id, subject_id'),
+    // Matière ET niveau ensemble : teacher_subjects seule ne dit jamais à
+    // quel niveau une matière est enseignée (voir migration 037).
+    supabase.from('teacher_level_subjects').select('teacher_id, level_id, subject_id'),
     supabase.from('teacher_branches').select('teacher_id, branch_id'),
     supabase.from('teacher_levels').select('teacher_id, level_id'),
     supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
@@ -45,9 +47,16 @@ async function fetchTeachersData() {
   const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
   const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
   const groupMap = Object.fromEntries((groupsRes.data || []).map((g) => [g.id, g.name]))
+  // Par niveau (form.levelSubjects) et sa version à plat (affichage "aperçu"
+  // dans le tableau et la fiche, inchangés — ils listaient déjà juste des noms).
+  const levelSubjectsByTeacher = {}
   const subjectsByTeacher = {}
-  for (const row of tsRes.data || []) {
-    subjectsByTeacher[row.teacher_id] = [...(subjectsByTeacher[row.teacher_id] || []), row.subject_id]
+  for (const row of tlsRes.data || []) {
+    if (!levelSubjectsByTeacher[row.teacher_id]) levelSubjectsByTeacher[row.teacher_id] = {}
+    if (!levelSubjectsByTeacher[row.teacher_id][row.level_id]) levelSubjectsByTeacher[row.teacher_id][row.level_id] = []
+    levelSubjectsByTeacher[row.teacher_id][row.level_id].push(row.subject_id)
+    const flat = subjectsByTeacher[row.teacher_id] || []
+    if (!flat.includes(row.subject_id)) subjectsByTeacher[row.teacher_id] = [...flat, row.subject_id]
   }
   const branchesByTeacher = {}
   for (const row of tbRes.data || []) {
@@ -98,6 +107,7 @@ async function fetchTeachersData() {
       cycle_rates: cycleRates,
       rates: cycleRates,
       subject_ids: subjectIds,
+      level_subjects: levelSubjectsByTeacher[t.id] || {},
       branch_ids: branchIds,
       level_ids: levelIds,
       group_assignments: groupAssignments,
@@ -177,8 +187,41 @@ export default function TeachersPage() {
   }
 
   const junctionColumn = {
-    teacher_subjects: 'subject_id',
     teacher_levels: 'level_id',
+  }
+
+  // teacher_level_subjects a deux colonnes variables (niveau ET matière) :
+  // le diff se fait sur la paire, pas sur une seule colonne comme syncJunction.
+  async function syncTeacherLevelSubjects(teacherId, currentPairs, levelSubjects) {
+    const key = (levelId, subjectId) => `${levelId}:${subjectId}`
+    const current = new Set(currentPairs.map((p) => key(p.level_id, p.subject_id)))
+    const next = new Set()
+    for (const [levelId, subjectIds] of Object.entries(levelSubjects || {})) {
+      for (const subjectId of subjectIds) next.add(key(levelId, subjectId))
+    }
+
+    for (const pairKey of current) {
+      if (next.has(pairKey)) continue
+      const [level_id, subject_id] = pairKey.split(':')
+      const { error } = await supabase
+        .from('teacher_level_subjects')
+        .delete()
+        .eq('teacher_id', teacherId)
+        .eq('level_id', level_id)
+        .eq('subject_id', subject_id)
+      if (error) throw new Error(error.message)
+    }
+
+    const toAdd = []
+    for (const pairKey of next) {
+      if (current.has(pairKey)) continue
+      const [level_id, subject_id] = pairKey.split(':')
+      toAdd.push({ teacher_id: teacherId, level_id, subject_id })
+    }
+    if (toAdd.length > 0) {
+      const { error } = await supabase.from('teacher_level_subjects').insert(toAdd)
+      if (error) throw new Error(error.message)
+    }
   }
 
   async function syncJunction(teacherId, table, currentIds, newIds) {
@@ -278,7 +321,10 @@ export default function TeachersPage() {
       cycle_rates: form.cycle_rates || {},
     }
 
-    const subjects = form.subjects || []
+    // Matières par niveau : { [level_id]: [subject_id, ...] }. La version à
+    // plat ne sert plus qu'à alimenter un groupe sans matière propre
+    // ci-dessous (elle mélangerait sinon les niveaux, comme avant ce correctif).
+    const levelSubjects = form.levelSubjects || {}
     const levels = form.levels || []
 
     let teacherId = form.id
@@ -286,16 +332,11 @@ export default function TeachersPage() {
       const { error } = await supabase.from('teachers').update(payload).eq('id', teacherId)
       if (error) throw new Error(error.message)
 
-      const [subsRes, lvRes] = await Promise.all([
-        supabase.from('teacher_subjects').select('subject_id').eq('teacher_id', teacherId),
+      const [lsRes, lvRes] = await Promise.all([
+        supabase.from('teacher_level_subjects').select('level_id, subject_id').eq('teacher_id', teacherId),
         supabase.from('teacher_levels').select('level_id').eq('teacher_id', teacherId),
       ])
-      await syncJunction(
-        teacherId,
-        'teacher_subjects',
-        (subsRes.data || []).map((r) => r.subject_id),
-        subjects
-      )
+      await syncTeacherLevelSubjects(teacherId, lsRes.data || [], levelSubjects)
       await syncJunction(
         teacherId,
         'teacher_levels',
@@ -306,9 +347,7 @@ export default function TeachersPage() {
       const { data, error } = await supabase.from('teachers').insert(payload).select('id').single()
       if (error) throw new Error(error.message)
       teacherId = data.id
-      if (subjects.length > 0) {
-        await syncJunction(teacherId, 'teacher_subjects', [], subjects)
-      }
+      await syncTeacherLevelSubjects(teacherId, [], levelSubjects)
       if (levels.length > 0) {
         await syncJunction(teacherId, 'teacher_levels', [], levels)
       }
@@ -319,7 +358,7 @@ export default function TeachersPage() {
     if (groupIds.length > 0) {
       const { data, error } = await supabase
         .from('groups')
-        .select('id, subject_id, formation_level_id, levels(cycles(has_fixed_price))')
+        .select('id, subject_id, level_id, formation_level_id, levels(cycles(has_fixed_price))')
         .in('id', groupIds)
       if (error) throw new Error(error.message)
       selectedGroups.push(...(data || []))
@@ -334,14 +373,16 @@ export default function TeachersPage() {
       .filter((group) => !isWholeGroup(group))
       .map((group) => {
         // Un groupe dédié à une matière ne concerne que celle-là. Sinon le
-        // professeur y enseigne TOUTES les matières qu'on lui a cochées :
-        // « 2 BAC ECO » accueille COMPTA, ECONOMIE et ORGA avec le même
-        // professeur, et il doit apparaître pour les trois.
+        // professeur y enseigne les matières qu'on lui a cochées POUR LE
+        // NIVEAU de ce groupe précisément : « 2 BAC ECO » accueille
+        // COMPTA, ECONOMIE et ORGA avec le même professeur s'il enseigne
+        // les trois en 2ème année — jamais celles qu'il n'enseigne qu'en
+        // 1ère année.
         //
-        // L'ancienne version ne retenait qu'une seule matière (`subjects[0]`) :
-        // les élèves inscrits dans le groupe pour les autres matières
-        // n'apparaissaient ni dans son journal, ni dans son effectif.
-        const subjectIds = group.subject_id ? [group.subject_id] : subjects
+        // Avant ce correctif, une liste de matières à plat (sans niveau)
+        // pouvait rattacher au groupe une matière que le professeur
+        // n'enseigne qu'à un AUTRE niveau.
+        const subjectIds = group.subject_id ? [group.subject_id] : (levelSubjects[group.level_id] || [])
         return { group_id: group.id, subject_ids: (subjectIds || []).filter(Boolean) }
       })
 

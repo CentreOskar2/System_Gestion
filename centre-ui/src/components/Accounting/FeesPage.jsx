@@ -403,6 +403,7 @@ export default function FeesPage() {
   const isCenterWide = CENTER_WIDE_ROLES.includes(role)
   const [students, setStudents] = useState([])
   const [paymentsByStudent, setPaymentsByStudent] = useState({})
+  const [paymentSubjectsByStudent, setPaymentSubjectsByStudent] = useState({})
   const [payments, setPayments] = useState([])
   const [catalog, setCatalog] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -421,6 +422,16 @@ export default function FeesPage() {
   const [registrationFees, setRegistrationFees] = useState({})
   const [feeModal, setFeeModal] = useState(null)
   const [feeReceipt, setFeeReceipt] = useState(null)
+  // Mois consulté pour les cartes de synthèse (Élèves encaissés / Dû mensuel) :
+  // permet de vérifier un mois passé ou une avance sur un mois à venir, sans
+  // changer d'année scolaire. "Total encaissé aujourd'hui" reste un compteur
+  // du jour, indépendant de ce filtre.
+  const [statsMonthIndex, setStatsMonthIndex] = useState(() => {
+    const key = currentMonthKey()
+    const index = buildSchoolMonths(key.slice(0, 4)).findIndex((m) => m.key === key)
+    return index >= 0 ? index : 0
+  })
+  const [paidSelection, setPaidSelection] = useState([])
 
   const schoolYearKeyLabel = schoolYearLabel(schoolYearStart)
 
@@ -431,6 +442,7 @@ export default function FeesPage() {
       const data = await fetchFeesData(selectedBranch)
       setStudents(data.students)
       setPaymentsByStudent(data.paymentsByStudent)
+      setPaymentSubjectsByStudent(data.paymentSubjectsByStudent || {})
       setPayments(data.payments || [])
       setCatalog(data.catalog)
     } catch (err) {
@@ -448,6 +460,7 @@ export default function FeesPage() {
         if (!active) return
         setStudents(data.students)
         setPaymentsByStudent(data.paymentsByStudent)
+        setPaymentSubjectsByStudent(data.paymentSubjectsByStudent || {})
         setPayments(data.payments || [])
         setCatalog(data.catalog)
       })
@@ -546,41 +559,52 @@ export default function FeesPage() {
   const today = useMemo(() => parseLocalDate(accountingDayBucket(new Date(nowTick))), [nowTick])
 
   const schoolMonths = useMemo(() => buildSchoolMonths(schoolYearStart), [schoolYearStart])
+
+  // Changer d'année scolaire ramène le mois consulté sur le mois courant s'il
+  // y figure (l'utilisateur reste ensuite libre d'en choisir un autre).
+  const changeSchoolYear = (value) => {
+    setSchoolYearStart(value)
+    const key = currentMonthKey()
+    const index = buildSchoolMonths(value).findIndex((m) => m.key === key)
+    setStatsMonthIndex(index >= 0 ? index : 0)
+  }
+
+  const statsMonthKey = schoolMonths[statsMonthIndex]?.key || currentMonthKey()
   const currentDayKey = normalizeDateKey(new Date(nowTick))
   const currentDayPayments = useMemo(
     () => scopedPayments.filter((payment) => normalizeDateKey(payment.paid_at || payment.month) === currentDayKey),
     [scopedPayments, currentDayKey]
   )
-  // Élèves réellement encaissés durant le mois comptable en cours, dédoublonnés :
-  // un élève qui règle deux mensualités le même mois ne compte qu'une fois.
-  const currentMonthCollectedStudents = useMemo(() => {
-    const monthPrefix = currentDayKey.slice(0, 7)
-    if (!monthPrefix) return 0
+  // Élèves ayant réglé le mois sélectionné (passé, courant, ou avance sur un
+  // mois à venir), dédoublonnés : un élève qui règle deux mensualités le même
+  // mois ne compte qu'une fois. Basé sur le mois FACTURÉ (payment.month), pas
+  // sur la date de paiement : une avance payée aujourd'hui pour décembre
+  // compte bien pour décembre.
+  const selectedMonthCollectedStudents = useMemo(() => {
     const studentIds = new Set()
     for (const payment of scopedPayments) {
-      const dayKey = normalizeDateKey(payment.paid_at || payment.month)
-      if (dayKey && dayKey.slice(0, 7) === monthPrefix) studentIds.add(payment.student_id)
+      if (payment.month && normalizeMonthKey(payment.month) === statsMonthKey) studentIds.add(payment.student_id)
     }
     return studentIds.size
-  }, [scopedPayments, currentDayKey])
+  }, [scopedPayments, statsMonthKey])
   // Le dû mensuel reste une prévision à l'échelle du centre : il ne dépend d'aucun
   // encaissement, donc d'aucun utilisateur.
-  const currentMonthBillableStudents = useMemo(
+  const selectedMonthBillableStudents = useMemo(
     () =>
       students.filter(
-        (student) => student.active && isEnrolledInMonth(student, currentMonthKey())
+        (student) => student.active && isEnrolledInMonth(student, statsMonthKey)
       ),
-    [students, nowTick]
+    [students, statsMonthKey]
   )
   const stats = useMemo(() => {
     const totalCollected = currentDayPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
-    const monthlyDue = currentMonthBillableStudents.reduce((sum, student) => sum + toNumber(student.du_mois), 0)
+    const monthlyDue = selectedMonthBillableStudents.reduce((sum, student) => sum + toNumber(student.du_mois), 0)
     return {
       totalCollected,
-      billed: currentMonthCollectedStudents,
+      billed: selectedMonthCollectedStudents,
       dueTotal: monthlyDue,
     }
-  }, [currentDayPayments, currentMonthBillableStudents, currentMonthCollectedStudents])
+  }, [currentDayPayments, selectedMonthBillableStudents, selectedMonthCollectedStudents])
 
   const stateOf = (student, index) => {
     const key = monthDate(index, Number(schoolYearStart))
@@ -596,6 +620,32 @@ export default function FeesPage() {
   }
 
   const paymentsOf = (student) => schoolMonths.map((_, index) => stateOf(student, index))
+
+  // Un élève au forfait ou sans matière propre (ex. classes de Coran facturées
+  // en bloc) garde l'affichage à un seul rond, comme avant. Les autres sont
+  // "segmentés" : un repère par matière choisie.
+  const isSegmentedPayment = (student) =>
+    Boolean(catalog) && !isPackageLevel(catalog, student.level) && student.chosen.length > 0
+
+  // Matières couvertes par une VRAIE ligne de détail dans
+  // student_payment_subjects pour ce mois (sert au calcul des lignes à
+  // ajouter/retirer, jamais à l'affichage seul).
+  const rawPaidSubjectNamesFor = (student, index) => {
+    const monthKey = monthDate(index, Number(schoolYearStart))
+    const rows = (paymentSubjectsByStudent[student.id] || []).filter((r) => r.month === monthKey)
+    const paidSubjectIds = new Set(rows.map((r) => r.subject_id))
+    return student.chosen.filter((name) => {
+      const subjectId = student.subjectDetails?.[name]?.subject_id
+      return subjectId && paidSubjectIds.has(subjectId)
+    })
+  }
+
+  // Matières de cet élève à afficher comme payées pour ce mois précis. Un
+  // mois payé "en bloc" (avance, ou payé avant l'existence de ce détail par
+  // matière) n'a aucune ligne dans student_payment_subjects : dans ce cas on
+  // affiche tout comme payé, plutôt que de laisser croire que rien ne l'est.
+  const paidSubjectNamesFor = (student, index) =>
+    stateOf(student, index) === 'paid' ? [...student.chosen] : rawPaidSubjectNamesFor(student, index)
 
   const registrationFeeOf = (student) => registrationFees[student.id] || null
   const registrationFeeAmountFor = (student) =>
@@ -628,7 +678,9 @@ export default function FeesPage() {
 
   const openPayment = (student, index) => {
     const status = stateOf(student, index)
-    if (status !== 'inactive' && status !== 'disabled') setSelected({ student, index })
+    if (status === 'inactive' || status === 'disabled') return
+    setSelected({ student, index })
+    setPaidSelection(paidSubjectNamesFor(student, index))
   }
 
   const handleValidate = async () => {
@@ -638,30 +690,107 @@ export default function FeesPage() {
     try {
       const { student, index } = selected
       const month = monthDate(index, Number(schoolYearStart))
-      const amount = student.du_mois || 0
-      const { error: err } = await supabase
-        .from('student_payments')
-        .upsert(
-          {
-            student_id: student.id,
-            month,
-            amount,
-            status: 'paid',
-            paid_at: new Date().toISOString(),
-            paid_by: user?.id || null,
-          },
-          { onConflict: 'student_id,month' }
-        )
-      if (err) throw err
-      setPaymentsByStudent((prev) => ({
-        ...prev,
-        [student.id]: [
-          ...(prev[student.id] || []).filter((p) => p.month !== month),
-          { month, amount, status: 'paid', paid_at: new Date().toISOString(), paid_by: user?.id || null },
-        ],
-      }))
+
+      if (!isSegmentedPayment(student)) {
+        // Forfait / sans matière propre : un seul bloc, comme avant.
+        const amount = student.du_mois || 0
+        const { error: err } = await supabase
+          .from('student_payments')
+          .upsert(
+            {
+              student_id: student.id,
+              month,
+              amount,
+              status: 'paid',
+              paid_at: new Date().toISOString(),
+              paid_by: user?.id || null,
+            },
+            { onConflict: 'student_id,month' }
+          )
+        if (err) throw err
+        setPaymentsByStudent((prev) => ({
+          ...prev,
+          [student.id]: [
+            ...(prev[student.id] || []).filter((p) => p.month !== month),
+            { month, amount, status: 'paid', paid_at: new Date().toISOString(), paid_by: user?.id || null },
+          ],
+        }))
+        invalidateFeesCache()
+        setReceipt({ student: { ...student, du_mois: amount }, month: schoolMonths[index]?.label || '', monthKey: month, catalog })
+        setSelected(null)
+        return
+      }
+
+      // Paiement par matière : on aligne student_payment_subjects sur les
+      // cases cochées (ajouts et retraits), librement modifiable à tout
+      // moment — y compris pour décocher une matière déjà marquée payée.
+      const alreadyPaid = rawPaidSubjectNamesFor(student, index)
+      const toAdd = paidSelection.filter((name) => !alreadyPaid.includes(name))
+      const toRemove = alreadyPaid.filter((name) => !paidSelection.includes(name))
+
+      if (toAdd.length > 0) {
+        const rows = toAdd.map((name) => ({
+          student_id: student.id,
+          subject_id: student.subjectDetails?.[name]?.subject_id,
+          month,
+          amount: priceFor(catalog, student, name),
+          paid_at: new Date().toISOString(),
+          paid_by: user?.id || null,
+        }))
+        const { error: err } = await supabase
+          .from('student_payment_subjects')
+          .upsert(rows, { onConflict: 'student_id,subject_id,month' })
+        if (err) throw err
+      }
+      if (toRemove.length > 0) {
+        const subjectIds = toRemove.map((name) => student.subjectDetails?.[name]?.subject_id).filter(Boolean)
+        const { error: err } = await supabase
+          .from('student_payment_subjects')
+          .delete()
+          .eq('student_id', student.id)
+          .eq('month', month)
+          .in('subject_id', subjectIds)
+        if (err) throw err
+      }
+
+      // student_payments (le résumé "mois complet") suit : présent seulement
+      // si TOUTES les matières du mois sont désormais payées, absent sinon —
+      // c'est ce que lisent Retards & Impayés, le Dashboard et les Rapports.
+      const fullyPaid = student.chosen.every((name) => paidSelection.includes(name))
+      if (fullyPaid) {
+        const { error: err } = await supabase
+          .from('student_payments')
+          .upsert(
+            {
+              student_id: student.id,
+              month,
+              amount: student.du_mois || 0,
+              status: 'paid',
+              paid_at: new Date().toISOString(),
+              paid_by: user?.id || null,
+            },
+            { onConflict: 'student_id,month' }
+          )
+        if (err) throw err
+      } else {
+        const { error: err } = await supabase
+          .from('student_payments')
+          .delete()
+          .eq('student_id', student.id)
+          .eq('month', month)
+        if (err) throw err
+      }
+
       invalidateFeesCache()
-      setReceipt({ student: { ...student, du_mois: amount }, month: schoolMonths[index]?.label || '', monthKey: month, catalog })
+      await load()
+      if (fullyPaid) {
+        setReceipt({
+          student: { ...student, du_mois: student.du_mois || 0 },
+          month: schoolMonths[index]?.label || '',
+          monthKey: month,
+          catalog,
+        })
+      }
       setSelected(null)
     } catch (err) {
       console.error(err)
@@ -849,10 +978,16 @@ export default function FeesPage() {
         <div className="fees-toolbar">
           <label className="fees-year-select">
             <span>Année scolaire</span>
-            <select value={schoolYearStart} onChange={(e) => setSchoolYearStart(e.target.value)}>
+            <select value={schoolYearStart} onChange={(e) => changeSchoolYear(e.target.value)}>
               {schoolYearOptions().map((option) => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
+            </select>
+          </label>
+          <label className="fees-year-select">
+            <span>Mois consulté</span>
+            <select value={statsMonthIndex} onChange={(e) => setStatsMonthIndex(Number(e.target.value))}>
+              {schoolMonths.map((m, i) => <option key={m.key} value={i}>{m.label}</option>)}
             </select>
           </label>
           <div className="fees-view-switch">
@@ -867,12 +1002,12 @@ export default function FeesPage() {
             <i className="fee-stat-icon fee-stat-icon--green"><TrendingUp size={20} /></i>
           </article>
           <article>
-            <span>{isCenterWide ? 'Élèves encaissés ce mois' : 'Mes élèves encaissés ce mois'}</span>
+            <span>{isCenterWide ? 'Élèves encaissés' : 'Mes élèves encaissés'} — {schoolMonths[statsMonthIndex]?.label}</span>
             <strong>{stats.billed}</strong>
             <i className="fee-stat-icon"><Users size={20} /></i>
           </article>
           <article>
-            <span>Dû mensuel ce mois</span>
+            <span>Dû mensuel — {schoolMonths[statsMonthIndex]?.label}</span>
             <strong>{stats.dueTotal.toLocaleString('fr-FR')} DH</strong>
             <i className="fee-stat-icon"><Wallet size={20} /></i>
           </article>
@@ -934,14 +1069,35 @@ export default function FeesPage() {
                     </td>
                     {schoolMonths.map((month, index) => {
                       const status = stateOf(student, index)
+                      const disabled = status === 'inactive' || status === 'disabled'
+                      if (!isSegmentedPayment(student)) {
+                        return (
+                          <td key={index}>
+                            <button
+                              aria-label={`${month.label} : ${status}`}
+                              className={`payment-dot ${status}`}
+                              disabled={disabled}
+                              onClick={() => openPayment(student, index)}
+                            />
+                          </td>
+                        )
+                      }
+                      const paidNames = disabled ? [] : paidSubjectNamesFor(student, index)
                       return (
                         <td key={index}>
                           <button
-                            aria-label={`${month.label} : ${status}`}
-                            className={`payment-dot ${status}`}
-                            disabled={status === 'inactive' || status === 'disabled'}
+                            aria-label={`${month.label} : ${status} (${paidNames.length}/${student.chosen.length} matières)`}
+                            className={`payment-segments ${status}`}
+                            disabled={disabled}
                             onClick={() => openPayment(student, index)}
-                          />
+                          >
+                            {student.chosen.map((name) => (
+                              <span
+                                key={name}
+                                className={`payment-segment ${paidNames.includes(name) ? 'paid' : status}`}
+                              />
+                            ))}
+                          </button>
                         </td>
                       )
                     })}
@@ -968,27 +1124,82 @@ export default function FeesPage() {
               <i>{initials(selected.student.name)}</i>
               <span><b>{selected.student.name}</b><small>{selected.student.code}</small></span>
             </div>
-            <div className="payment-amount">
-              <span>Montant dû</span>
-              <strong>{selected.student.du_mois.toLocaleString('fr-FR')} DH</strong>
-            </div>
-            {stateOf(selected.student, selected.index) === 'paid' ? (
+            {isSegmentedPayment(selected.student) ? (
               <>
-                <div className="validated"><Check size={18} /> Paiement validé</div>
-                <button
-                  className="receipt-button"
-                  onClick={() => {
-                    setReceipt({ student: selected.student, month: schoolMonths[selected.index]?.label || '', monthKey: monthDate(selected.index, Number(schoolYearStart)), catalog })
-                    setSelected(null)
-                  }}
-                >
-                  <Printer size={18} /> &nbsp; Imprimer le reçu
+                <p className="payment-subjects-hint">
+                  Sélectionnez les matières réglées ce mois-ci. Une matière peut être décochée à
+                  tout moment si le paiement doit être corrigé.
+                </p>
+                <div className="payment-subjects-list">
+                  {selected.student.chosen.map((name) => {
+                    const checked = paidSelection.includes(name)
+                    return (
+                      <label key={name} className={`payment-subject-row ${checked ? 'checked' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setPaidSelection((prev) =>
+                              prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]
+                            )
+                          }
+                        />
+                        <span>{name}</span>
+                        <b>{priceFor(catalog, selected.student, name).toLocaleString('fr-FR')} DH</b>
+                      </label>
+                    )
+                  })}
+                </div>
+                <div className="payment-amount">
+                  <span>Montant sélectionné</span>
+                  <strong>
+                    {selected.student.chosen
+                      .filter((name) => paidSelection.includes(name))
+                      .reduce((sum, name) => sum + priceFor(catalog, selected.student, name), 0)
+                      .toLocaleString('fr-FR')} DH
+                    <small> / {selected.student.du_mois.toLocaleString('fr-FR')} DH</small>
+                  </strong>
+                </div>
+                <button className="validate-button" disabled={saving} onClick={handleValidate}>
+                  {saving ? 'Enregistrement...' : 'Valider le paiement'}
                 </button>
+                {stateOf(selected.student, selected.index) === 'paid' && (
+                  <button
+                    className="receipt-button"
+                    onClick={() => {
+                      setReceipt({ student: selected.student, month: schoolMonths[selected.index]?.label || '', monthKey: monthDate(selected.index, Number(schoolYearStart)), catalog })
+                      setSelected(null)
+                    }}
+                  >
+                    <Printer size={18} /> &nbsp; Imprimer le reçu
+                  </button>
+                )}
               </>
             ) : (
-              <button className="validate-button" disabled={saving} onClick={handleValidate}>
-                {saving ? 'Enregistrement...' : 'Valider le paiement'}
-              </button>
+              <>
+                <div className="payment-amount">
+                  <span>Montant dû</span>
+                  <strong>{selected.student.du_mois.toLocaleString('fr-FR')} DH</strong>
+                </div>
+                {stateOf(selected.student, selected.index) === 'paid' ? (
+                  <>
+                    <div className="validated"><Check size={18} /> Paiement validé</div>
+                    <button
+                      className="receipt-button"
+                      onClick={() => {
+                        setReceipt({ student: selected.student, month: schoolMonths[selected.index]?.label || '', monthKey: monthDate(selected.index, Number(schoolYearStart)), catalog })
+                        setSelected(null)
+                      }}
+                    >
+                      <Printer size={18} /> &nbsp; Imprimer le reçu
+                    </button>
+                  </>
+                ) : (
+                  <button className="validate-button" disabled={saving} onClick={handleValidate}>
+                    {saving ? 'Enregistrement...' : 'Valider le paiement'}
+                  </button>
+                )}
+              </>
             )}
           </section>
         </div>

@@ -9,10 +9,10 @@ export default function StudentsTable({
   onOpenAttendance,
 }) {
   const subjectLabel = (student) => {
-    // Au forfait l'élève suit tout le niveau : compter ses matières n'a pas de sens.
+    // Au forfait l'élève suit tout le niveau : lister ses matières n'a pas de sens.
     const cycle = catalog?.cycleByName?.[student.cycle]
     if (cycle?.has_fixed_price) return 'Toutes'
-    return student.subjects
+    return student.chosen?.length ? student.chosen.join(', ') : '—'
   }
   return (
     <div className="students-table-wrapper">
@@ -22,7 +22,6 @@ export default function StudentsTable({
             <th>Nom</th>
             <th>Matricule</th>
             <th>Parcours</th>
-            <th>Succursale</th>
             <th>Matières</th>
             <th>Paiement</th>
             <th>Actions</th>
@@ -56,7 +55,6 @@ export default function StudentsTable({
               <td>
                 <b>{[student.cycle, student.level].filter(Boolean).join(' · ')}</b>
               </td>
-              <td>{student.branch}</td>
               <td>{subjectLabel(student)}</td>
               <td>
                 <span className={`payment-status ${student.payment?.toLowerCase()}`}>

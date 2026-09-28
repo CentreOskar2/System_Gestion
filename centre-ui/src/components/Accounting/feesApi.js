@@ -99,7 +99,7 @@ export async function fetchFeesData(branchId = null) {
     .order('created_at', { ascending: false })
   if (branchId && branchId !== 'all') studentsQuery = studentsQuery.eq('branch_id', branchId)
 
-  const [studentsRes, subsRes, paymentsRes] = await Promise.all([
+  const [studentsRes, subsRes, paymentsRes, paymentSubjectsRes] = await Promise.all([
     studentsQuery,
     supabase
       .from('student_subscriptions')
@@ -108,9 +108,12 @@ export async function fetchFeesData(branchId = null) {
       .from('student_payments')
       .select('student_id, month, amount, status, paid_at, paid_by')
       .order('month'),
+    supabase
+      .from('student_payment_subjects')
+      .select('student_id, subject_id, month, amount, paid_at, paid_by'),
   ])
 
-  const firstError = [studentsRes, subsRes, paymentsRes].find((r) => r.error)
+  const firstError = [studentsRes, subsRes, paymentsRes, paymentSubjectsRes].find((r) => r.error)
   if (firstError) throw new Error(firstError.error.message)
 
   const subsByStudent = {}
@@ -176,5 +179,21 @@ export async function fetchFeesData(branchId = null) {
     })
   }
 
-  return { students, paymentsByStudent, payments: paymentsRes.data || [], catalog }
+  // Détail par matière : sert au calendrier "segmenté" et à la modale de
+  // validation. student_payments (ci-dessus) reste la source de vérité pour
+  // "le mois est-il intégralement réglé" — inchangée pour ne rien casser
+  // ailleurs (Dashboard, Rapports, Retards & Impayés, Salaires).
+  const paymentSubjectsByStudent = {}
+  for (const p of paymentSubjectsRes.data || []) {
+    if (!paymentSubjectsByStudent[p.student_id]) paymentSubjectsByStudent[p.student_id] = []
+    paymentSubjectsByStudent[p.student_id].push({
+      subject_id: p.subject_id,
+      month: normalizeMonthKey(p.month),
+      amount: Number(p.amount),
+      paid_at: p.paid_at,
+      paid_by: p.paid_by,
+    })
+  }
+
+  return { students, paymentsByStudent, paymentSubjectsByStudent, payments: paymentsRes.data || [], catalog }
 }

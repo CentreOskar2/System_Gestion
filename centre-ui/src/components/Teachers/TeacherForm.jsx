@@ -19,7 +19,7 @@ const toForm = (teacher) =>
         active: teacher.active,
         cycles: teacher.cycle_ids || [],
         levels: teacher.level_ids || [],
-        subjects: teacher.subject_ids || [],
+        levelSubjects: teacher.level_subjects || {},
         groups: teacher.groups || (teacher.group_assignments || []).map((a) => a.group_id),
         remuneration_type: teacher.paymentType || 'fixe',
         fixed_salary: teacher.fixed_salary ?? teacher.remuneration_amount ?? teacher.salary ?? '',
@@ -37,7 +37,7 @@ const toForm = (teacher) =>
         active: true,
         cycles: [],
         levels: [],
-        subjects: [],
+        levelSubjects: {},
         groups: [],
         remuneration_type: 'fixe',
         fixed_salary: '',
@@ -114,6 +114,31 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
       }
     })
 
+  // Décocher un niveau retire aussi ses matières cochées : les garder
+  // invisibles mais encore enregistrées reproduirait le bug d'origine
+  // (une matière qui traîne, détachée de tout niveau affiché).
+  const toggleLevel = (levelId) =>
+    setForm((current) => {
+      const list = current.levels || []
+      const isRemoving = list.includes(levelId)
+      const nextLevelSubjects = { ...current.levelSubjects }
+      if (isRemoving) delete nextLevelSubjects[levelId]
+      return {
+        ...current,
+        levels: isRemoving ? list.filter((item) => item !== levelId) : [...list, levelId],
+        levelSubjects: nextLevelSubjects,
+      }
+    })
+
+  const toggleLevelSubject = (levelId, subjectId) =>
+    setForm((current) => {
+      const currentList = current.levelSubjects?.[levelId] || []
+      const nextList = currentList.includes(subjectId)
+        ? currentList.filter((id) => id !== subjectId)
+        : [...currentList, subjectId]
+      return { ...current, levelSubjects: { ...current.levelSubjects, [levelId]: nextList } }
+    })
+
   const setRate = (cycleId, value) =>
     set('cycle_rates', { ...form.cycle_rates, [cycleId]: value })
 
@@ -136,24 +161,61 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
   )
   const teachesSubjectCycles = form.cycles.some((cycleId) => !packageCycleIds.has(cycleId))
 
+  // Niveaux sélectionnés qui ont réellement des matières à cocher (tous
+  // sauf ceux d'un cycle au forfait) — c'est par eux que "Matières
+  // enseignées" se décline, un bloc par niveau.
+  const subjectLevels = useMemo(
+    () => levels.filter((level) => form.levels.includes(level.id) && !packageCycleIds.has(level.cycle_id)),
+    [levels, form.levels, packageCycleIds]
+  )
+
+  // Niveaux au forfait sélectionnés (jamais de matière à cocher) et niveaux
+  // "à matières" pour lesquels au moins une matière a été cochée — ce sont
+  // les deux seuls cas où l'écran a de quoi proposer des groupes.
+  const packageLevelIds = useMemo(
+    () => form.levels.filter((levelId) => packageCycleIds.has(levels.find((l) => l.id === levelId)?.cycle_id)),
+    [form.levels, levels, packageCycleIds]
+  )
+  const levelsWithSubjects = useMemo(
+    () => Object.entries(form.levelSubjects || {}).filter(([, ids]) => (ids || []).length > 0),
+    [form.levelSubjects]
+  )
+
   const canFetchGroups =
     form.cycles.length > 0 &&
     form.levels.length > 0 &&
-    (!teachesSubjectCycles || form.subjects.length > 0)
+    (packageLevelIds.length > 0 || levelsWithSubjects.length > 0)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       if (!canFetchGroups) return
       setGroupsLoading(true)
-      let query = supabase
+      // Un groupe n'est proposé que pour une vraie paire (niveau, matière)
+      // du professeur — jamais pour une matière qu'il enseigne à un AUTRE
+      // niveau que celui du groupe. `subject_id.is.null` reste inclus pour
+      // le niveau concerné : un groupe multi-matières (ex. "2 BAC ECO")
+      // doit apparaître dès qu'une seule matière du niveau y correspond.
+      const orParts = []
+      for (const levelId of packageLevelIds) {
+        orParts.push(`and(level_id.eq.${levelId},subject_id.is.null)`)
+      }
+      for (const [levelId, subjectIds] of levelsWithSubjects) {
+        orParts.push(`and(level_id.eq.${levelId},subject_id.is.null)`)
+        for (const subjectId of subjectIds) {
+          orParts.push(`and(level_id.eq.${levelId},subject_id.eq.${subjectId})`)
+        }
+      }
+      if (orParts.length === 0) {
+        setAvailableGroups([])
+        setGroupsLoading(false)
+        return
+      }
+      const query = supabase
         .from('groups')
         .select('id, name, subject_id, level_id, capacity, status, levels(name, cycles(name))')
         .eq('status', 'active')
-      if (form.subjects.length > 0) {
-        query = query.or(`subject_id.in.(${form.subjects.join(',')}),subject_id.is.null`)
-      }
-      query = query.or(`level_id.in.(${form.levels.join(',')}),level_id.is.null`)
+        .or(orParts.join(','))
       const { data, error } = await query
       if (cancelled) return
       if (error) {
@@ -194,7 +256,7 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
     }
     load()
     return () => { cancelled = true }
-  }, [canFetchGroups, form.levels, form.subjects])
+  }, [canFetchGroups, form.levels, form.levelSubjects, packageLevelIds, levelsWithSubjects])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -303,7 +365,7 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
                     <div className="choice-grid">
                       {cycleLevels.map((level) => (
                         <label className={form.levels.includes(level.id) ? 'is-checked' : ''} key={level.id}>
-                          <input type="checkbox" checked={form.levels.includes(level.id)} onChange={() => toggle('levels', level.id)} />
+                          <input type="checkbox" checked={form.levels.includes(level.id)} onChange={() => toggleLevel(level.id)} />
                           {level.name}
                         </label>
                       ))}
@@ -313,7 +375,11 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
               )}
             </fieldset>
 
-            {/* 3. Matières enseignées — sans objet sur les cycles au forfait */}
+            {/* 3. Matières enseignées, par niveau — une matière peut être
+                enseignée à un niveau et pas à un autre (ex. Économie en 2ème
+                année Bac mais pas en 1ère) : la coder à plat, sans niveau,
+                laissait croire que toute matière cochée valait pour tous les
+                niveaux cochés. Sans objet sur les cycles au forfait. */}
             <fieldset>
               <legend>Matières enseignées</legend>
               {loadingOptions ? (
@@ -324,15 +390,25 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
                     ? "Sélectionnez d'abord un ou plusieurs cycles."
                     : "Sur ces cycles le professeur enseigne toutes les matières du niveau : il n'y a pas de matière à choisir."}
                 </p>
+              ) : subjectLevels.length === 0 ? (
+                <p className="groups-placeholder">Sélectionnez d'abord un ou plusieurs niveaux ci-dessus.</p>
               ) : (
-                <div className="choice-grid">
-                  {subjects.map((subject) => (
-                    <label className={form.subjects.includes(subject.id) ? 'is-checked' : ''} key={subject.id}>
-                      <input type="checkbox" checked={form.subjects.includes(subject.id)} onChange={() => toggle('subjects', subject.id)} />
-                      {subject.name}
-                    </label>
-                  ))}
-                </div>
+                subjectLevels.map((level) => (
+                  <div className="teacher-level-group" key={level.id}>
+                    <strong className="teacher-level-cycle">{level.name}</strong>
+                    <div className="choice-grid">
+                      {subjects.map((subject) => {
+                        const checked = (form.levelSubjects[level.id] || []).includes(subject.id)
+                        return (
+                          <label className={checked ? 'is-checked' : ''} key={subject.id}>
+                            <input type="checkbox" checked={checked} onChange={() => toggleLevelSubject(level.id, subject.id)} />
+                            {subject.name}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))
               )}
             </fieldset>
 
