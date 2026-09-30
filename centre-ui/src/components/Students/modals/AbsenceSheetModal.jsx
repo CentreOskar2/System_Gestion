@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Icon from '../../Icon'
 import { supabase } from '../../../supabaseClient'
+import { fetchAllRows } from '../../../utils/fetchAllRows'
 import { safeFilename } from '../../../utils/exportToPdf'
 import { downloadPdfDocument } from '../../pdf/downloadPdf'
 import AbsenceSheetPdf from '../../pdf/AbsenceSheetPdf'
@@ -130,10 +131,11 @@ export default function AbsenceSheetModal({ close }) {
           supabase.from('subjects').select('id, name').order('name'),
           supabase.from('levels').select('id, name, cycles(has_fixed_price)').order('name'),
           supabase.from('groups').select('id, name, subject_id, level_id, teacher_id').eq('status', 'active').order('name'),
-          supabase.from('group_students').select('group_id, student_id'),
+          // Tables lues par pages : elles dépassent la limite de 1000 lignes (voir fetchAllRows).
+          fetchAllRows(() => supabase.from('group_students').select('group_id, student_id').order('student_id').order('group_id')),
           supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
           supabase.from('teacher_groups').select('teacher_id, group_id'),
-          supabase.from('student_group_subjects').select('group_id, subject_id'),
+          fetchAllRows(() => supabase.from('student_group_subjects').select('group_id, subject_id').order('student_id').order('group_id').order('subject_id')),
         ])
         if (teachersRes.error) throw new Error(teachersRes.error.message)
         if (subjectsRes.error) throw new Error(subjectsRes.error.message)

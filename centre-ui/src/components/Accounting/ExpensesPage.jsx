@@ -4,6 +4,7 @@ import { Bot, Coins, Hand } from 'lucide-react'
 import Header from '../shared/Header'
 import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
+import { fetchAllRows } from '../../utils/fetchAllRows'
 import { useBranch } from '../../context/BranchContext'
 import { useAuth } from '../../context/AuthContext'
 import { calendarMonthOptions, currentMonthKey, formatShortDate, schoolYearOptions } from './monthUtils'
@@ -67,15 +68,19 @@ export default function ExpensesPage() {
     // rien côté serveur ne la génère — pg_cron n'est pas activé.
     const { error: recurringError } = await supabase.rpc('generate_recurring_charges')
     if (recurringError) console.error(recurringError)
-    let expensesQuery = supabase.from('expenses').select('*').order('charge_date', { ascending: false })
+    // Les charges s'accumulent mois après mois : lues par pages pour ne pas
+    // être tronquées à 1000 lignes (voir fetchAllRows).
+    const expensesQuery = () => {
+      const query = supabase.from('expenses').select('*').order('charge_date', { ascending: false }).order('id')
+      return branchFilter ? query.eq('branch_id', branchFilter) : query
+    }
     let recurringQuery = supabase.from('recurring_charges').select('*').order('created_at', { ascending: false })
     if (branchFilter) {
-      expensesQuery = expensesQuery.eq('branch_id', branchFilter)
       recurringQuery = recurringQuery.eq('branch_id', branchFilter)
     }
     const [branchesRes, expensesRes, recurringRes] = await Promise.all([
       supabase.from('branches').select('id, name').order('name'),
-      expensesQuery,
+      fetchAllRows(expensesQuery),
       recurringQuery,
     ])
     const loadError = [branchesRes.error, expensesRes.error, recurringRes.error].find(Boolean)

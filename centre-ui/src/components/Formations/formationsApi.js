@@ -1,4 +1,5 @@
 import { supabase } from '../../supabaseClient'
+import { fetchAllRows } from '../../utils/fetchAllRows'
 
 // Les formations vivent à côté de la structure académique : elles ne passent ni
 // par cycles/levels, ni par subjects/tariffs. Le prix est porté par le NIVEAU de
@@ -223,20 +224,28 @@ async function syncFormationGroupMemberships(studentId, rows, previous) {
 // ---------------------------------------------------------------------------
 
 export async function fetchFormationFeesData(branchId = null) {
+  // Tables lues par pages : elles grossissent chaque mois et dépasseraient la
+  // limite de 1000 lignes de Supabase (voir fetchAllRows).
   const [enrollmentsRes, paymentsRes, catalog] = await Promise.all([
-    supabase
-      .from('student_formations')
-      .select(
-        'id, student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, enrolled_at, status, ' +
-          // level_id sert à distinguer l'élève « formation seule » de celui qui
-        // suit aussi un cursus : les frais d'inscription se règlent sur le
-        // calendrier de scolarité pour le second, ici pour le premier.
-        'students!inner(id, first_name, last_name, registration_number, registration_date, created_at, phone1, status, branch_id, level_id, photo_url)'
-      ),
-    supabase
-      .from('formation_payments')
-      .select('id, student_formation_id, month, amount, status, paid_at, paid_by')
-      .order('month'),
+    fetchAllRows(() =>
+      supabase
+        .from('student_formations')
+        .select(
+          'id, student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, enrolled_at, status, ' +
+            // level_id sert à distinguer l'élève « formation seule » de celui qui
+          // suit aussi un cursus : les frais d'inscription se règlent sur le
+          // calendrier de scolarité pour le second, ici pour le premier.
+          'students!inner(id, first_name, last_name, registration_number, registration_date, created_at, phone1, status, branch_id, level_id, photo_url)'
+        )
+        .order('id')
+    ),
+    fetchAllRows(() =>
+      supabase
+        .from('formation_payments')
+        .select('id, student_formation_id, month, amount, status, paid_at, paid_by')
+        .order('month')
+        .order('id')
+    ),
     fetchFormationCatalog(),
   ])
 

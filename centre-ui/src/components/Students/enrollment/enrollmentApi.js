@@ -1,4 +1,5 @@
 import { supabase } from '../../../supabaseClient'
+import { fetchAllRows } from '../../../utils/fetchAllRows'
 import { uploadImage } from '../../../utils/storage'
 import { syncStudentFormations, formationRowPrice } from '../../Formations/formationsApi'
 
@@ -32,7 +33,14 @@ export async function fetchCatalog() {
       // FK nommée explicitement : une clé étrangère en double avait rendu cette
       // jointure ambiguë et fait échouer fetchCatalog (corrigé par la migration 003).
       // Nommer la contrainte protège d'une éventuelle réapparition du doublon.
-      supabase.from('group_students').select('group_id, student_id, students!group_students_student_id_fkey(first_name, last_name)'),
+      // Lue par pages : la table peut dépasser la limite de 1000 lignes (voir fetchAllRows).
+      fetchAllRows(() =>
+        supabase
+          .from('group_students')
+          .select('group_id, student_id, students!group_students_student_id_fkey(first_name, last_name)')
+          .order('student_id')
+          .order('group_id')
+      ),
       supabase.from('tariffs').select('level_id, subject_id, price'),
       supabase.from('branches').select('id, name').order('name'),
       supabase.from('user_branches').select('branch_id'),
@@ -617,18 +625,25 @@ export async function reactivateAllStudents(branchId = null) {
 }
 
 export async function fetchStudents(branchId = null) {
-  let query = supabase
-    .from('students')
-    .select('*, branches(name), levels(name, cycle_id, fixed_price, cycles(name, has_fixed_price)), cycles(name), study_branches(name)')
-    .order('created_at', { ascending: false })
-  if (branchId && branchId !== 'all') query = query.eq('branch_id', branchId)
-
-  const { data, error } = await query
+  // Les lectures ci-dessous passent par fetchAllRows : ces tables dépassent ou
+  // approchent la limite de 1000 lignes de Supabase, au-delà de laquelle les
+  // élèves les plus récents disparaissaient sans erreur.
+  const { data, error } = await fetchAllRows(() => {
+    const query = supabase
+      .from('students')
+      .select('*, branches(name), levels(name, cycle_id, fixed_price, cycles(name, has_fixed_price)), cycles(name), study_branches(name)')
+      .order('created_at', { ascending: false })
+      .order('id')
+    return branchId && branchId !== 'all' ? query.eq('branch_id', branchId) : query
+  })
   if (error) throw new Error(error.message)
 
-  const { data: subs, error: subsError } = await supabase
-    .from('student_subscriptions')
-    .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, subjects(name), teachers(first_name,last_name), groups(name, filiere_id)')
+  const { data: subs, error: subsError } = await fetchAllRows(() =>
+    supabase
+      .from('student_subscriptions')
+      .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, subjects(name), teachers(first_name,last_name), groups(name, filiere_id)')
+      .order('id')
+  )
   if (subsError) throw new Error(subsError.message)
 
   const { data: filieres, error: filieresError } = await supabase
@@ -649,9 +664,13 @@ export async function fetchStudents(branchId = null) {
   // depuis la page Groupes n'a pas d'abonnement, il etait donc introuvable par
   // le filtre « groupe » de la liste des eleves. group_students fait foi sur la
   // question « qui est dans ce groupe ».
-  const { data: memberships, error: membershipsError } = await supabase
-    .from('group_students')
-    .select('group_id, student_id')
+  const { data: memberships, error: membershipsError } = await fetchAllRows(() =>
+    supabase
+      .from('group_students')
+      .select('group_id, student_id')
+      .order('student_id')
+      .order('group_id')
+  )
   if (membershipsError) throw new Error(membershipsError.message)
 
   const groupIdsByStudent = {}
@@ -664,9 +683,12 @@ export async function fetchStudents(branchId = null) {
   // FormationPicker pour que la modification d'un élève les restitue telles
   // quelles. Absentes tant que la migration 031 n'a pas été passée : l'erreur
   // est absorbée, la fiche élève reste utilisable sans son volet formations.
-  const { data: studentFormations, error: formationsError } = await supabase
-    .from('student_formations')
-    .select('student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, formation_levels(name, price, formations(name))')
+  const { data: studentFormations, error: formationsError } = await fetchAllRows(() =>
+    supabase
+      .from('student_formations')
+      .select('student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, formation_levels(name, price, formations(name))')
+      .order('id')
+  )
   if (formationsError) console.error(formationsError)
 
   const formationsByStudent = {}

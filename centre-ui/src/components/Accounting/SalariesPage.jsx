@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Percent, TrendingUp, Wallet } from 'lucide-react'
+import { Percent, Search, TrendingUp, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
 import Icon from '../Icon'
 import { initials } from '../Students/utils/studentHelpers'
@@ -186,6 +186,7 @@ export default function SalariesPage() {
   const [selectedMonthNumber, setSelectedMonthNumber] = useState(() => String(Number(initialPeriod.slice(5, 7))))
   const [selectedYear, setSelectedYear] = useState(() => initialPeriod.slice(0, 4))
   const [notice, setNotice] = useState(null)
+  const [query, setQuery] = useState('')
   const monthOptions = useMemo(() => calendarMonthOptions(), [])
   const yearOptions = useMemo(() => schoolYearOptions(), [])
 
@@ -273,6 +274,13 @@ export default function SalariesPage() {
 
   const massSalariale = teachers.reduce((sum, t) => sum + t.amount, 0)
 
+  // La recherche ne filtre que le tableau : les compteurs et la masse salariale
+  // restent calculés sur tout le corps enseignant. Insensible à la casse et aux
+  // accents, pour qu'« hafiane » trouve « EL HAFIANE ».
+  const normalize = (value) => String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  const search = normalize(query.trim())
+  const shownTeachers = search ? teachers.filter((teacher) => normalize(teacher.name).includes(search)) : teachers
+
   return (
     <div className="salaries-page">
       <Header />
@@ -324,6 +332,10 @@ export default function SalariesPage() {
             </select>
           </label>
         </div>
+        <label className="salary-search">
+          <Search size={22} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Rechercher un professeur..." />
+        </label>
         {notice && (
           <p style={{ margin: '0 0 16px', padding: '10px 14px', background: '#fdecea', color: '#c0392b', borderRadius: 8 }}>
             {notice}
@@ -350,8 +362,12 @@ export default function SalariesPage() {
                 <tr>
                   <td colSpan={6} className="salary-empty">Aucun professeur actif.</td>
                 </tr>
+              ) : shownTeachers.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="salary-empty">Aucun professeur ne correspond à « {query.trim()} ».</td>
+                </tr>
               ) : (
-                teachers.map((teacher) => {
+                shownTeachers.map((teacher) => {
                   const isValidated = validated.includes(`${teacher.id}:${month}`)
                   const isPending = pendingSalaries.includes(teacher.id)
                   return (

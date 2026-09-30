@@ -6,6 +6,7 @@ import { MenuSelect } from '../shared/Menu'
 import { useAuth } from '../../context/AuthContext'
 import { useBranch } from '../../context/BranchContext'
 import { supabase } from '../../supabaseClient'
+import { fetchAllRows } from '../../utils/fetchAllRows'
 import { buildDebtors } from '../Accounting/delinquenciesApi'
 import { subscribeFeesCache } from '../Accounting/feesApi'
 import { academicYearStart, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
@@ -242,29 +243,33 @@ export default function Dashboard() {
       setLoading(true)
       setError('')
 
-      let studentsQuery = supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date, created_at')
-      let paymentsQuery = supabase.from('student_payments').select('student_id, month, amount, status')
-      let salariesQuery = supabase.from('teacher_salaries').select('teacher_id, month, amount, status')
-      let expensesQuery = supabase.from('expenses').select('id, title, amount, month, branch_id, type')
+      // Tables qui dépassent 1000 lignes : lues par pages (voir fetchAllRows),
+      // d'où des fabriques de requêtes plutôt que des requêtes toutes prêtes.
+      const studentsQuery = () => {
+        const query = supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date, created_at').order('id')
+        return branchFilter ? query.eq('branch_id', branchFilter) : query
+      }
+      const paymentsQuery = () => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')
+      const salariesQuery = () => supabase.from('teacher_salaries').select('teacher_id, month, amount, status').order('teacher_id').order('month')
+      const expensesQuery = () => {
+        const query = supabase.from('expenses').select('id, title, amount, month, branch_id, type').order('id')
+        return branchFilter ? query.eq('branch_id', branchFilter) : query
+      }
       // Un professeur n'appartient a aucune succursale : on charge tout le corps
       // enseignant, quelle que soit la succursale affichee.
       const teachersQuery = supabase.from('teachers').select('id, first_name, last_name, status')
-      if (branchFilter) {
-        studentsQuery = studentsQuery.eq('branch_id', branchFilter)
-        expensesQuery = expensesQuery.eq('branch_id', branchFilter)
-      }
 
       try {
         const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes, feesRes, formationRevenue] = await Promise.all([
-          studentsQuery,
-          paymentsQuery,
-          salariesQuery,
-          expensesQuery,
+          fetchAllRows(studentsQuery),
+          fetchAllRows(paymentsQuery),
+          fetchAllRows(salariesQuery),
+          fetchAllRows(expensesQuery),
           teachersQuery,
           supabase.from('branches').select('id, name, status').order('name'),
           supabase.from('cycles').select('id, name'),
           supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
-          supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid'),
+          fetchAllRows(() => supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid').order('student_id').order('school_year')),
           fetchFormationRevenue(),
         ])
         if (cancelled) return

@@ -1,4 +1,5 @@
 import { supabase } from '../../supabaseClient'
+import { fetchAllRows } from '../../utils/fetchAllRows'
 import { fetchCatalog, isPackageLevel } from '../Students/enrollment/enrollmentApi'
 import { academicYearStart, normalizeMonthKey } from './monthUtils'
 
@@ -93,24 +94,38 @@ export async function recordFirstMonthPayment({ studentId, month, amount, userId
 export async function fetchFeesData(branchId = null) {
   const catalog = await fetchCatalog()
 
-  let studentsQuery = supabase
-    .from('students')
-    .select('id, first_name, last_name, registration_number, registration_date, created_at, phone1, phone2, status, level_id, cycle_id, du_mois, branch_id, levels(name, cycle_id, cycles(name)), study_branches(name)')
-    .order('created_at', { ascending: false })
-  if (branchId && branchId !== 'all') studentsQuery = studentsQuery.eq('branch_id', branchId)
+  const studentsQuery = () => {
+    let query = supabase
+      .from('students')
+      .select('id, first_name, last_name, registration_number, registration_date, created_at, phone1, phone2, status, level_id, cycle_id, du_mois, branch_id, levels(name, cycle_id, cycles(name)), study_branches(name)')
+      .order('created_at', { ascending: false })
+      .order('id')
+    if (branchId && branchId !== 'all') query = query.eq('branch_id', branchId)
+    return query
+  }
 
+  // Tables qui dépassent 1000 lignes : lues par pages (voir fetchAllRows).
   const [studentsRes, subsRes, paymentsRes, paymentSubjectsRes] = await Promise.all([
-    studentsQuery,
-    supabase
-      .from('student_subscriptions')
-      .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, subjects(name), teachers(first_name,last_name), groups(name)'),
-    supabase
-      .from('student_payments')
-      .select('student_id, month, amount, status, paid_at, paid_by')
-      .order('month'),
-    supabase
-      .from('student_payment_subjects')
-      .select('student_id, subject_id, month, amount, paid_at, paid_by'),
+    fetchAllRows(studentsQuery),
+    fetchAllRows(() =>
+      supabase
+        .from('student_subscriptions')
+        .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, subjects(name), teachers(first_name,last_name), groups(name)')
+        .order('id')
+    ),
+    fetchAllRows(() =>
+      supabase
+        .from('student_payments')
+        .select('student_id, month, amount, status, paid_at, paid_by')
+        .order('month')
+        .order('student_id')
+    ),
+    fetchAllRows(() =>
+      supabase
+        .from('student_payment_subjects')
+        .select('student_id, subject_id, month, amount, paid_at, paid_by')
+        .order('id')
+    ),
   ])
 
   const firstError = [studentsRes, subsRes, paymentsRes, paymentSubjectsRes].find((r) => r.error)

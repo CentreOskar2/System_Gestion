@@ -7,6 +7,7 @@ import GroupsTable from './GroupsTable'
 import GroupModal from './modals/GroupModal'
 import GroupDetailsModal from './modals/GroupDetailsModal'
 import { supabase } from '../../supabaseClient'
+import { fetchAllRows } from '../../utils/fetchAllRows'
 import './Groups.css'
 
 function Toast({ notice }) {
@@ -50,7 +51,8 @@ export default function GroupsPage() {
       supabase.from('groups').select('*').order('created_at', { ascending: false }),
       supabase.from('levels').select('id, name').order('name'),
       supabase.from('study_branches').select('id, name, level_id').order('name'),
-      supabase.from('group_students').select('group_id, student_id'),
+      // Lue par pages : la table peut dépasser la limite de 1000 lignes (voir fetchAllRows).
+      fetchAllRows(() => supabase.from('group_students').select('group_id, student_id').order('student_id').order('group_id')),
       // Avant la migration 031 cette table n'existe pas : l'erreur est absorbée
       // et les groupes s'affichent comme avant, sans colonne formation.
       supabase.from('formation_levels').select('id, name, formations(name)'),

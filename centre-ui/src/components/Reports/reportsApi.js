@@ -1,4 +1,5 @@
 import { supabase } from '../../supabaseClient'
+import { fetchAllRows } from '../../utils/fetchAllRows'
 import { fetchFeesData } from '../Accounting/feesApi'
 import { fetchFormationRevenue } from '../Formations/formationsApi'
 import { calculateSalary } from '../Accounting/salaryUtils'
@@ -49,10 +50,13 @@ export async function buildGroupsReport({ branchId, branchName, monthKey, slug }
     groupsQuery,
     supabase.from('teachers').select('id, first_name, last_name'),
     supabase.from('levels').select('id, name'),
-    supabase
-      .from('student_subscriptions')
-      .select('student_id, group_id, monthly_price, students(first_name, last_name, registration_number, phone1, phone2, level_id, status)'),
-    supabase.from('student_payments').select('student_id, status').eq('month', monthKey),
+    fetchAllRows(() =>
+      supabase
+        .from('student_subscriptions')
+        .select('student_id, group_id, monthly_price, students(first_name, last_name, registration_number, phone1, phone2, level_id, status)')
+        .order('id')
+    ),
+    fetchAllRows(() => supabase.from('student_payments').select('student_id, status').eq('month', monthKey).order('student_id')),
   ])
 
   const teacherMap = Object.fromEntries((teachersRes.data || []).map((t) => [t.id, `${t.first_name} ${t.last_name}`.trim()]))
@@ -117,11 +121,11 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     groupsQuery,
     supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
     supabase.from('teacher_groups').select('teacher_id, group_id'),
-    supabase.from('group_students').select('group_id, student_id'),
-    supabase.from('students').select('id, status, registration_date, created_at'),
+    fetchAllRows(() => supabase.from('group_students').select('group_id, student_id').order('student_id').order('group_id')),
+    fetchAllRows(() => supabase.from('students').select('id, status, registration_date, created_at').order('id')),
     supabase.from('teacher_salaries').select('teacher_id').eq('month', monthKey).eq('status', 'paid'),
     supabase.from('tariffs').select('level_id, subject_id, price'),
-    supabase.from('student_payments').select('student_id, status').eq('month', monthKey),
+    fetchAllRows(() => supabase.from('student_payments').select('student_id, status').eq('month', monthKey).order('student_id')),
     supabase.from('teacher_branches').select('teacher_id, branch_id'),
   ])
 
@@ -232,18 +236,21 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
 // 3. Bénéfice net
 // ---------------------------------------------------------------------------
 export async function buildNetProfitReport({ branchId, branchName, monthKey }) {
-  let studentsQuery = supabase.from('students').select('id, branch_id')
-  let expensesQuery = supabase.from('expenses').select('branch_id, month, amount, type')
-  if (branchId) {
-    studentsQuery = studentsQuery.eq('branch_id', branchId)
-    expensesQuery = expensesQuery.eq('branch_id', branchId)
+  // Tables qui dépassent 1000 lignes : lues par pages (voir fetchAllRows).
+  const studentsQuery = () => {
+    const query = supabase.from('students').select('id, branch_id').order('id')
+    return branchId ? query.eq('branch_id', branchId) : query
+  }
+  const expensesQuery = () => {
+    const query = supabase.from('expenses').select('branch_id, month, amount, type').order('id')
+    return branchId ? query.eq('branch_id', branchId) : query
   }
 
   const [paymentsRes, studentsRes, expensesRes, salariesRes, branchesRes, formationRevenue] = await Promise.all([
-    supabase.from('student_payments').select('student_id, month, amount, status'),
-    studentsQuery,
-    expensesQuery,
-    supabase.from('teacher_salaries').select('teacher_id, month, amount, status'),
+    fetchAllRows(() => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')),
+    fetchAllRows(studentsQuery),
+    fetchAllRows(expensesQuery),
+    fetchAllRows(() => supabase.from('teacher_salaries').select('teacher_id, month, amount, status').order('teacher_id').order('month')),
     supabase.from('branches').select('id, name, status'),
     fetchFormationRevenue(),
   ])

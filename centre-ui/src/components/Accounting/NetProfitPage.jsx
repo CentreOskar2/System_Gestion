@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Coins, TrendingUp, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
 import { supabase } from '../../supabaseClient'
+import { fetchAllRows } from '../../utils/fetchAllRows'
 import { useBranch } from '../../context/BranchContext'
 import { academicMonths, calendarMonthOptions, currentMonthKey, schoolYearOptions } from './monthUtils'
 import { subscribeFeesCache } from './feesApi'
@@ -146,18 +147,21 @@ export default function NetProfitPage() {
     let cancelled = false
 
     async function load() {
-      let studentsQuery = supabase.from('students').select('id, branch_id')
-      let expensesQuery = supabase.from('expenses').select('branch_id, month, amount, type')
-      if (branchFilter) {
-        studentsQuery = studentsQuery.eq('branch_id', branchFilter)
-        expensesQuery = expensesQuery.eq('branch_id', branchFilter)
+      const studentsQuery = () => {
+        const query = supabase.from('students').select('id, branch_id').order('id')
+        return branchFilter ? query.eq('branch_id', branchFilter) : query
       }
+      const expensesQuery = () => {
+        const query = supabase.from('expenses').select('branch_id, month, amount, type').order('id')
+        return branchFilter ? query.eq('branch_id', branchFilter) : query
+      }
+      // Tables qui dépassent 1000 lignes : lues par pages (voir fetchAllRows).
       const [paymentsRes, studentsRes, expensesRes, branchesRes, feesRes, salaryContext, formationRevenue] = await Promise.all([
-        supabase.from('student_payments').select('student_id, month, amount, status'),
-        studentsQuery,
-        expensesQuery,
+        fetchAllRows(() => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')),
+        fetchAllRows(studentsQuery),
+        fetchAllRows(expensesQuery),
         supabase.from('branches').select('id, name, status'),
-        supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid'),
+        fetchAllRows(() => supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid').order('student_id').order('school_year')),
         fetchSalaryContext(),
         fetchFormationRevenue(),
       ])

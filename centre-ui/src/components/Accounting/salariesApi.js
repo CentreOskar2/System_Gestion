@@ -1,4 +1,5 @@
 import { supabase } from '../../supabaseClient'
+import { fetchAllRows } from '../../utils/fetchAllRows'
 import { isEnrolledInMonth } from './monthUtils'
 import { calculateSalary } from './salaryUtils'
 
@@ -31,13 +32,14 @@ export async function fetchSalaryContext() {
     groupsQuery,
     supabase.from('teacher_group_subjects').select('teacher_id, group_id, subject_id'),
     supabase.from('teacher_groups').select('teacher_id, group_id'),
-    supabase.from('student_group_subjects').select('group_id, student_id, subject_id'),
+    // Tables qui dépassent 1000 lignes : lues par pages (voir fetchAllRows).
+    fetchAllRows(() => supabase.from('student_group_subjects').select('group_id, student_id, subject_id').order('student_id').order('group_id').order('subject_id')),
     // Le prix réellement facturé à chaque élève. Un prix manuel (une remise)
     // ne figure QUE là : la table tariffs ne connaît que le prix standard.
-    supabase.from('student_subscriptions').select('student_id, group_id, subject_id, monthly_price'),
-    supabase.from('group_students').select('group_id, student_id'),
-    supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id'),
-    supabase.from('teacher_salaries').select('teacher_id, month, amount').eq('status', 'paid'),
+    fetchAllRows(() => supabase.from('student_subscriptions').select('student_id, group_id, subject_id, monthly_price').order('id')),
+    fetchAllRows(() => supabase.from('group_students').select('group_id, student_id').order('student_id').order('group_id')),
+    fetchAllRows(() => supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id').order('id')),
+    fetchAllRows(() => supabase.from('teacher_salaries').select('teacher_id, month, amount').eq('status', 'paid').order('teacher_id').order('month')),
     supabase.from('tariffs').select('level_id, subject_id, price'),
   ])
 
