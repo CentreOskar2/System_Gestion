@@ -178,6 +178,12 @@ export async function fetchSalaryContext() {
   }
 }
 
+// Date d'inscription affichée dans le journal ('AAAA-MM-JJ') : même repli sur
+// created_at que isEnrolledInMonth, pour montrer la date qui a réellement servi.
+function studentRegistrationDate(student) {
+  return String(student.registration_date || student.created_at || '').slice(0, 10)
+}
+
 // Rejoue le contexte sur un mois donné. Retourne, par professeur, le détail des
 // groupes, le montant calculé, et le montant qui fait foi pour ce mois
 // (`effectiveAmount`) : le montant figé si la paie a été validée, le calcul en
@@ -219,7 +225,7 @@ export function computeTeacherSalaries(context, month) {
         : Number.isFinite(bySubject)
           ? bySubject
           : priceForGroup(row.group_id, row.subject_id)
-      studentsByGroupSubject[key].push({ id: row.student_id, name, price })
+      studentsByGroupSubject[key].push({ id: row.student_id, name, price, registrationDate: studentRegistrationDate(student) })
     }
   }
   // Au forfait l'élève n'a pas de ligne par matière : son appartenance au
@@ -237,7 +243,12 @@ export function computeTeacherSalaries(context, month) {
     if (!studentsByGroupSubject[key]) studentsByGroupSubject[key] = []
     if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
       // Au forfait le prix est celui du niveau, le même pour tout le groupe.
-      studentsByGroupSubject[key].push({ id: row.student_id, name, price: priceForGroup(row.group_id) })
+      studentsByGroupSubject[key].push({
+        id: row.student_id,
+        name,
+        price: priceForGroup(row.group_id),
+        registrationDate: studentRegistrationDate(student),
+      })
     }
   }
 
@@ -271,7 +282,11 @@ export function computeTeacherSalaries(context, month) {
           revenue,
           // Prix par élève, pour le journal imprimé : il doit montrer ce que
           // l'élève paie vraiment, pas le tarif du catalogue.
-          studentPrices: roster.map((entry) => ({ name: entry.name, price: Number(entry.price) || 0 })),
+          studentPrices: roster.map((entry) => ({
+            name: entry.name,
+            price: Number(entry.price) || 0,
+            registrationDate: entry.registrationDate,
+          })),
         }
       })
       .filter(Boolean)

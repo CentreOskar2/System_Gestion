@@ -10,7 +10,7 @@ import SalaryJournalPdf from '../pdf/SalaryJournalPdf'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
-import { calendarMonthOptions, currentMonthKey, monthLabelOf, schoolYearOptions } from './monthUtils'
+import { calendarMonthOptions, currentMonthKey, formatShortDate, monthLabelOf, schoolYearOptions } from './monthUtils'
 import { fetchTeacherSalaries } from './salariesApi'
 import './SalariesPage.css'
 
@@ -111,6 +111,7 @@ function Journal({ teacher, monthLabel, close }) {
                 <thead>
                   <tr>
                     <th>Élève</th>
+                    <th>Date d'inscription</th>
                     <th>Prix matière</th>
                   </tr>
                 </thead>
@@ -123,6 +124,7 @@ function Journal({ teacher, monthLabel, close }) {
                   ).map((entry, i) => (
                     <tr key={`${entry.name}-${i}`}>
                       <td>{entry.name}</td>
+                      <td>{formatShortDate(entry.registrationDate)}</td>
                       {/* Le prix payé par CET élève, remise comprise. */}
                       <td>{Number(entry.price).toLocaleString('fr-FR')} DH</td>
                     </tr>
@@ -130,7 +132,7 @@ function Journal({ teacher, monthLabel, close }) {
                 </tbody>
                 <tfoot>
                   <tr>
-                    <th>Total du groupe</th>
+                    <th colSpan={2}>Total du groupe</th>
                     <th>{groupTotals[index].toLocaleString('fr-FR')} DH</th>
                   </tr>
                 </tfoot>

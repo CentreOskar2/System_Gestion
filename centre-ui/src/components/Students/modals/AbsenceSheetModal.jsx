@@ -15,6 +15,13 @@ const sessions = Array.from({ length: 18 }, (_, index) => `S${index + 1}`)
 const BLANK_ROWS = 8
 const blankRows = Array.from({ length: BLANK_ROWS }, (_, index) => index)
 
+// 'AAAA-MM-JJ' -> 'JJ/MM/AAAA' ; découpage de la chaîne pour éviter tout
+// décalage de fuseau horaire qu'introduirait new Date().
+function formatEntryDate(value) {
+  const [year, month, day] = String(value || '').slice(0, 10).split('-')
+  return year && month && day ? `${day}/${month}/${year}` : ''
+}
+
 function AbsenceSheet({ meta, students, close }) {
   const [isExporting, setIsExporting] = useState(false)
   const downloadPdf = async () => {
@@ -61,10 +68,11 @@ function AbsenceSheet({ meta, students, close }) {
             <tr>
               <th>#</th>
               <th>Élève</th>
-              <th>Matricule</th>
+              <th>Date d'entrée</th>
               <th>Note°1</th>
               <th>Note°2</th>
-              {sessions.map((session) => <th key={session}>{session}</th>)}
+              {/* En-têtes de séances laissés vides : le professeur y inscrit la date à la main. */}
+              {sessions.map((session) => <th key={session} />)}
             </tr>
           </thead>
           <tbody>
@@ -72,7 +80,7 @@ function AbsenceSheet({ meta, students, close }) {
               <tr key={student.id}>
                 <td>{index + 1}</td>
                 <td>{student.name}</td>
-                <td>{student.registration_number || ''}</td>
+                <td>{student.entry_date || ''}</td>
                 <td />
                 <td />
                 {sessions.map((session) => <td key={session} />)}
@@ -260,11 +268,11 @@ export default function AbsenceSheetModal({ close }) {
       const rosterQuery = packageGroup
         ? supabase
             .from('group_students')
-            .select('student_id, students(first_name, last_name, registration_number, status)')
+            .select('student_id, students(first_name, last_name, registration_date, created_at, status)')
             .eq('group_id', groupId)
         : supabase
             .from('student_group_subjects')
-            .select('student_id, subject_id, students(first_name, last_name, registration_number, status)')
+            .select('student_id, subject_id, students(first_name, last_name, registration_date, created_at, status)')
             .eq('group_id', groupId)
             .eq('subject_id', subjectId)
 
@@ -286,7 +294,7 @@ export default function AbsenceSheetModal({ close }) {
         roster.push({
           id: row.student_id,
           name: `${s.first_name} ${s.last_name}`.trim(),
-          registration_number: s.registration_number || '',
+          entry_date: formatEntryDate(s.registration_date || (s.created_at || '').slice(0, 10)),
         })
       }
       roster.sort((a, b) => a.name.localeCompare(b.name))

@@ -2,6 +2,7 @@ import { Document, Page, View, Text, StyleSheet } from '@react-pdf/renderer'
 import { pdfStyles, colors, formatMoney, PDF_FONT_FAMILY } from './pdfStyles'
 import { PdfBrandHeader, PdfSignatures } from './PdfBrandHeader'
 import { initials } from '../Students/utils/studentHelpers'
+import { formatShortDate } from '../Accounting/monthUtils'
 
 const styles = StyleSheet.create({
   teacherCard: {
@@ -46,8 +47,9 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginBottom: 6,
   },
-  studentCol: { width: '70%' },
-  priceCol: { width: '30%', textAlign: 'right' },
+  studentCol: { width: '50%' },
+  dateCol: { width: '25%', textAlign: 'center' },
+  priceCol: { width: '25%', textAlign: 'right' },
   groupTotalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -112,6 +114,7 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
               </Text>
               <View style={pdfStyles.tableHeadRow}>
                 <Text style={styles.studentCol}>Élève</Text>
+                <Text style={styles.dateCol}>Date d'inscription</Text>
                 <Text style={styles.priceCol}>Prix matière</Text>
               </View>
               {(group.studentPrices?.length > 0
@@ -125,6 +128,7 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
               ).map((entry, i) => (
                 <View style={pdfStyles.tableRow} key={`${entry.name}-${i}`}>
                   <Text style={styles.studentCol}>{entry.name}</Text>
+                  <Text style={styles.dateCol}>{formatShortDate(entry.registrationDate)}</Text>
                   {/* Le prix payé par CET élève : une remise doit se lire ici. */}
                   <Text style={styles.priceCol}>{formatMoney(entry.price)}</Text>
                 </View>

@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
   },
   colIndex: { width: 18, textAlign: 'center' },
   colStudent: { width: 110 },
-  colReg: { width: 55 },
+  colReg: { width: 62, textAlign: 'center' },
   colNote: { width: 26, textAlign: 'center' },
   colSession: { width: 29, textAlign: 'center' },
   help: {
@@ -161,18 +161,19 @@ export default function AbsenceSheetPdf({ meta, students }) {
           <View style={styles.row} fixed>
             <Text style={[styles.cell, styles.headCell, styles.colIndex]}>#</Text>
             <Text style={[styles.cell, styles.headCell, styles.colStudent]}>Élève</Text>
-            <Text style={[styles.cell, styles.headCell, styles.colReg]}>Matricule</Text>
+            <Text style={[styles.cell, styles.headCell, styles.colReg]}>Date d'entrée</Text>
             <Text style={[styles.cell, styles.headCell, styles.colNote]}>Note°1</Text>
             <Text style={[styles.cell, styles.headCell, styles.colNote]}>Note°2</Text>
+            {/* En-têtes de séances laissés vides : le professeur y inscrit la date à la main. */}
             {sessions.map((session) => (
-              <Text style={[styles.cell, styles.headCell, styles.colSession]} key={session}>{session}</Text>
+              <Text style={[styles.cell, styles.headCell, styles.colSession]} key={session} />
             ))}
           </View>
           {students.map((student, index) => (
             <View style={styles.row} key={student.id} wrap={false}>
               <Text style={[styles.cell, styles.colIndex]}>{index + 1}</Text>
               <Text style={[styles.cell, styles.colStudent]}>{student.name}</Text>
-              <Text style={[styles.cell, styles.colReg]}>{student.registration_number || ''}</Text>
+              <Text style={[styles.cell, styles.colReg]}>{student.entry_date || ''}</Text>
               <Text style={[styles.cell, styles.colNote]} />
               <Text style={[styles.cell, styles.colNote]} />
               {sessions.map((session) => (
