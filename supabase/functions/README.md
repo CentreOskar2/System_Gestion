@@ -27,3 +27,16 @@ this privileged, service-role call.
 ```powershell
 supabase functions deploy update-user-password
 ```
+
+## `set-user-status`
+
+Activates or deactivates a platform account. Besides updating `users.status`,
+it bans the account in Supabase Auth while it is inactive (`ban_duration`), so
+its session can no longer be refreshed and it cannot sign in again until it is
+reactivated (`ban_duration: 'none'`). Only an authenticated, active
+`super_admin` can call it, and a super admin cannot deactivate themselves.
+Used by the status toggle and the edit form in Users.jsx.
+
+```powershell
+supabase functions deploy set-user-status
+```
