@@ -880,3 +880,69 @@
   font-size: 0.95rem;
   color: #9aa4b6;
 }
+
+/* Montant du mois modifiable dans la modale de paiement. */
+.payment-usual-price {
+  display: block;
+  margin-top: 2px;
+  color: #9aa4b6;
+  font-size: 0.75rem;
+}
+
+.payment-amount-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.payment-subject-row .payment-amount-field input {
+  width: 92px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #c9d5ea;
+  border-radius: 8px;
+  background: #fff;
+  color: #315fec;
+  font-weight: 700;
+  font-size: 0.95rem;
+  text-align: right;
+}
+
+.payment-amount-field input:focus {
+  outline: 2px solid #9cb5ff;
+  outline-offset: 1px;
+}
+
+.payment-amount-field button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #dce3ed;
+  border-radius: 8px;
+  background: #fff;
+  color: #315fec;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.payment-amount-field--block {
+  margin-top: 10px;
+}
+
+.payment-amount-field--block input {
+  width: 160px;
+  height: 52px;
+  padding: 0 10px;
+  border: 1px solid #c9d5ea;
+  border-radius: 10px;
+  background: #fff;
+  color: #315fec;
+  font-weight: 700;
+  font-size: 1.8rem;
+  text-align: right;
+}
+
+.payment-amount-field--block button {
+  width: 44px;
+  height: 52px;
+  font-size: 1.1rem;
+}

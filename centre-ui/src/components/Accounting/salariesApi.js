@@ -2,6 +2,7 @@ import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
 import { isEnrolledInMonth } from './monthUtils'
 import { calculateSalary } from './salaryUtils'
+import { fetchTeacherAdvances, indexAdvances } from './advancesApi'
 
 /* Calcul de la paie, partagé par les pages Salaires, Charges et Bénéfice net.
  *
@@ -46,6 +47,8 @@ export async function fetchSalaryContext() {
   const firstError = [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, subscriptionsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes].find((r) => r.error)
   if (firstError) throw new Error(firstError.error.message)
 
+  const paymentsIndex = await fetchPaymentsIndex()
+
   const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
   const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
   const levelById = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l]))
@@ -66,6 +69,15 @@ export async function fetchSalaryContext() {
   // de son niveau par élève, comme un groupe au forfait. Table absente tant que
   // la migration 031 n'a pas été passée — les salaires se calculent alors comme
   // avant, sans les formations.
+  // Avances sur salaire : déduites du net à verser du mois concerné. Table
+  // absente tant que la migration 038 n'a pas été passée — la paie se calcule
+  // alors comme avant, sans avance.
+  const { advances } = await fetchTeacherAdvances().catch((advancesError) => {
+    console.error(advancesError)
+    return { advances: [] }
+  })
+  const advancesIndex = indexAdvances(advances)
+
   const formationLevelsRes = await supabase.from('formation_levels').select('id, price')
   if (formationLevelsRes.error) console.error(formationLevelsRes.error)
   const formationPriceByLevel = Object.fromEntries(
@@ -177,6 +189,8 @@ export async function fetchSalaryContext() {
     isPackageGroup,
     priceForGroup,
     assignmentsByTeacher,
+    advancesIndex,
+    paymentsIndex,
   }
 }
 
@@ -184,6 +198,71 @@ export async function fetchSalaryContext() {
 // created_at que isEnrolledInMonth, pour montrer la date qui a réellement servi.
 function studentRegistrationDate(student) {
   return String(student.registration_date || student.created_at || '').slice(0, 10)
+}
+
+// Statuts qui valent encaissement (l'ancien code écrivait parfois « validé »).
+const PAID_STATUSES = new Set(['paid', 'validé'])
+const monthOf = (value) => String(value || '').slice(0, 7)
+
+// Encaissements, indexés pour répondre vite à « cet élève a-t-il payé cette
+// matière ce mois-ci, et combien ? ». Le professeur au pourcentage n'est payé
+// que sur ce qui a été réellement encaissé (décision du centre, 01/10).
+async function fetchPaymentsIndex() {
+  const [monthRes, subjectRes, formationsRes, formationPaymentsRes] = await Promise.all([
+    fetchAllRows(() => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')),
+    fetchAllRows(() => supabase.from('student_payment_subjects').select('student_id, subject_id, month, amount').order('id')),
+    fetchAllRows(() => supabase.from('student_formations').select('id, student_id, group_id').order('id')),
+    fetchAllRows(() => supabase.from('formation_payments').select('student_formation_id, month, amount, status').order('month').order('id')),
+  ])
+  for (const res of [monthRes, subjectRes]) {
+    if (res.error) throw new Error(res.error.message)
+  }
+  // Tables des formations absentes tant que la migration 031 n'a pas été passée.
+  if (formationsRes.error) console.error(formationsRes.error)
+  if (formationPaymentsRes.error) console.error(formationPaymentsRes.error)
+
+  // Mois réglé en entier (student_payments) : « élève:AAAA-MM » → montant.
+  const monthPaid = {}
+  for (const row of monthRes.data || []) {
+    if (PAID_STATUSES.has(row.status || 'paid')) monthPaid[`${row.student_id}:${monthOf(row.month)}`] = Number(row.amount) || 0
+  }
+  // Détail par matière : « élève:matière:AAAA-MM » → montant encaissé.
+  const subjectPaid = {}
+  // Mois pour lesquels l'élève a un détail par matière.
+  const hasSubjectDetail = new Set()
+  for (const row of subjectRes.data || []) {
+    subjectPaid[`${row.student_id}:${row.subject_id}:${monthOf(row.month)}`] = Number(row.amount) || 0
+    hasSubjectDetail.add(`${row.student_id}:${monthOf(row.month)}`)
+  }
+  // Formations : « élève:groupe:AAAA-MM » → montant encaissé.
+  const enrollmentById = Object.fromEntries((formationsRes.data || []).map((row) => [row.id, row]))
+  const formationPaid = {}
+  for (const row of formationPaymentsRes.data || []) {
+    const enrollment = enrollmentById[row.student_formation_id]
+    if (!enrollment?.group_id || !PAID_STATUSES.has(row.status || 'paid')) continue
+    formationPaid[`${enrollment.student_id}:${enrollment.group_id}:${monthOf(row.month)}`] = Number(row.amount) || 0
+  }
+  return { monthPaid, subjectPaid, hasSubjectDetail, formationPaid }
+}
+
+// Montant encaissé pour cet élève dans ce groupe ce mois-ci, ou null s'il n'a
+// pas encore payé. Par matière : une matière réglée compte pour le prof de
+// cette matière, même si l'élève doit encore les autres.
+function paidAmountFor(paymentsIndex, { studentId, groupId, subjectId, isFormation, isPackage, price }, month) {
+  if (!paymentsIndex) return price
+  const key = monthOf(month)
+  if (isFormation) {
+    const amount = paymentsIndex.formationPaid[`${studentId}:${groupId}:${key}`]
+    return amount === undefined ? null : amount
+  }
+  const monthAmount = paymentsIndex.monthPaid[`${studentId}:${key}`]
+  if (isPackage) return monthAmount === undefined ? null : monthAmount
+  const subjectAmount = paymentsIndex.subjectPaid[`${studentId}:${subjectId}:${key}`]
+  if (subjectAmount !== undefined) return subjectAmount
+  // Mois payé en bloc sans détail par matière (avance, ou paiement antérieur
+  // au détail par matière) : toutes les matières sont réglées, au prix prévu.
+  if (monthAmount !== undefined && !paymentsIndex.hasSubjectDetail.has(`${studentId}:${key}`)) return price
+  return null
 }
 
 // Rejoue le contexte sur un mois donné. Retourne, par professeur, le détail des
@@ -196,6 +275,8 @@ export function computeTeacherSalaries(context, month) {
     priceByStudentGroupSubject, priceByStudentSubject, validatedByMonth,
     cycleMap, levelMap, levelById, branchMap, subjectMap, groupById,
     studentMap, studentRowById, isPackageGroup, priceForGroup, assignmentsByTeacher,
+    advancesIndex = {},
+    paymentsIndex = null,
   } = context
 
   const validatedAmountByTeacher = validatedByMonth[String(month).slice(0, 7)] || {}
@@ -227,7 +308,15 @@ export function computeTeacherSalaries(context, month) {
         : Number.isFinite(bySubject)
           ? bySubject
           : priceForGroup(row.group_id, row.subject_id)
-      studentsByGroupSubject[key].push({ id: row.student_id, name, price, registrationDate: studentRegistrationDate(student) })
+      const paidAmount = paidAmountFor(paymentsIndex, { studentId: row.student_id, groupId: row.group_id, subjectId: row.subject_id, price }, month)
+      studentsByGroupSubject[key].push({
+        id: row.student_id,
+        name,
+        price,
+        paid: paidAmount !== null,
+        paidAmount: paidAmount ?? 0,
+        registrationDate: studentRegistrationDate(student),
+      })
     }
   }
   // Au forfait l'élève n'a pas de ligne par matière : son appartenance au
@@ -245,10 +334,18 @@ export function computeTeacherSalaries(context, month) {
     if (!studentsByGroupSubject[key]) studentsByGroupSubject[key] = []
     if (!studentsByGroupSubject[key].some((entry) => entry.id === row.student_id)) {
       // Au forfait le prix est celui du niveau, le même pour tout le groupe.
+      const price = priceForGroup(row.group_id)
+      const paidAmount = paidAmountFor(
+        paymentsIndex,
+        { studentId: row.student_id, groupId: row.group_id, isFormation: Boolean(group.formation_level_id), isPackage: true, price },
+        month
+      )
       studentsByGroupSubject[key].push({
         id: row.student_id,
         name,
-        price: priceForGroup(row.group_id),
+        price,
+        paid: paidAmount !== null,
+        paidAmount: paidAmount ?? 0,
         registrationDate: studentRegistrationDate(student),
       })
     }
@@ -264,10 +361,11 @@ export function computeTeacherSalaries(context, month) {
         const rate = t.remuneration_type === 'pourcentage' ? Number(t.cycle_rates?.[cycleId] ?? 0) : 0
         const roster = studentsByGroupSubject[assignment.key] || []
         const students = roster.map((entry) => entry.name)
-        // Somme des prix réellement facturés. C'est elle qui sert au calcul du
-        // salaire, et non « nombre d'élèves × tarif standard » : une remise
-        // accordée à un élève doit se répercuter sur la part du professeur.
-        const revenue = roster.reduce((sum, entry) => sum + (Number(entry.price) || 0), 0)
+        // Somme réellement ENCAISSÉE ce mois-ci : c'est elle qui sert au calcul
+        // du salaire. Un élève qui n'a pas encore payé compte pour 0 DH ; le
+        // salaire augmente au fil des validations de paiement. Une remise ou un
+        // demi-mois s'y reflète puisque c'est le montant encaissé qui compte.
+        const revenue = roster.reduce((sum, entry) => sum + (Number(entry.paidAmount) || 0), 0)
         return {
           id: assignment.key,
           name: group.name,
@@ -281,12 +379,17 @@ export function computeTeacherSalaries(context, month) {
           price: priceForGroup(group.id, assignment.subjectId),
           students,
           studentsCount: students.length,
+          paidCount: roster.filter((entry) => entry.paid).length,
           revenue,
           // Prix par élève, pour le journal imprimé : il doit montrer ce que
           // l'élève paie vraiment, pas le tarif du catalogue.
+          // `price` est ce qui a été encaissé (0 tant que l'élève n'a pas payé),
+          // `expectedPrice` ce qu'il doit.
           studentPrices: roster.map((entry) => ({
             name: entry.name,
-            price: Number(entry.price) || 0,
+            price: Number(entry.paidAmount) || 0,
+            expectedPrice: Number(entry.price) || 0,
+            paid: entry.paid,
             registrationDate: entry.registrationDate,
           })),
         }
@@ -294,6 +397,8 @@ export function computeTeacherSalaries(context, month) {
       .filter(Boolean)
     const levels = [...new Set(groups.map((g) => g.level).filter((level) => level !== '—'))]
     const validated = Object.prototype.hasOwnProperty.call(validatedAmountByTeacher, t.id)
+    const monthAdvances = advancesIndex[t.id]?.[String(month).slice(0, 7)] || []
+    const advancesTotal = monthAdvances.reduce((sum, advance) => sum + advance.amount, 0)
     const computed = calculateSalary(
       {
         paymentType: t.remuneration_type,
@@ -303,6 +408,7 @@ export function computeTeacherSalaries(context, month) {
       },
       groups
     )
+    const effectiveAmount = validated ? validatedAmountByTeacher[t.id] : computed
     return {
       id: t.id,
       name: `${t.first_name} ${t.last_name}`.trim(),
@@ -318,7 +424,11 @@ export function computeTeacherSalaries(context, month) {
       groups,
       validated,
       amount: computed,
-      effectiveAmount: validated ? validatedAmountByTeacher[t.id] : computed,
+      effectiveAmount,
+      // Avances versées sur le salaire de ce mois : déduites du net à verser
+      // (voir netToPay dans salaryUtils).
+      advances: monthAdvances,
+      advancesTotal,
     }
   })
 

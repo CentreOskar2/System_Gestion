@@ -47,9 +47,12 @@ const styles = StyleSheet.create({
     color: colors.muted,
     marginBottom: 6,
   },
-  studentCol: { width: '50%' },
-  dateCol: { width: '25%', textAlign: 'center' },
-  priceCol: { width: '25%', textAlign: 'right' },
+  studentCol: { width: '42%' },
+  dateCol: { width: '20%', textAlign: 'center' },
+  statusCol: { width: '16%', textAlign: 'center' },
+  statusPaid: { color: '#1b6d2e' },
+  statusUnpaid: { color: '#c0392b' },
+  priceCol: { width: '22%', textAlign: 'right' },
   groupTotalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -71,6 +74,10 @@ const styles = StyleSheet.create({
   totalLabel: { fontSize: 10, fontFamily: PDF_FONT_FAMILY, fontWeight: 700 },
   totalValue: { fontSize: 16, fontFamily: PDF_FONT_FAMILY, fontWeight: 700, color: colors.primary },
   note: { marginTop: 14, padding: 10, borderRadius: 6, backgroundColor: '#effcf1', color: colors.successText, fontSize: 8.5 },
+  advancesCard: { marginTop: 10, padding: 14, borderRadius: 8, backgroundColor: '#fffaf2', border: '1px solid #f6d7a7' },
+  advanceDate: { width: '22%' },
+  advanceNote: { width: '50%' },
+  advanceAmount: { width: '28%', textAlign: 'right', color: '#b45309', fontFamily: PDF_FONT_FAMILY, fontWeight: 700 },
   summaryCol1: { width: '34%' },
   summaryCol2: { width: '22%', textAlign: 'right' },
   summaryCol3: { width: '18%', textAlign: 'right' },
@@ -111,11 +118,13 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
               </View>
               <Text style={styles.groupMeta}>
                 {group.subject} · {group.level} · {group.branch} · {group.studentsCount} élèves
+                {Number.isFinite(group.paidCount) ? ` · ${group.paidCount} payé${group.paidCount > 1 ? 's' : ''}` : ''}
               </Text>
               <View style={pdfStyles.tableHeadRow}>
                 <Text style={styles.studentCol}>Élève</Text>
                 <Text style={styles.dateCol}>Date d'inscription</Text>
-                <Text style={styles.priceCol}>Prix matière</Text>
+                <Text style={styles.statusCol}>Statut</Text>
+                <Text style={styles.priceCol}>Montant payé</Text>
               </View>
               {(group.studentPrices?.length > 0
                 ? group.studentPrices
@@ -129,12 +138,15 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
                 <View style={pdfStyles.tableRow} key={`${entry.name}-${i}`}>
                   <Text style={styles.studentCol}>{entry.name}</Text>
                   <Text style={styles.dateCol}>{formatShortDate(entry.registrationDate)}</Text>
+                  <Text style={[styles.statusCol, entry.paid === false ? styles.statusUnpaid : styles.statusPaid]}>
+                    {entry.paid === false ? 'Non payé' : 'Payé'}
+                  </Text>
                   {/* Le prix payé par CET élève : une remise doit se lire ici. */}
                   <Text style={styles.priceCol}>{formatMoney(entry.price)}</Text>
                 </View>
               ))}
               <View style={styles.groupTotalRow}>
-                <Text style={styles.groupTotalLabel}>Total du groupe</Text>
+                <Text style={styles.groupTotalLabel}>Total encaissé du groupe</Text>
                 <Text style={styles.groupTotalValue}>{formatMoney(groupTotals[index])}</Text>
               </View>
             </View>
@@ -164,10 +176,31 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
             </View>
           ))}
           <View style={styles.totalBox}>
-            <Text style={styles.totalLabel}>Salaire total à verser</Text>
+            <Text style={styles.totalLabel}>{teacher.advancesTotal > 0 ? 'Salaire du mois' : 'Salaire total à verser'}</Text>
             <Text style={styles.totalValue}>{formatMoney(totalSalary)}</Text>
           </View>
         </View>
+        {teacher.advancesTotal > 0 && (
+          <View style={styles.advancesCard} wrap={false}>
+            <Text style={pdfStyles.sectionTitle}>Avances déjà versées</Text>
+            <View style={pdfStyles.tableHeadRow}>
+              <Text style={styles.advanceDate}>Date</Text>
+              <Text style={styles.advanceNote}>Motif</Text>
+              <Text style={styles.advanceAmount}>Montant</Text>
+            </View>
+            {teacher.advances.map((advance) => (
+              <View style={pdfStyles.tableRow} key={advance.id}>
+                <Text style={styles.advanceDate}>{formatShortDate(advance.advance_date)}</Text>
+                <Text style={styles.advanceNote}>{advance.note || 'Avance sur salaire'}</Text>
+                <Text style={styles.advanceAmount}>− {formatMoney(advance.amount)}</Text>
+              </View>
+            ))}
+            <View style={styles.totalBox}>
+              <Text style={styles.totalLabel}>Net à verser</Text>
+              <Text style={styles.totalValue}>{formatMoney(totalSalary - teacher.advancesTotal)}</Text>
+            </View>
+          </View>
+        )}
         <View style={styles.note}><Text>Document récapitulatif généré par Centre Oskar pour la période de {monthLabel}.</Text></View>
         <PdfSignatures left="Signature du professeur" right="Signature de l'administration" />
       </Page>

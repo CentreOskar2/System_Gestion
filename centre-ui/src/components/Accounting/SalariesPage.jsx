@@ -12,6 +12,7 @@ import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
 import { calendarMonthOptions, currentMonthKey, formatShortDate, monthLabelOf, schoolYearOptions } from './monthUtils'
 import { fetchTeacherSalaries } from './salariesApi'
+import { netToPay } from './salaryUtils'
 import './SalariesPage.css'
 
 // Total réellement facturé au groupe. `revenue` est la somme des prix payés par
@@ -35,6 +36,7 @@ function buildSalaryMessage(teacher, monthLabel) {
       lines.push('')
       lines.push(`▪️ *${group.name}* (${group.subject} · ${group.level})`)
       lines.push(`   عدد الطلبة المسجلين: ${group.studentsCount}`)
+      if (Number.isFinite(group.paidCount)) lines.push(`   عدد الطلبة الذين أدوا هذا الشهر: ${group.paidCount}`)
       if (group.students.length > 0) lines.push(`   الطلبة: ${group.students.join('، ')}`)
       lines.push(`   مجموع المجموعة: ${groupTotal.toLocaleString('fr-FR')} DH`)
       if (percentage && group.rate > 0) lines.push(`   النسبة (تأثير): ${group.rate}%`)
@@ -45,6 +47,14 @@ function buildSalaryMessage(teacher, monthLabel) {
   }
   lines.push('')
   lines.push(`*الأجر الإجمالي المستحق: ${teacher.amount.toLocaleString('fr-FR')} DH*`)
+  if (teacher.advancesTotal > 0) {
+    lines.push('')
+    lines.push('*التسبيقات المقدمة:*')
+    for (const advance of teacher.advances) {
+      lines.push(`   ${formatShortDate(advance.advance_date)}: ${advance.amount.toLocaleString('fr-FR')} DH`)
+    }
+    lines.push(`*الصافي المتبقي: ${netToPay(teacher).toLocaleString('fr-FR')} DH*`)
+  }
   lines.push('')
   lines.push('شكراً على التزامكم.')
   lines.push('مع تحياتنا،')
@@ -103,7 +113,10 @@ function Journal({ teacher, monthLabel, close }) {
               <header>
                 <div>
                   <b>{group.name}</b>
-                  <small>{group.subject} · {group.level} · {group.branch} · {group.studentsCount} élèves</small>
+                  <small>
+                    {group.subject} · {group.level} · {group.branch} · {group.studentsCount} élèves
+                    {Number.isFinite(group.paidCount) && ` · ${group.paidCount} payé${group.paidCount > 1 ? 's' : ''}`}
+                  </small>
                 </div>
                 {percentage && group.rate > 0 && <span>Taux : {group.rate}%</span>}
               </header>
@@ -112,7 +125,8 @@ function Journal({ teacher, monthLabel, close }) {
                   <tr>
                     <th>Élève</th>
                     <th>Date d'inscription</th>
-                    <th>Prix matière</th>
+                    <th>Statut</th>
+                    <th>Montant payé</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -125,14 +139,22 @@ function Journal({ teacher, monthLabel, close }) {
                     <tr key={`${entry.name}-${i}`}>
                       <td>{entry.name}</td>
                       <td>{formatShortDate(entry.registrationDate)}</td>
-                      {/* Le prix payé par CET élève, remise comprise. */}
-                      <td>{Number(entry.price).toLocaleString('fr-FR')} DH</td>
+                      <td>
+                        {entry.paid === false
+                          ? <span className="journal-status unpaid">Non payé</span>
+                          : <span className="journal-status paid">Payé</span>}
+                      </td>
+                      {/* Ce que CET élève a réellement payé ce mois-ci : 0 DH tant que
+                          son paiement n'est pas validé, remise ou demi-mois compris. */}
+                      <td title={entry.paid === false && entry.expectedPrice ? `Doit ${Number(entry.expectedPrice).toLocaleString('fr-FR')} DH` : undefined}>
+                        {Number(entry.price).toLocaleString('fr-FR')} DH
+                      </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr>
-                    <th colSpan={2}>Total du groupe</th>
+                    <th colSpan={3}>Total encaissé du groupe</th>
                     <th>{groupTotals[index].toLocaleString('fr-FR')} DH</th>
                   </tr>
                 </tfoot>
@@ -160,10 +182,27 @@ function Journal({ teacher, monthLabel, close }) {
             </div>
           ))}
           <div className="summary-total">
-            <b>Salaire total à verser</b>
+            <b>{teacher.advancesTotal > 0 ? 'Salaire du mois' : 'Salaire total à verser'}</b>
             <strong>{totalSalary.toLocaleString('fr-FR')} DH</strong>
           </div>
         </section>
+
+        {teacher.advancesTotal > 0 && (
+          <section className="journal-advances">
+            <h3>Avances déjà versées</h3>
+            {teacher.advances.map((advance) => (
+              <div className="advance-row" key={advance.id}>
+                <span>{formatShortDate(advance.advance_date)}</span>
+                <span>{advance.note || 'Avance sur salaire'}</span>
+                <span>− {advance.amount.toLocaleString('fr-FR')} DH</span>
+              </div>
+            ))}
+            <div className="advance-net">
+              <b>Net à verser</b>
+              <strong>{(totalSalary - teacher.advancesTotal).toLocaleString('fr-FR')} DH</strong>
+            </div>
+          </section>
+        )}
         <footer>
           <button className="journal-download" disabled={isExporting} onClick={downloadPdf}>
             {isExporting ? 'Génération du PDF…' : (<><Icon name="download" /> Télécharger le PDF</>)}
@@ -349,6 +388,8 @@ export default function SalariesPage() {
                 <th>Type</th>
                 <th>Cycle(s) / Niveau(x)</th>
                 <th>Montant calculé</th>
+                <th>Avances</th>
+                <th>Net à verser</th>
                 <th>Statut</th>
                 <th>Action</th>
               </tr>
@@ -356,15 +397,15 @@ export default function SalariesPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="salary-empty">Chargement des professeurs...</td>
+                  <td colSpan={8} className="salary-empty">Chargement des professeurs...</td>
                 </tr>
               ) : teachers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="salary-empty">Aucun professeur actif.</td>
+                  <td colSpan={8} className="salary-empty">Aucun professeur actif.</td>
                 </tr>
               ) : shownTeachers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="salary-empty">Aucun professeur ne correspond à « {query.trim()} ».</td>
+                  <td colSpan={8} className="salary-empty">Aucun professeur ne correspond à « {query.trim()} ».</td>
                 </tr>
               ) : (
                 shownTeachers.map((teacher) => {
@@ -390,6 +431,20 @@ export default function SalariesPage() {
                       </td>
                       <td>
                         <b>{teacher.amount.toLocaleString('fr-FR')} DH</b>
+                      </td>
+                      <td>
+                        {teacher.advancesTotal > 0 ? (
+                          <span className="salary-advance" title={`${teacher.advances.length} avance(s) sur ce mois`}>
+                            − {teacher.advancesTotal.toLocaleString('fr-FR')} DH
+                          </span>
+                        ) : (
+                          <small style={{ color: '#9aa4b6' }}>—</small>
+                        )}
+                      </td>
+                      <td>
+                        <b className={netToPay(teacher) < 0 ? 'salary-net negative' : 'salary-net'}>
+                          {netToPay(teacher).toLocaleString('fr-FR')} DH
+                        </b>
                       </td>
                       <td>
                         <span className={isValidated ? 'salary-status paid' : 'salary-status'}>

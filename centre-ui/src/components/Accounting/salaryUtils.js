@@ -16,3 +16,10 @@ export function calculateSalary(teacher, groups) {
   }
   return Math.round(total)
 }
+
+// Ce qu'il reste à verser au professeur pour le mois : le salaire calculé,
+// moins les avances déjà remises sur ce mois. Peut être négatif si les avances
+// dépassent le salaire (le professeur doit alors la différence au centre).
+export function netToPay(teacher) {
+  return (Number(teacher?.amount) || 0) - (Number(teacher?.advancesTotal) || 0)
+}

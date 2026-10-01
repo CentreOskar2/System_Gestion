@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { Bot, Coins, Hand } from 'lucide-react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { Clock, Coins, Hand, HandCoins, Repeat, ShoppingCart, Users, Wallet } from 'lucide-react'
 import Header from '../shared/Header'
 import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
@@ -9,6 +9,8 @@ import { useBranch } from '../../context/BranchContext'
 import { useAuth } from '../../context/AuthContext'
 import { calendarMonthOptions, currentMonthKey, formatShortDate, schoolYearOptions } from './monthUtils'
 import { fetchTeacherSalaries } from './salariesApi'
+import { fetchTeacherAdvances, indexAdvances } from './advancesApi'
+import TeacherAdvancesPanel from './TeacherAdvancesPanel'
 import './ExpensesPage.css'
 
 const formatAmount = (amount) => `${Number(amount || 0).toLocaleString('fr-FR')} DH`
@@ -18,6 +20,32 @@ const TYPE_LABELS = { Auto: 'Auto', Manuel: 'Manuel', recurring_fixed: 'Fixe ré
 // La paie ne regarde que la direction : un secrétaire gère les charges du
 // centre sans jamais voir ce que gagnent les professeurs, fixe ou pourcentage.
 const SALARY_ROLES = ['super_admin', 'admin', 'director']
+
+// Les trois pages de la section Charges. Avances et Salaires touchent à la
+// paie : réservées à la direction, comme la page Salaires Profs.
+const TABS = [
+  { key: 'achats', label: 'Achats' },
+  { key: 'avances', label: 'Avances des profs', salaryOnly: true },
+  { key: 'salaires', label: 'Salaires', salaryOnly: true },
+]
+
+// Onglet Avances : les avances et la liste des professeurs actifs (pour le
+// formulaire). Ne lève jamais : une erreur est rendue dans `error`.
+async function fetchAdvancesData() {
+  try {
+    const [{ advances, missingTable }, teachersRes] = await Promise.all([
+      fetchTeacherAdvances(),
+      supabase.from('teachers').select('id, first_name, last_name, status').order('last_name'),
+    ])
+    if (teachersRes.error) throw new Error(teachersRes.error.message)
+    const teachers = (teachersRes.data || [])
+      .filter((t) => t.status === 'active')
+      .map((t) => ({ id: t.id, name: `${t.first_name} ${t.last_name}`.trim() }))
+    return { advances, missingTable, teachers, error: null }
+  } catch (err) {
+    return { advances: [], missingTable: false, teachers: [], error: err.message }
+  }
+}
 
 function defaultFilters() {
   const key = currentMonthKey()
@@ -31,8 +59,18 @@ export default function ExpensesPage() {
   const { selectedBranch } = useBranch()
   const { role } = useAuth()
   const canSeeSalaries = SALARY_ROLES.includes(role)
-  const [tab, setTab] = useState('charges')
+  // L'onglet vit dans l'URL (?onglet=avances) : un rechargement ou un lien
+  // ramène sur la même page.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const visibleTabs = canSeeSalaries ? TABS : TABS.filter((t) => !t.salaryOnly)
+  const tab = visibleTabs.some((t) => t.key === searchParams.get('onglet')) ? searchParams.get('onglet') : 'achats'
+  const setTab = (key) => setSearchParams(key === 'achats' ? {} : { onglet: key }, { replace: true })
+  // Dans « Achats » : les charges saisies, ou les modèles de charges fixes.
+  const [achatsView, setAchatsView] = useState('charges')
   const [expenses, setExpenses] = useState([])
+  const [advances, setAdvances] = useState([])
+  const [advancesMissing, setAdvancesMissing] = useState(false)
+  const [teachers, setTeachers] = useState([])
   const [recurringCharges, setRecurringCharges] = useState([])
   const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
@@ -115,6 +153,11 @@ export default function ExpensesPage() {
     // une inscription ou une désactivation en fin de mois le fait bouger.
     let pending = []
     if (canSeeSalaries) {
+      const advancesData = await fetchAdvancesData()
+      setAdvances(advancesData.advances)
+      setAdvancesMissing(advancesData.missingTable)
+      setTeachers(advancesData.teachers)
+      if (advancesData.error) setError(`Impossible de charger les avances : ${advancesData.error}`)
       try {
         const { teachers } = await fetchTeacherSalaries({ month: salaryMonth })
         const alreadyValidated = new Set(
@@ -154,28 +197,58 @@ export default function ExpensesPage() {
     return () => { cancelled = true }
   }, [load])
 
-  const filteredExpenses = useMemo(() => {
-    return expenses.filter((item) => {
-      const date = item.charge_date
-      if (!date) return true
-      if (filterMonth && Number(date.slice(5, 7)) !== Number(filterMonth)) return false
-      if (filterYear) {
-        const yearStart = Number(filterYear)
-        const schoolStart = `${yearStart}-09-01`
-        const schoolEnd = `${yearStart + 1}-08-31`
-        if (date < schoolStart || date > schoolEnd) return false
-      }
-      return true
-    })
-  }, [expenses, filterMonth, filterYear])
+  // Même règle de période pour les trois onglets : mois choisi, et année
+  // scolaire (septembre → août).
+  const inSelectedPeriod = useCallback((date) => {
+    if (!date) return true
+    if (filterMonth && Number(date.slice(5, 7)) !== Number(filterMonth)) return false
+    if (filterYear) {
+      const yearStart = Number(filterYear)
+      const schoolStart = `${yearStart}-09-01`
+      const schoolEnd = `${yearStart + 1}-08-31`
+      if (date < schoolStart || date > schoolEnd) return false
+    }
+    return true
+  }, [filterMonth, filterYear])
 
-  const totals = useMemo(
-    () => ({
-      auto: filteredExpenses.filter((item) => item.type === 'Auto').reduce((sum, item) => sum + item.amount, 0),
-      manual: filteredExpenses.filter((item) => item.type !== 'Auto').reduce((sum, item) => sum + item.amount, 0),
-    }),
-    [filteredExpenses]
+  const filteredExpenses = useMemo(
+    () => expenses.filter((item) => inSelectedPeriod(item.charge_date)),
+    [expenses, inSelectedPeriod]
   )
+  const purchases = useMemo(() => filteredExpenses.filter((item) => !item.isSalary), [filteredExpenses])
+  const salaryCharges = useMemo(() => filteredExpenses.filter((item) => item.isSalary), [filteredExpenses])
+  // Une avance se range au mois de salaire dont elle est déduite.
+  const filteredAdvances = useMemo(
+    () => advances.filter((advance) => inSelectedPeriod(String(advance.month || '').slice(0, 10))),
+    [advances, inSelectedPeriod]
+  )
+  const advancesIndex = useMemo(() => indexAdvances(advances), [advances])
+  const advancesFor = (teacherId, month) =>
+    (advancesIndex[teacherId]?.[String(month || '').slice(0, 7)] || []).reduce((sum, a) => sum + a.amount, 0)
+  // Salaires déjà validés (« professeur:mois ») : signalés dans l'onglet Avances.
+  const validatedSalaryKeys = useMemo(
+    () => new Set(expenses.filter((e) => e.isSalary && !e.pending).map((e) => `${e.teacher_id}:${String(e.month).slice(0, 10)}`)),
+    [expenses]
+  )
+
+  const sumOf = (items) => items.reduce((sum, item) => sum + item.amount, 0)
+  const stats = {
+    achats: [
+      { label: 'Total des achats', value: formatAmount(sumOf(purchases)), icon: <ShoppingCart size={22} />, tone: 'red' },
+      { label: 'Achats manuels', value: formatAmount(sumOf(purchases.filter((i) => i.type !== 'recurring_fixed'))), icon: <Hand size={22} /> },
+      { label: 'Charges fixes récurrentes', value: formatAmount(sumOf(purchases.filter((i) => i.type === 'recurring_fixed'))), icon: <Repeat size={22} /> },
+    ],
+    avances: [
+      { label: 'Total des avances', value: formatAmount(sumOf(filteredAdvances)), icon: <HandCoins size={22} />, tone: 'red' },
+      { label: "Nombre d'avances", value: filteredAdvances.length, icon: <Coins size={22} /> },
+      { label: 'Professeurs concernés', value: new Set(filteredAdvances.map((a) => a.teacher_id)).size, icon: <Users size={22} /> },
+    ],
+    salaires: [
+      { label: 'Masse salariale', value: formatAmount(sumOf(salaryCharges)), icon: <Wallet size={22} />, tone: 'red' },
+      { label: 'Salaires validés', value: formatAmount(sumOf(salaryCharges.filter((i) => !i.pending))), icon: <Coins size={22} /> },
+      { label: 'Salaires en attente', value: formatAmount(sumOf(salaryCharges.filter((i) => i.pending))), icon: <Clock size={22} /> },
+    ],
+  }[tab]
 
   const update = (field) => (event) => setForm((current) => ({ ...current, [field]: event.target.value }))
 
@@ -294,6 +367,49 @@ export default function ExpensesPage() {
     load()
   }
 
+  const periodFilters = (
+    <div className="expense-filters">
+      <label className="expense-month">
+        <span>Mois</span>
+        <select value={filterMonth} onChange={(event) => setFilterMonth(event.target.value)}>
+          <option value="">Tous les mois</option>
+          {monthOptions.map((m) => (
+            <option key={m.value} value={m.value}>{m.label}</option>
+          ))}
+        </select>
+      </label>
+      <label className="expense-month">
+        <span>Année</span>
+        <select value={filterYear} onChange={(event) => setFilterYear(event.target.value)}>
+          <option value="">Toutes les années</option>
+          {yearOptions.map((y) => (
+            <option key={y.value} value={y.value}>{y.label}</option>
+          ))}
+        </select>
+      </label>
+    </div>
+  )
+
+  // Un salaire en attente est calculé à la volée : rien à modifier ni supprimer.
+  const rowActions = (item) => (
+    <div className="expense-row-actions">
+      {!String(item.id).startsWith('auto-') && (
+        <>
+          <button
+            title="Modifier"
+            aria-label={`Modifier ${item.title}`}
+            onClick={() => setForm({ ...item, charge_date: item.charge_date, amount: String(item.amount) })}
+          >
+            <Icon name="edit" />
+          </button>
+          <button className="delete-expense" title="Supprimer" aria-label={`Supprimer ${item.title}`} onClick={() => remove(item.id)}>
+            <Icon name="delete" />
+          </button>
+        </>
+      )}
+    </div>
+  )
+
   return (
     <div className="expenses-page">
       <Header />
@@ -311,53 +427,36 @@ export default function ExpensesPage() {
           <Link to="/accounting/profit">Bénéfice net</Link>
         </nav>
         {error && <p className="expenses-error" role="alert">{error}</p>}
-        <section className="expense-stats">
-          <article>
-            <span>Total des charges</span>
-            <strong>{formatAmount(totals.auto + totals.manual)}</strong>
-            <i className="red"><Coins size={22} /></i>
-          </article>
-          <article>
-            <span>Charges automatiques</span>
-            <strong>{formatAmount(totals.auto)}</strong>
-            <i><Bot size={22} /></i>
-          </article>
-          <article>
-            <span>Charges manuelles</span>
-            <strong>{formatAmount(totals.manual)}</strong>
-            <i><Hand size={22} /></i>
-          </article>
-        </section>
-
-        <nav className="expenses-subtabs">
-          <button className={tab === 'charges' ? 'active' : ''} onClick={() => setTab('charges')}>Charges</button>
-          <button className={tab === 'recurring' ? 'active' : ''} onClick={() => setTab('recurring')}>Charges fixes récurrentes</button>
+        <nav className="expenses-subtabs expenses-pages" aria-label="Pages des charges">
+          {visibleTabs.map((t) => (
+            <button key={t.key} className={tab === t.key ? 'active' : ''} onClick={() => setTab(t.key)}>
+              {t.label}
+            </button>
+          ))}
         </nav>
 
-        {tab === 'charges' ? (
+        <section className="expense-stats">
+          {stats.map((stat) => (
+            <article key={stat.label}>
+              <span>{stat.label}</span>
+              <strong>{stat.value}</strong>
+              <i className={stat.tone || ''}>{stat.icon}</i>
+            </article>
+          ))}
+        </section>
+
+        {tab === 'achats' && (
+          <nav className="expenses-subtabs">
+            <button className={achatsView === 'charges' ? 'active' : ''} onClick={() => setAchatsView('charges')}>Achats</button>
+            <button className={achatsView === 'recurring' ? 'active' : ''} onClick={() => setAchatsView('recurring')}>Charges fixes récurrentes</button>
+          </nav>
+        )}
+
+        {tab === 'achats' && achatsView === 'charges' && (
           <>
             <div className="expenses-actions">
-              <div className="expense-filters">
-                <label className="expense-month">
-                  <span>Mois</span>
-                  <select value={filterMonth} onChange={(event) => setFilterMonth(event.target.value)}>
-                    <option value="">Tous les mois</option>
-                    {monthOptions.map((m) => (
-                      <option key={m.value} value={m.value}>{m.label}</option>
-                    ))}
-                  </select>
-                </label>
-                <label className="expense-month">
-                  <span>Année</span>
-                  <select value={filterYear} onChange={(event) => setFilterYear(event.target.value)}>
-                    <option value="">Toutes les années</option>
-                    {yearOptions.map((y) => (
-                      <option key={y.value} value={y.value}>{y.label}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <button onClick={openAdd}>＋ &nbsp; Ajouter une charge manuelle</button>
+              {periodFilters}
+              <button onClick={openAdd}>＋ &nbsp; Ajouter un achat</button>
             </div>
             <section className="expenses-table-wrap">
               <table className="expenses-table">
@@ -374,50 +473,25 @@ export default function ExpensesPage() {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={6} className="expense-empty">Chargement des charges...</td>
+                      <td colSpan={6} className="expense-empty">Chargement des achats...</td>
                     </tr>
-                  ) : filteredExpenses.length === 0 ? (
+                  ) : purchases.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="expense-empty">Aucune charge enregistrée.</td>
+                      <td colSpan={6} className="expense-empty">Aucun achat enregistré sur cette période.</td>
                     </tr>
                   ) : (
-                    filteredExpenses.map((item) => (
+                    purchases.map((item) => (
                       <tr key={item.id}>
                         <td><b>{item.title}</b></td>
                         <td>{formatAmount(item.amount)}</td>
                         <td>{formatShortDate(item.charge_date)}</td>
                         <td>{item.branch}</td>
                         <td>
-                          <span className={`expense-type ${item.type === 'Auto' ? 'auto' : item.type === 'recurring_fixed' ? 'recurring' : ''}`}>
+                          <span className={`expense-type ${item.type === 'recurring_fixed' ? 'recurring' : ''}`}>
                             {TYPE_LABELS[item.type] || item.type}
                           </span>
-                          {item.pending && (
-                            <span
-                              className="expense-pending"
-                              title="Salaire pas encore validé. Un salaire au pourcentage évolue jusqu'à la fin du mois, au fil des inscriptions et des désactivations."
-                            >
-                              En attente
-                            </span>
-                          )}
                         </td>
-                        <td>
-                          <div className="expense-row-actions">
-                            {!String(item.id).startsWith('auto-') && (
-                              <>
-                                <button
-                                  title="Modifier"
-                                  aria-label={`Modifier ${item.title}`}
-                                  onClick={() => setForm({ ...item, charge_date: item.charge_date, amount: String(item.amount) })}
-                                >
-                                  <Icon name="edit" />
-                                </button>
-                                <button className="delete-expense" title="Supprimer" aria-label={`Supprimer ${item.title}`} onClick={() => remove(item.id)}>
-                                  <Icon name="delete" />
-                                </button>
-                              </>
-                            )}
-                          </div>
-                        </td>
+                        <td>{rowActions(item)}</td>
                       </tr>
                     ))
                   )}
@@ -425,7 +499,9 @@ export default function ExpensesPage() {
               </table>
             </section>
           </>
-        ) : (
+        )}
+
+        {tab === 'achats' && achatsView === 'recurring' && (
           <>
             <div className="expenses-actions">
               <button onClick={openAddRecurring}>＋ &nbsp; Ajouter une charge fixe récurrente</button>
@@ -489,12 +565,86 @@ export default function ExpensesPage() {
             </section>
           </>
         )}
+
+        {tab === 'avances' && (
+          <TeacherAdvancesPanel
+            advances={filteredAdvances}
+            teachers={teachers}
+            missingTable={advancesMissing}
+            loading={loading}
+            validatedSalaryKeys={validatedSalaryKeys}
+            schoolYearStart={filterYear}
+            toolbar={periodFilters}
+            onChanged={load}
+          />
+        )}
+
+        {tab === 'salaires' && (
+          <>
+            <div className="expenses-actions">
+              {periodFilters}
+              <Link className="expenses-link" to="/accounting/salaries">Valider les salaires →</Link>
+            </div>
+            <section className="expenses-table-wrap">
+              <table className="expenses-table">
+                <thead>
+                  <tr>
+                    <th>Intitulé</th>
+                    <th>Salaire</th>
+                    <th>Avances</th>
+                    <th>Net à verser</th>
+                    <th>Date</th>
+                    <th>Statut</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={7} className="expense-empty">Chargement des salaires...</td>
+                    </tr>
+                  ) : salaryCharges.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="expense-empty">Aucun salaire sur cette période.</td>
+                    </tr>
+                  ) : (
+                    salaryCharges.map((item) => {
+                      const advanced = advancesFor(item.teacher_id, item.month)
+                      return (
+                        <tr key={item.id}>
+                          <td><b>{item.title}</b></td>
+                          <td>{formatAmount(item.amount)}</td>
+                          <td>{advanced > 0 ? <span className="expense-advance">− {formatAmount(advanced)}</span> : '—'}</td>
+                          <td><b>{formatAmount(item.amount - advanced)}</b></td>
+                          <td>{formatShortDate(item.charge_date)}</td>
+                          <td>
+                            {item.pending ? (
+                              <span
+                                className="expense-pending"
+                                title="Salaire pas encore validé. Un salaire au pourcentage évolue jusqu'à la fin du mois, au fil des inscriptions et des désactivations."
+                              >
+                                En attente
+                              </span>
+                            ) : (
+                              <span className="expense-type auto">Validé</span>
+                            )}
+                          </td>
+                          <td>{rowActions(item)}</td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
+            </section>
+          </>
+        )}
       </main>
       {form && (
         <div className="expense-overlay" onMouseDown={() => setForm(null)}>
           <section className="expense-modal" onMouseDown={(event) => event.stopPropagation()}>
             <button className="expense-close" onClick={() => setForm(null)}>×</button>
-            <h2>{form.id ? 'Modifier la charge' : form.recurring ? 'Ajouter une charge fixe récurrente' : 'Ajouter une charge manuelle'}</h2>
+            <h2>{form.id ? (form.isSalary ? 'Modifier le salaire' : 'Modifier l’achat') : form.recurring ? 'Ajouter une charge fixe récurrente' : 'Ajouter un achat'}</h2>
             <label>
               Intitulé
               <input value={form.title} onChange={update('title')} autoFocus placeholder="ex : Loyer" />

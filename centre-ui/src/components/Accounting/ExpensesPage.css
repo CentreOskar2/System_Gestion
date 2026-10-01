@@ -94,3 +94,13 @@
   font-weight: 650;
 }
 .expense-pending{display:inline-block;margin-left:8px;padding:5px 12px;border:1px solid #f0d3a0;border-radius:10px;background:#fdf6e8;color:#9a6a12;font-size:.78rem;font-weight:700;white-space:nowrap;cursor:help}
+
+/* Les trois pages de la section Charges : Achats, Avances des profs, Salaires. */
+.expenses-pages{display:flex;margin:0 0 24px;background:#e6eaf1}
+.expenses-pages button{padding:13px 26px;font-size:1rem}
+.expense-advance{display:inline-block;padding:4px 10px;border-radius:9px;background:#fff4e5;color:#b45309;font-weight:700;white-space:nowrap}
+.expense-warning{margin:4px 0 0;padding:10px 12px;border:1px solid #f0d3a0;border-radius:10px;background:#fdf6e8;color:#9a6a12;font-size:.85rem}
+.expenses-link{display:inline-flex;align-items:center;height:54px;padding:0 22px;border:1px solid #c9d5ea;border-radius:11px;background:#fff;color:#315fec;font-weight:750;text-decoration:none;white-space:nowrap}
+.expenses-table td .expense-type.auto{margin-left:8px}
+.expenses-table td:first-child .expense-type,.expenses-table td .expense-type:first-child{margin-left:0}
+@media(max-width:900px){.expenses-pages{display:flex;width:100%}.expenses-pages button{flex:1;padding:11px 8px;font-size:.9rem}.expenses-link{justify-content:center}}
