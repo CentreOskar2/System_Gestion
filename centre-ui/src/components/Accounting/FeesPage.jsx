@@ -8,7 +8,7 @@ import { useBranch } from '../../context/BranchContext'
 import { safeFilename } from '../../utils/exportToPdf'
 import { downloadPdfDocument } from '../pdf/downloadPdf'
 import FeeReceiptPdf from '../pdf/FeeReceiptPdf'
-import { syncSubscriptions, isPackageLevel, packagePrice } from '../Students/enrollment/enrollmentApi'
+import { syncSubscriptions, isPackageLevel, packagePrice, teacherForGroupSubject } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
 import {
   accountingDayBucket,
@@ -790,6 +790,12 @@ export default function FeesPage() {
   const selectedCoverage = selected ? monthCoverage(selected.student, selected.index) : null
   const selectedDue = selectedCoverage?.due || []
   const selectedLocked = selected ? lockedPaidSubjects(selected.student, selected.index) : {}
+  // Forfait déjà réglé : la correction suit la même règle que les matières —
+  // libre le jour même, réservée à un rôle « centre » ensuite.
+  const selectedBlockPayment = selected ? monthPaymentOf(selected.student, selected.index) : null
+  const selectedBlockLocked =
+    Boolean(selectedBlockPayment) && !isCenterWide && normalizeDateKey(selectedBlockPayment.paid_at) !== currentDayKey
+
   // Date à laquelle une matière de la modale a été encaissée (ligne par
   // matière, ou paiement en bloc qui la couvre).
   const selectedPaidOn = (name) => {
@@ -1006,6 +1012,47 @@ export default function FeesPage() {
     }
   }
 
+  // Corriger (ou annuler) le paiement d'un mois au forfait déjà réglé, ex. un
+  // demi-mois saisi sur le mauvais mois. Le paiement garde sa date et son
+  // auteur : c'est la caisse de CE jour-là qui est corrigée, après
+  // confirmation explicite si ce n'est pas aujourd'hui.
+  const correctBlockPayment = async (cancel) => {
+    if (!selected || saving) return
+    const { student, index } = selected
+    const month = monthDate(index, Number(schoolYearStart))
+    const payment = monthPaymentOf(student, index)
+    if (!payment) return
+    const previous = toNumber(payment.amount)
+    const amount = enteredAmount(blockAmount, previous)
+    if (!cancel && amount === previous) return
+
+    const label = schoolMonths[index]?.label || ''
+    const day = normalizeDateKey(payment.paid_at)
+    let message = cancel
+      ? `Annuler le paiement de ${label} (${previous.toLocaleString('fr-FR')} DH) pour ${student.name} ?`
+      : `Corriger le paiement de ${label} pour ${student.name} : ${previous.toLocaleString('fr-FR')} DH → ${amount.toLocaleString('fr-FR')} DH ?`
+    if (day && day !== currentDayKey) message += `\n\nAttention : la caisse du ${formatFrenchDate(day)} sera modifiée.`
+    if (!window.confirm(message)) return
+
+    setSaving(true)
+    setError('')
+    try {
+      const query = cancel
+        ? supabase.from('student_payments').delete()
+        : supabase.from('student_payments').update({ amount })
+      const { error: err } = await query.eq('student_id', student.id).eq('month', month)
+      if (err) throw err
+      invalidateFeesCache()
+      await load()
+      setSelected(null)
+    } catch (err) {
+      console.error(err)
+      setError(err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const validateAdvance = async (selectedMonths) => {
     if (!advance || saving) return
     setSaving(true)
@@ -1111,11 +1158,30 @@ export default function FeesPage() {
   // figure pas — un groupe sans matière propre n'apparaît sinon nulle part, le
   // menu s'affiche vide, et l'enregistrement détache l'élève de son groupe.
   const groupOptionsFor = (subject, details) => {
-    const options = [...(catalog?.groupsBySubject?.[subject] || [])]
+    // Les groupes sont organisés par niveau (un groupe enseigne plusieurs
+    // matières) et n'ont en général pas de subject_id : chercher par matière
+    // ne trouvait rien. On propose donc, comme à l'inscription, les groupes
+    // actifs du niveau de l'élève — ceux où un professeur enseigne déjà cette
+    // matière en premier.
+    const subjectId = catalog?.subjectsByName?.[subject]?.id
+    const teachesSubject = (group) =>
+      Boolean(subjectId && catalog?.teacherByGroupSubject?.[`${group.id}:${subjectId}`]) || group.subject_id === subjectId
+    const byId = new Map()
+    for (const group of catalog?.groupsByLevel?.[editing?.level] || []) {
+      if (group.status === 'active') byId.set(group.id, group)
+    }
+    for (const group of catalog?.groupsBySubject?.[subject] || []) byId.set(group.id, group)
+    const options = [...byId.values()].sort(
+      (a, b) => Number(teachesSubject(b)) - Number(teachesSubject(a)) || a.name.localeCompare(b.name)
+    )
+    // Le groupe déjà enregistré reste proposé, même s'il ne figure plus dans
+    // la liste — sinon le menu s'affiche vide et l'enregistrement détache
+    // l'élève de son groupe.
     const current = details?.group_id ? catalog?.groupsById?.[details.group_id] : null
     if (current && !options.some((group) => group.id === current.id)) options.unshift(current)
     return options
   }
+
 
   const setSubjectDetails = (subject, changes) =>
     setEditing((e) => ({ ...e, subjectDetails: { ...e.subjectDetails, [subject]: { ...e.subjectDetails?.[subject], ...changes } } }))
@@ -1503,6 +1569,52 @@ export default function FeesPage() {
                   <div className="payment-amount">
                     <span>Montant payé</span>
                     <strong>{monthBlockAmount(selected.student, selected.index).toLocaleString('fr-FR')} DH</strong>
+                    {selectedBlockPayment?.paid_at && (
+                      <small>Encaissé le {formatFrenchDate(normalizeDateKey(selectedBlockPayment.paid_at))}</small>
+                    )}
+                    {selectedBlockLocked ? (
+                      <small className="payment-correction-locked">
+                        Encaissé un jour précédent : seul un administrateur peut le corriger.
+                      </small>
+                    ) : (
+                      <div className="payment-correction">
+                        <span className="payment-amount-field payment-amount-field--block">
+                          <button
+                            type="button"
+                            title="Demi-mois : la moitié du forfait"
+                            onClick={() => setBlockAmount(String(Math.round((selected.student.du_mois || 0) / 2)))}
+                          >
+                            ½
+                          </button>
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            inputMode="decimal"
+                            aria-label="Montant corrigé"
+                            value={blockAmount}
+                            onChange={(event) => setBlockAmount(event.target.value)}
+                          />
+                          <b>DH</b>
+                        </span>
+                        <div className="payment-correction-actions">
+                          <button
+                            type="button"
+                            disabled={
+                              saving ||
+                              enteredAmount(blockAmount, monthBlockAmount(selected.student, selected.index)) ===
+                                monthBlockAmount(selected.student, selected.index)
+                            }
+                            onClick={() => correctBlockPayment(false)}
+                          >
+                            Corriger le montant
+                          </button>
+                          <button type="button" className="danger" disabled={saving} onClick={() => correctBlockPayment(true)}>
+                            Annuler ce paiement
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="payment-amount">
@@ -1643,9 +1755,13 @@ export default function FeesPage() {
                             value={details.group_id || ''}
                             onChange={(e) => {
                               const id = e.target.value
+                              // Le professeur suit le groupe choisi (celui qui y
+                              // enseigne cette matière), comme à l'inscription.
+                              const teacher = id ? teacherForGroupSubject(catalog, id, subject) : ''
                               setSubjectDetails(subject, {
                                 group_id: id,
                                 group: catalog.groupsById?.[id]?.name || '',
+                                ...(teacher ? { teacher } : {}),
                               })
                             }}
                           >

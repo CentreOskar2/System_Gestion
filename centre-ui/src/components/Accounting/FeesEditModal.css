@@ -26,3 +26,9 @@
 .payment-subject-row.locked{opacity:.85;cursor:default}
 .payment-subject-row.locked input:disabled,.payment-subject-row.locked button:disabled{cursor:not-allowed}
 .payment-paid-on{display:block;margin-top:2px;color:#1b6d2e;font-size:.76rem;font-weight:600}
+.payment-correction{display:grid;justify-items:center;gap:10px;margin-top:14px}
+.payment-correction-actions{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.payment-correction-actions button{padding:8px 14px;border:1px solid #c9d6fb;border-radius:9px;background:#fff;color:#315fec;font-weight:700;font-size:.85rem}
+.payment-correction-actions button.danger{border-color:#f5c2c7;color:#d6293e}
+.payment-correction-actions button:disabled{opacity:.5;cursor:not-allowed}
+.payment-correction-locked{margin-top:8px;color:#647088;font-size:.8rem}
