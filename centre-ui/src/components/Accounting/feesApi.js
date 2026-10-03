@@ -83,6 +83,22 @@ export async function fetchAccountingUsers() {
   return data || []
 }
 
+// Une ligne student_payments est-elle un paiement « en bloc » (avance, 1er
+// mois réglé à l'inscription, paiement antérieur au détail par matière) ou le
+// simple résumé « mois complet » d'un mois réglé matière par matière ?
+//
+// Le résumé est toujours écrit APRÈS les lignes par matière qu'il résume :
+// au moins une d'elles est datée au plus tard à son paid_at. Un paiement en
+// bloc, lui, précède toute ligne par matière du mois (une matière ajoutée
+// ensuite, par exemple).
+export function isBlockPayment(payment, monthSubjectRows) {
+  if (!payment) return false
+  const rows = monthSubjectRows || []
+  if (!payment.paid_at) return rows.length === 0
+  const paidAt = new Date(payment.paid_at).getTime()
+  return !rows.some((row) => !row.paid_at || new Date(row.paid_at).getTime() <= paidAt)
+}
+
 export async function recordFirstMonthPayment({ studentId, month, amount, userId = null }) {
   const { error } = await supabase.from('student_payments').upsert(
     { student_id: studentId, month, amount, status: 'paid', paid_at: new Date().toISOString(), paid_by: userId },
@@ -110,7 +126,7 @@ export async function fetchFeesData(branchId = null) {
     fetchAllRows(() =>
       supabase
         .from('student_subscriptions')
-        .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, subjects(name), teachers(first_name,last_name), groups(name)')
+        .select('student_id, subject_id, teacher_id, group_id, pricing_type, monthly_price, started_at, subjects(name), teachers(first_name,last_name), groups(name)')
         .order('id')
     ),
     fetchAllRows(() =>
@@ -123,7 +139,7 @@ export async function fetchFeesData(branchId = null) {
     fetchAllRows(() =>
       supabase
         .from('student_payment_subjects')
-        .select('student_id, subject_id, month, amount, paid_at, paid_by')
+        .select('id, student_id, subject_id, month, amount, paid_at, paid_by')
         .order('id')
     ),
   ])
@@ -156,6 +172,9 @@ export async function fetchFeesData(branchId = null) {
         group: x.groups?.name || '',
         priceType: x.pricing_type || 'standard',
         manualPrice: x.pricing_type === 'manual' ? Number(x.monthly_price) : undefined,
+        // null = suivie depuis l'inscription ; sinon matière ajoutée en cours
+        // d'année, due seulement à partir de ce moment (migration 039).
+        startedAt: x.started_at || null,
       }
     }
     const stored = Number(s.du_mois)
@@ -210,5 +229,49 @@ export async function fetchFeesData(branchId = null) {
     })
   }
 
-  return { students, paymentsByStudent, paymentSubjectsByStudent, payments: paymentsRes.data || [], catalog }
+  // Encaissements réels, un par somme reçue, chacun à SA date : c'est ce que
+  // la caisse du jour et l'historique journalier additionnent.
+  //   - chaque matière réglée (student_payment_subjects) ;
+  //   - chaque paiement en bloc (student_payments sans détail qui le précède).
+  // Le résumé « mois complet » n'y figure pas : il est supprimé quand on
+  // décoche une matière, recréé quand le mois se complète, et son montant
+  // couvre des matières payées à des jours différents. L'additionner faisait
+  // bouger les montants des jours passés.
+  const rowsByStudentMonth = {}
+  for (const row of paymentSubjectsRes.data || []) {
+    const key = `${row.student_id}:${normalizeMonthKey(row.month)}`
+    if (!rowsByStudentMonth[key]) rowsByStudentMonth[key] = []
+    rowsByStudentMonth[key].push(row)
+  }
+  const cashPayments = [
+    ...(paymentSubjectsRes.data || []).map((row) => ({
+      id: `subject-${row.id}`,
+      student_id: row.student_id,
+      month: normalizeMonthKey(row.month),
+      amount: Number(row.amount),
+      status: 'paid',
+      paid_at: row.paid_at,
+      paid_by: row.paid_by,
+    })),
+    ...(paymentsRes.data || [])
+      .filter((payment) => isBlockPayment(payment, rowsByStudentMonth[`${payment.student_id}:${normalizeMonthKey(payment.month)}`]))
+      .map((payment) => ({
+        id: `month-${payment.student_id}-${normalizeMonthKey(payment.month)}`,
+        student_id: payment.student_id,
+        month: normalizeMonthKey(payment.month),
+        amount: Number(payment.amount),
+        status: payment.status || 'paid',
+        paid_at: payment.paid_at,
+        paid_by: payment.paid_by,
+      })),
+  ]
+
+  return {
+    students,
+    paymentsByStudent,
+    paymentSubjectsByStudent,
+    payments: paymentsRes.data || [],
+    cashPayments,
+    catalog,
+  }
 }

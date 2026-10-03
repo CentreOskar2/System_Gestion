@@ -138,13 +138,43 @@ export default function Users() {
     return enrichedUsers.filter((u) => `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(query.toLowerCase()))
   }, [enrichedUsers, query])
 
+  // Le statut passe par la fonction serveur set-user-status : elle bloque
+  // aussi le compte dans Supabase Auth, pour que sa session ne puisse plus être
+  // renouvelée. Une simple mise à jour de la table laissait un compte
+  // désactivé travailler tant que son onglet restait ouvert.
+  async function setAccountStatus(userId, status) {
+    let res
+    try {
+      res = await fetch(`${SUPABASE_URL}/functions/v1/set-user-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({ user_id: userId, status })
+      })
+    } catch {
+      throw new Error("Impossible de joindre la fonction set-user-status. Vérifiez qu'elle est déployée (supabase functions deploy set-user-status).")
+    }
+    if (res.status === 404) {
+      throw new Error("La fonction set-user-status n'est pas déployée : supabase functions deploy set-user-status")
+    }
+    if (!res.ok) {
+      let msg = 'Impossible de changer le statut du compte'
+      try { const err = await res.json(); msg = err.error || msg } catch { /* invalid response body */ }
+      throw new Error(msg)
+    }
+  }
+
   const toggleStatus = async (id) => {
     const user = users.find((u) => u.id === id)
     if (!user) return
     const newStatus = user.status === 'active' ? 'inactive' : 'active'
-    const { error } = await supabase.from('users').update({ status: newStatus }).eq('id', id)
-    if (!error) {
+    try {
+      await setAccountStatus(id, newStatus)
       setUsers((prev) => prev.map((u) => u.id === id ? { ...u, status: newStatus } : u))
+    } catch (err) {
+      window.alert(err.message)
     }
   }
 
@@ -155,10 +185,14 @@ export default function Users() {
         last_name: form.lastName,
         email: form.email,
         role: form.role,
-        status: form.active ? 'active' : 'inactive'
       }
       const { error: userError } = await supabase.from('users').update(updates).eq('id', form.id)
       if (userError) throw new Error(userError.message)
+
+      const newStatus = form.active ? 'active' : 'inactive'
+      if (users.find((u) => u.id === form.id)?.status !== newStatus) {
+        await setAccountStatus(form.id, newStatus)
+      }
 
       const currentIds = userBranches.filter((ub) => ub.user_id === form.id).map((ub) => ub.branch_id)
       const toRemove = currentIds.filter((id) => !form.assignedIds.includes(id))

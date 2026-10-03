@@ -48,7 +48,9 @@ export default function Login() {
     const { error: authError } = await supabase.auth.signInWithPassword({ email, password })
 
     if (authError) {
-      setError(authError.message)
+      // Compte désactivé : set-user-status l'a bloqué dans Supabase Auth.
+      const banned = authError.code === 'user_banned' || /banned/i.test(authError.message || '')
+      setError(banned ? "Ce compte est désactivé. Contactez l'administrateur." : authError.message)
       setSubmitting(false)
       return
     }

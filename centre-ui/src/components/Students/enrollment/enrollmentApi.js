@@ -331,14 +331,33 @@ async function syncGroupSubjectRows(studentId, rows) {
   }
 }
 
-export async function syncSubscriptions(studentId, form, catalog) {
+// Date à partir de laquelle chaque matière est facturée (migration 039). Les
+// lignes sont supprimées puis recréées à chaque enregistrement : une matière
+// déjà suivie reprend donc sa date d'origine. Une matière ajoutée après
+// l'inscription démarre à `startedAt` (maintenant par défaut) : elle devient
+// due à partir de ce mois, sans rendre impayés les mois déjà réglés sans elle.
+// À l'inscription (aucune ligne existante), null = depuis la date d'inscription.
+function withStartDates(newSubs, existing, startedAt) {
+  const previous = new Map((existing || []).map((row) => [row.subject_id, row.started_at ?? null]))
+  const fallback = startedAt ?? ((existing || []).length > 0 ? new Date().toISOString() : null)
+  return newSubs.map((sub) => ({
+    ...sub,
+    started_at: previous.has(sub.subject_id) ? previous.get(sub.subject_id) : fallback,
+  }))
+}
+
+export async function syncSubscriptions(studentId, form, catalog, { startedAt } = {}) {
   const { data: existing, error: fetchError } = await supabase
     .from('student_subscriptions')
-    .select('id, group_id')
+    .select('id, group_id, subject_id, started_at')
     .eq('student_id', studentId)
   if (fetchError) throw new Error(fetchError.message)
 
-  const newSubs = form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) }))
+  const newSubs = withStartDates(
+    form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) })),
+    existing,
+    startedAt
+  )
   const newGroupIds = newSubs.map((sub) => sub.group_id).filter(Boolean)
 
   const oldGroupIds = (existing || []).map((row) => row.group_id).filter(Boolean)
@@ -417,13 +436,22 @@ export async function syncGroupSelections(studentId, form, catalog) {
 
   await syncGroupSubjectRows(studentId, groupSubjectRows)
 
+  const { data: existingSubs, error: subsError } = await supabase
+    .from('student_subscriptions')
+    .select('subject_id, started_at')
+    .eq('student_id', studentId)
+  if (subsError) throw new Error(subsError.message)
+
   const { error: delError } = await supabase
     .from('student_subscriptions')
     .delete()
     .eq('student_id', studentId)
   if (delError) throw new Error(delError.message)
 
-  const newSubs = form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) }))
+  const newSubs = withStartDates(
+    form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) })),
+    existingSubs
+  )
   if (newSubs.length > 0) {
     const { error } = await supabase.from('student_subscriptions').insert(newSubs)
     if (error) throw new Error(error.message)

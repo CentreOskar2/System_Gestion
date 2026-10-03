@@ -19,3 +19,10 @@
 .edit-subject-details input[type=number]{display:block;width:100%;height:38px;margin-top:8px;padding:0 10px;border:1px solid #dce3ed;border-radius:8px;font:inherit}
 .edit-subject-details input:disabled{background:#f4f6f9;color:#9ba5b6}
 @media(max-width:600px){.edit-modal{padding:28px 20px}.edit-subject-details,.edit-subject-details fieldset{grid-template-columns:1fr}}
+.edit-start-hint{margin:-12px 0 18px;padding:11px 14px;border-radius:10px;background:#f0f4ff;color:#34425b;font-size:.86rem}
+.payment-edit-subjects{display:inline-flex;align-items:center;gap:7px;margin-left:auto;padding:9px 13px;border:1px solid #c9d6fb;border-radius:9px;background:#f4f7ff;color:#315fec;font-weight:700;font-size:.85rem;white-space:nowrap;cursor:pointer}
+.payment-edit-subjects:hover{background:#e9eeff}
+@media(max-width:600px){.payment-person{flex-wrap:wrap}.payment-edit-subjects{margin-left:0}}
+.payment-subject-row.locked{opacity:.85;cursor:default}
+.payment-subject-row.locked input:disabled,.payment-subject-row.locked button:disabled{cursor:not-allowed}
+.payment-paid-on{display:block;margin-top:2px;color:#1b6d2e;font-size:.76rem;font-weight:600}

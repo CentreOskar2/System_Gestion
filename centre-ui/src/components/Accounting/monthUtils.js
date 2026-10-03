@@ -136,11 +136,31 @@ export function receiptDateFromRegistration(registrationDate, monthKey) {
   return billingDueDate(registrationDate, monthKey) || monthDate
 }
 
+// Le jour comptable se calcule TOUJOURS à l'heure du centre, jamais à celle de
+// l'ordinateur qui affiche la page. Avant, un PC réglé sur un mauvais fuseau
+// horaire (ou dont l'heure a été corrigée) faisait glisser tout l'historique
+// d'un jour : les 7 000 DH encaissés le 22 apparaissaient le 21.
+const CENTER_TIME_ZONE = 'Africa/Casablanca'
+const centerClock = new Intl.DateTimeFormat('en-CA', {
+  timeZone: CENTER_TIME_ZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  hourCycle: 'h23',
+})
+
 export function accountingDayBucket(value = new Date()) {
-  const date = value instanceof Date ? new Date(value) : new Date(value)
+  // Une date seule ("2026-10-01") est déjà un jour : la convertir en instant
+  // la ferait tomber à minuit UTC, donc la veille après le décalage de 3h.
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value
+  const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return ''
-  if (date.getHours() < 3) date.setDate(date.getDate() - 1)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  const parts = Object.fromEntries(centerClock.formatToParts(date).map((part) => [part.type, part.value]))
+  // Les encaissements saisis avant 3h du matin comptent pour la veille.
+  const shift = Number(parts.hour) < 3 ? 1 : 0
+  const day = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day) - shift))
+  return `${day.getUTCFullYear()}-${String(day.getUTCMonth() + 1).padStart(2, '0')}-${String(day.getUTCDate()).padStart(2, '0')}`
 }
 
 export function accountingDayStart(value = new Date()) {

@@ -5,6 +5,8 @@ const AuthContext = createContext(null)
 
 // Délai avant de réessayer de charger le profil après une erreur réseau.
 const PROFILE_RETRY_MS = 5000
+// Fréquence de vérification qu'un compte connecté est toujours actif.
+const STATUS_CHECK_MS = 60 * 1000
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
@@ -118,6 +120,32 @@ export function AuthProvider({ children }) {
       subscription?.unsubscribe()
     }
   }, [])
+
+  // Un compte désactivé pendant qu'il travaille doit sortir sans attendre :
+  // on relit son statut chaque minute et au retour sur l'onglet. (Côté
+  // serveur, set-user-status bloque aussi le renouvellement de sa session.)
+  const userId = user?.id
+  useEffect(() => {
+    if (!userId) return undefined
+    let stopped = false
+    const checkStillActive = async () => {
+      if (stopped || document.visibilityState !== 'visible') return
+      const { data, error } = await supabase.from('users').select('status').eq('id', userId).maybeSingle()
+      // Une erreur réseau ne prouve rien : on réessaiera au prochain tour.
+      if (stopped || error) return
+      if (!data || data.status !== 'active') {
+        loadedUserIdRef.current = null
+        await supabase.auth.signOut()
+      }
+    }
+    const timer = setInterval(checkStillActive, STATUS_CHECK_MS)
+    document.addEventListener('visibilitychange', checkStillActive)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', checkStillActive)
+    }
+  }, [userId])
 
   const can = useCallback((perm) => permissions.includes(perm), [permissions])
 
