@@ -1,0 +1,127 @@
+.registration-filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 26px 0 24px;
+}
+
+.registration-filters .fees-year-select {
+  min-width: 0;
+}
+
+.registration-filters select:disabled {
+  background: #f4f6f9;
+  color: #8a93a5;
+}
+
+/* KPI cliquables : même carte que .fee-stats article, en bouton. */
+.registration-kpi {
+  position: relative;
+  padding: 29px 30px;
+  border: 1px solid #dce3ed;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 3px 7px #1a29400b;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+.registration-kpi:hover {
+  border-color: #9cb5ff;
+}
+
+.registration-kpi.active {
+  border-color: #315fec;
+  box-shadow: 0 0 0 3px #315fec1e;
+}
+
+.registration-kpi.unpaid.active {
+  border-color: #fa2437;
+  box-shadow: 0 0 0 3px #fa24371e;
+}
+
+.registration-kpi small {
+  display: block;
+  margin-top: 6px;
+  color: #647088;
+  font-size: .82rem;
+}
+
+.registration-kpi.unpaid strong {
+  color: #fa2437;
+}
+
+.registration-list {
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid #dce3ed;
+  border-radius: 18px;
+  background: #fff;
+}
+
+.registration-list header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.registration-list h2 {
+  font-size: 1.2rem;
+}
+
+.registration-list header p {
+  margin-top: 3px;
+  color: #647088;
+}
+
+.registration-list-close {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  background: #fff;
+  color: #34425b;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fees-search.registration-list-search {
+  height: 48px;
+  margin: 16px 0;
+}
+
+.registration-table {
+  min-width: 760px;
+}
+
+.registration-table td.registration-due {
+  color: #fa2437;
+  font-weight: 700;
+}
+
+.registration-table td.registration-empty {
+  padding: 28px;
+  text-align: center;
+  color: #647088;
+}
+
+@media (max-width: 980px) {
+  .registration-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .registration-filters {
+    grid-template-columns: 1fr;
+  }
+
+  .registration-list {
+    padding: 16px;
+  }
+}

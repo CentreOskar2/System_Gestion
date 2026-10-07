@@ -354,6 +354,7 @@ export default function FormationFeesPage() {
         </div>
         <nav className="accounting-tabs">
           <Link to="/accounting/fees">Frais de scolarité</Link>
+          <Link to="/accounting/registration-fees">Frais d'inscription</Link>
           <Link className="active" to="/accounting/formations">Frais de formation</Link>
           <Link to="/accounting/delinquencies">Retards & Impayés</Link>
           <Link to="/accounting/salaries">Salaires Profs</Link>

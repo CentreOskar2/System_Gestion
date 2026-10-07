@@ -667,12 +667,15 @@ export default function FeesPage() {
   // matière ajoutée après coup pour réglée. Seul un paiement en bloc (avance,
   // 1er mois à l'inscription, paiement ancien — voir isBlockPayment) couvre
   // des matières sans ligne : celles déjà suivies au moment du paiement.
-  const monthCoverage = (student, index) => {
+  // asOfDay (jour comptable) : la situation telle qu'elle était à la fin de ce
+  // jour, sans les encaissements reçus après (détail de l'historique).
+  const monthCoverage = (student, index, asOfDay = null) => {
     const monthKey = monthDate(index, Number(schoolYearStart))
+    const receivedBy = (paidAt) => !asOfDay || !paidAt || accountingDayBucket(paidAt) <= asOfDay
     const payment = (paymentsByStudent[student.id] || []).find(
-      (p) => normalizeMonthKey(p.month) === monthKey && (p.status === 'paid' || p.status === 'validé')
+      (p) => normalizeMonthKey(p.month) === monthKey && (p.status === 'paid' || p.status === 'validé') && receivedBy(p.paid_at)
     ) || null
-    const rows = (paymentSubjectsByStudent[student.id] || []).filter((r) => r.month === monthKey)
+    const rows = (paymentSubjectsByStudent[student.id] || []).filter((r) => r.month === monthKey && receivedBy(r.paid_at))
     const block = isBlockPayment(payment, rows) ? payment : null
     const rowSubjectIds = new Set(rows.map((r) => r.subject_id))
     const startedAtOf = (name) => student.subjectDetails?.[name]?.startedAt || null
@@ -728,6 +731,75 @@ export default function FeesPage() {
   }
 
   const paymentsOf = (student) => schoolMonths.map((_, index) => stateOf(student, index))
+
+  const studentsById = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s])), [students])
+
+  // Reste à régler sur un mois, à la fin d'un jour donné : les matières dues
+  // pas encore payées, à leur prix habituel. Une matière réglée en demi-mois ou
+  // avec une remise compte comme réglée, comme dans le calendrier.
+  const monthRemainingAsOf = (student, monthKey, dayKey) => {
+    const index = schoolMonths.findIndex((m) => m.key === monthKey)
+    if (index < 0) return null
+    const { payment, paid, due } = monthCoverage(student, index, dayKey)
+    if (!isSegmentedPayment(student)) return payment ? 0 : toNumber(student.du_mois)
+    return due
+      .filter((name) => !paid.includes(name))
+      .reduce((sum, name) => sum + priceFor(catalog, student, name), 0)
+  }
+
+  const subjectNameOf = (student, subjectId) =>
+    Object.keys(student.subjectDetails || {}).find((name) => student.subjectDetails[name]?.subject_id === subjectId) ||
+    Object.entries(catalog?.subjectsByName || {}).find(([, subject]) => subject?.id === subjectId)?.[0] ||
+    'Matière retirée'
+
+  // Détail d'une ligne de l'historique journalier : par élève, ce qui a été
+  // encaissé ce jour-là et ce qui restait à régler sur les mois concernés.
+  const describeDayPayments = (dayPayments, dayKey) => {
+    const byStudent = new Map()
+    for (const payment of dayPayments) {
+      if (!byStudent.has(payment.student_id)) byStudent.set(payment.student_id, [])
+      byStudent.get(payment.student_id).push(payment)
+    }
+    return [...byStudent.entries()]
+      .map(([studentId, list]) => {
+        const student = studentsById[studentId]
+        const lines = []
+        const months = new Set()
+        for (const payment of list) {
+          const amount = toNumber(payment.amount)
+          if (String(payment.id).startsWith('registration-')) {
+            lines.push({ label: "Frais d'inscription", month: '', amount })
+            continue
+          }
+          const monthKey = normalizeMonthKey(payment.month)
+          months.add(monthKey)
+          const month = monthLabelOf(monthKey)
+          if (payment.subject_id) {
+            lines.push({ label: student ? subjectNameOf(student, payment.subject_id) : 'Matière', month, amount })
+          } else if (student && isSegmentedPayment(student)) {
+            // Paiement en bloc : les matières qu'il couvrait.
+            const index = schoolMonths.findIndex((m) => m.key === monthKey)
+            const covered = index >= 0 ? monthCoverage(student, index, dayKey).blockCovered : []
+            lines.push({ label: covered.length ? covered.join(', ') : 'Mois complet', month, amount })
+          } else {
+            lines.push({ label: student ? studentLineItems(student, catalog)[0]?.name || 'Forfait' : 'Forfait', month, amount })
+          }
+        }
+        const remainders = student ? [...months].map((key) => monthRemainingAsOf(student, key, dayKey)) : []
+        return {
+          id: studentId,
+          name: student?.name || 'Élève supprimé',
+          code: student?.code || '',
+          registrationDate: student?.registrationDate || '',
+          lines,
+          total: lines.reduce((sum, line) => sum + line.amount, 0),
+          remaining: remainders.length && remainders.every((value) => value != null)
+            ? remainders.reduce((sum, value) => sum + value, 0)
+            : null,
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+  }
 
 
   const registrationFeeOf = (student) => registrationFees[student.id] || null
@@ -1301,6 +1373,7 @@ export default function FeesPage() {
         </div>
         <nav className="accounting-tabs">
           <Link className="active" to="/accounting/fees">Frais de scolarité</Link>
+          <Link to="/accounting/registration-fees">Frais d'inscription</Link>
           <Link to="/accounting/formations">Frais de formation</Link>
           <Link to="/accounting/delinquencies">Retards & Impayés</Link>
           <Link to="/accounting/salaries">Salaires Profs</Link>
@@ -1357,6 +1430,7 @@ export default function FeesPage() {
             branchId={selectedBranch}
             isCenterWide={isCenterWide}
             currentDayKey={currentDayKey}
+            describePayments={describeDayPayments}
           />
         ) : loading ? (
           <div className="fees-loading">Chargement des frais de scolarité...</div>

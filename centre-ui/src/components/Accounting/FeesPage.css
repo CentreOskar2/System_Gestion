@@ -287,6 +287,19 @@
 
 .accounting-tabs a{padding:0 25px 16px;border-bottom:3px solid transparent;color:#536078;text-decoration:none;font-weight:700;font-size:1rem;white-space:nowrap}.accounting-tabs a.active{border-color:#315fec;color:#315fec}
 
+/* Sept onglets de comptabilité : sur grand écran, espacement resserré pour
+   qu'ils tiennent sur une ligne sans barre de défilement. Sélecteur plus
+   précis que les règles .accounting-tabs répétées dans chaque page. */
+@media (min-width: 901px) {
+  nav.accounting-tabs {
+    gap: 4px;
+  }
+
+  nav.accounting-tabs a {
+    padding: 0 16px 16px;
+  }
+}
+
 .advance-receipts-modal {
   position: relative;
   width: min(768px, 100%);
@@ -451,6 +464,98 @@
 .daily-history-table td:last-child,
 .daily-history-table th:last-child {
   text-align: center;
+}
+
+.daily-history-table td.daily-history-count,
+.daily-history-table th.daily-history-count,
+.daily-history-table .daily-history-details-cell {
+  text-align: center;
+}
+
+.daily-history-details {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #dce3ed;
+  border-radius: 9px;
+  background: #fff;
+  color: #315fec;
+}
+
+.daily-history-details:hover {
+  border-color: #9cb5ff;
+  background: #f4f7ff;
+}
+
+/* Fenêtre « Détails » d'une ligne de l'historique journalier. */
+.history-details-modal {
+  position: relative;
+  width: min(1000px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  padding: 34px 37px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 22px 70px #0005;
+}
+
+.history-details-modal h2 {
+  font-size: 1.5rem;
+}
+
+.history-details-modal > p {
+  margin: 5px 0 22px;
+  color: #647088;
+}
+
+.history-details-table td {
+  vertical-align: top;
+}
+
+.history-details-table td:first-child b,
+.history-details-table td:first-child small {
+  display: block;
+}
+
+.history-details-table td:first-child small {
+  color: #647088;
+  font-size: .78rem;
+}
+
+.history-details-lines {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-details-lines li {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.history-details-lines small {
+  color: #647088;
+}
+
+.history-details-table td.history-details-due {
+  color: #fa2437;
+  font-weight: 700;
+}
+
+.history-details-table tfoot td {
+  border-bottom: 0;
+  font-weight: 750;
+  color: #172033;
+}
+
+@media (max-width: 640px) {
+  .history-details-modal {
+    padding: 26px 16px;
+  }
 }
 
 .daily-history-table tr.current-day td {

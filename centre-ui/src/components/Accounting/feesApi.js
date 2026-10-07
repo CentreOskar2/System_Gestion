@@ -247,6 +247,7 @@ export async function fetchFeesData(branchId = null) {
     ...(paymentSubjectsRes.data || []).map((row) => ({
       id: `subject-${row.id}`,
       student_id: row.student_id,
+      subject_id: row.subject_id,
       month: normalizeMonthKey(row.month),
       amount: Number(row.amount),
       status: 'paid',
