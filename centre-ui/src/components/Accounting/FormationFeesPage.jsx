@@ -46,6 +46,12 @@ function toNumber(value) {
   return Number.isFinite(number) ? number : 0
 }
 
+// Valeur saisie dans la modale ; une case vide ou invalide retombe sur le prix habituel.
+function enteredAmount(value, fallback) {
+  const amount = Number(String(value ?? '').replace(',', '.'))
+  return String(value ?? '').trim() !== '' && Number.isFinite(amount) && amount >= 0 ? amount : fallback
+}
+
 export default function FormationFeesPage() {
   const { user, role } = useAuth()
   const { selectedBranch } = useBranch()
@@ -58,6 +64,8 @@ export default function FormationFeesPage() {
   const [query, setQuery] = useState('')
   const [schoolYearStart, setSchoolYearStart] = useState(String(currentMonthKey().slice(0, 4)))
   const [selected, setSelected] = useState(null)
+  // Montant saisi dans la modale d'encaissement (demi-mois, remise...).
+  const [amountInput, setAmountInput] = useState('')
   const [saving, setSaving] = useState(false)
   const [nowTick, setNowTick] = useState(() => Date.now())
   const [activeView, setActiveView] = useState('calendar')
@@ -134,7 +142,7 @@ export default function FormationFeesPage() {
     const formationPayments = Object.entries(paymentsByEnrollment).flatMap(([enrollmentId, list]) =>
       (list || [])
         .filter(() => studentIdByEnrollment[enrollmentId])
-        .map((payment) => ({ ...payment, student_id: studentIdByEnrollment[enrollmentId] }))
+        .map((payment) => ({ ...payment, student_id: studentIdByEnrollment[enrollmentId], enrollment_id: enrollmentId }))
     )
     // Les frais d'inscription d'un élève « formation seule » sont encaissés sur
     // cette page : ils comptent donc dans cette caisse, et dans aucune autre —
@@ -189,6 +197,7 @@ export default function FormationFeesPage() {
 
   const paymentFor = (row, monthKey) =>
     (paymentsByEnrollment[row.id] || []).find((payment) => normalizeMonthKey(payment.month) === monthKey)
+  const selectedPayment = selected ? paymentFor(selected.row, schoolMonths[selected.index]?.key) : null
 
   const stateOf = (row, index) => {
     const monthKey = schoolMonths[index]?.key
@@ -204,10 +213,80 @@ export default function FormationFeesPage() {
     return 'unpaid'
   }
 
+  const rowsById = useMemo(() => Object.fromEntries(rows.map((row) => [row.id, row])), [rows])
+  const rowsByStudent = useMemo(() => {
+    const map = {}
+    for (const row of rows) {
+      if (!map[row.studentId]) map[row.studentId] = []
+      map[row.studentId].push(row)
+    }
+    return map
+  }, [rows])
+
+  // Détail d'une ligne de l'historique journalier : par élève, ce qui a été
+  // encaissé ce jour-là et ce qui restait dû, à la fin de ce jour, sur les mois
+  // concernés — les autres formations de l'élève pas encore réglées, à leur
+  // prix mensuel. Un mois réglé en demi-mois compte comme réglé.
+  const describeDayPayments = (dayPayments, dayKey) => {
+    const byStudent = new Map()
+    for (const payment of dayPayments) {
+      if (!byStudent.has(payment.student_id)) byStudent.set(payment.student_id, [])
+      byStudent.get(payment.student_id).push(payment)
+    }
+    return [...byStudent.entries()]
+      .map(([studentId, list]) => {
+        const enrollments = rowsByStudent[studentId] || []
+        const first = enrollments[0]
+        const lines = []
+        const months = new Set()
+        for (const payment of list) {
+          const amount = toNumber(payment.amount)
+          if (String(payment.id).startsWith('registration-')) {
+            lines.push({ label: "Frais d'inscription", month: '', amount })
+            continue
+          }
+          const monthKey = normalizeMonthKey(payment.month)
+          months.add(monthKey)
+          const row = rowsById[payment.enrollment_id]
+          lines.push({
+            label: row ? `${row.formationName} · ${row.levelName}` : 'Formation',
+            month: monthLabelOf(monthKey),
+            amount,
+          })
+        }
+        const paidBy = (row, monthKey) =>
+          (paymentsByEnrollment[row.id] || []).some(
+            (payment) =>
+              normalizeMonthKey(payment.month) === monthKey &&
+              (!payment.paid_at || accountingDayBucket(payment.paid_at) <= dayKey)
+          )
+        let remaining = 0
+        for (const monthKey of months) {
+          for (const row of enrollments) {
+            if (row.stopped) continue
+            const enrolledMonth = normalizeMonthKey(row.enrolledAt)
+            if (enrolledMonth && monthKey < enrolledMonth) continue
+            if (!paidBy(row, monthKey)) remaining += row.monthlyPrice
+          }
+        }
+        return {
+          id: studentId,
+          name: first?.studentName || 'Élève supprimé',
+          code: first?.code || '',
+          registrationDate: first?.registrationDate || '',
+          lines,
+          total: lines.reduce((sum, line) => sum + line.amount, 0),
+          remaining: months.size > 0 ? remaining : null,
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+  }
+
   const openCell = (row, index) => {
     const status = stateOf(row, index)
     if (status === 'disabled' || status === 'inactive') return
     setSelected({ row, index, status })
+    setAmountInput(String(row.monthlyPrice))
   }
 
   const validatePayment = async () => {
@@ -217,10 +296,11 @@ export default function FormationFeesPage() {
     try {
       const { row, index } = selected
       const monthKey = schoolMonths[index].key
+      const amount = enteredAmount(amountInput, row.monthlyPrice)
       const saved = await recordFormationPayment({
         enrollmentId: row.id,
         month: monthKey,
-        amount: row.monthlyPrice,
+        amount,
         userId: user?.id || null,
       })
       setPaymentsByEnrollment((prev) => ({
@@ -238,7 +318,7 @@ export default function FormationFeesPage() {
         ],
       }))
       setSelected(null)
-      await printFormationReceipt(row, schoolMonths[index].label, row.monthlyPrice, saved.paid_at)
+      await printFormationReceipt(row, schoolMonths[index].label, amount, saved.paid_at)
     } catch (err) {
       console.error(err)
       setError(err.message)
@@ -412,6 +492,7 @@ export default function FormationFeesPage() {
             currentDayKey={currentDayKey}
             sheetName="Historique formations"
             filePrefix="historique-formations"
+            describePayments={describeDayPayments}
           />
         ) : loading ? (
           <div className="fees-loading">Chargement des frais de formation...</div>
@@ -442,7 +523,10 @@ export default function FormationFeesPage() {
                         <span><b>{row.studentName}</b><small>{row.code}</small></span>
                       </div>
                     </td>
-                    <td>{row.formationName}</td>
+                    <td>
+                      {row.formationName}
+                      {row.stopped && <span className="formation-stopped" title="Formation retirée à l'élève : seuls ses paiements passés restent affichés.">Arrêtée</span>}
+                    </td>
                     <td>{row.levelName}</td>
                     <td>{row.groupName || <span className="formation-no-group">—</span>}</td>
                     <td><b>{row.monthlyPrice.toLocaleString('fr-FR')} DH</b></td>
@@ -498,8 +582,43 @@ export default function FormationFeesPage() {
             <p>
               <b>{selected.row.studentName}</b> — {selected.row.formationName} · {selected.row.levelName}
               <br />
-              {schoolMonths[selected.index]?.label} · <b>{selected.row.monthlyPrice.toLocaleString('fr-FR')} DH</b>
+              {schoolMonths[selected.index]?.label}
             </p>
+            {selected.status === 'paid' ? (
+              <div className="payment-amount">
+                <span>Montant payé</span>
+                <strong>{toNumber(selectedPayment?.amount).toLocaleString('fr-FR')} DH</strong>
+                {selectedPayment?.paid_at && (
+                  <small>Encaissé le {formatFrenchDate(accountingDayBucket(selectedPayment.paid_at))}</small>
+                )}
+              </div>
+            ) : (
+              <div className="payment-amount">
+                <span>Montant à encaisser ce mois-ci</span>
+                <span className="payment-amount-field payment-amount-field--block">
+                  <button
+                    type="button"
+                    title="Demi-mois : la moitié du prix mensuel"
+                    onClick={() => setAmountInput(String(Math.round(selected.row.monthlyPrice / 2)))}
+                  >
+                    ½
+                  </button>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    aria-label="Montant à encaisser ce mois-ci"
+                    value={amountInput}
+                    onChange={(event) => setAmountInput(event.target.value)}
+                  />
+                  <b>DH</b>
+                </span>
+                {enteredAmount(amountInput, selected.row.monthlyPrice) !== selected.row.monthlyPrice && (
+                  <small>Prix mensuel habituel : {selected.row.monthlyPrice.toLocaleString('fr-FR')} DH</small>
+                )}
+              </div>
+            )}
             <footer>
               <button type="button" onClick={() => setSelected(null)} disabled={saving}>Fermer</button>
               {selected.status === 'paid' ? (

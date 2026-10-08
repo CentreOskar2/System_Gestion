@@ -174,9 +174,19 @@ export async function syncStudentFormations(studentId, rows, { enrolledAt } = {}
     }
   }
 
+  // Formation retirée : supprimer sa ligne effacerait aussi ses paiements
+  // (cascade), donc la caisse des jours où ils ont été encaissés. Si elle a
+  // déjà été payée, on l'arrête (status inactive) ; sinon on la supprime.
   for (const row of existing) {
-    if (keptLevelIds.has(row.formation_level_id)) continue
-    const { error } = await supabase.from('student_formations').delete().eq('id', row.id)
+    if (keptLevelIds.has(row.formation_level_id) || row.status === 'inactive') continue
+    const { count, error: countError } = await supabase
+      .from('formation_payments')
+      .select('id', { count: 'exact', head: true })
+      .eq('student_formation_id', row.id)
+    if (countError) throw new Error(countError.message)
+    const { error } = count > 0
+      ? await supabase.from('student_formations').update({ status: 'inactive' }).eq('id', row.id)
+      : await supabase.from('student_formations').delete().eq('id', row.id)
     if (error) throw new Error(error.message)
   }
 
@@ -269,6 +279,7 @@ export async function fetchFormationFeesData(branchId = null) {
         code: student.registration_number || '',
         phone: student.phone1 || '',
         photoUrl: student.photo_url || '',
+        registrationDate: student.registration_date || (student.created_at || '').slice(0, 10),
         studentActive: student.status === 'active',
         branchId: student.branch_id,
         // Sans niveau scolaire, l'élève ne figure pas au calendrier de
@@ -285,6 +296,9 @@ export async function fetchFormationFeesData(branchId = null) {
         // raison de coïncider avec l'inscription scolaire.
         enrolledAt: row.enrolled_at || (student.created_at || '').slice(0, 10),
         active: row.status === 'active' && student.status === 'active',
+        // Formation retirée à l'élève après avoir été payée : gardée pour
+        // l'historique de ses paiements (voir syncStudentFormations).
+        stopped: row.status === 'inactive',
       }
     })
     .sort((a, b) => a.studentName.localeCompare(b.studentName, 'fr'))

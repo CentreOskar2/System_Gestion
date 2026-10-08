@@ -6,6 +6,26 @@
   color: #a06a1f;
 }
 
+/* Formation retirée à l'élève, gardée pour l'historique de ses paiements. */
+.formation-stopped {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: #f2f4f7;
+  color: #5c6880;
+  font-size: .75rem;
+  font-weight: 700;
+}
+
+.fee-modal .payment-amount {
+  margin: -8px 0 24px;
+}
+
+.fee-modal .payment-amount small {
+  margin-top: 6px;
+}
+
 /* Élève qui suit aussi un cursus : ses frais d'inscription se règlent sur la
    page Scolarité. On le dit sans en faire une action cliquable. */
 .registration-elsewhere {

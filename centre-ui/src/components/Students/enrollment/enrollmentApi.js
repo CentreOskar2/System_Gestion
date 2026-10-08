@@ -2,6 +2,7 @@ import { supabase } from '../../../supabaseClient'
 import { fetchAllRows } from '../../../utils/fetchAllRows'
 import { uploadImage } from '../../../utils/storage'
 import { syncStudentFormations, formationRowPrice } from '../../Formations/formationsApi'
+import { accountingDayBucket } from '../../Accounting/monthUtils'
 
 // Les lignes de formation du formulaire, traduites pour la couche d'accès aux
 // données. Le prix mensuel est résolu ici : standard figé à la sélection, ou
@@ -549,7 +550,12 @@ export async function updateEnrollment(studentId, form, catalog, status = 'activ
   if (error) throw new Error(error.message)
 
   await syncGroupSelections(studentId, form, catalog)
-  await syncStudentFormations(studentId, formationRowsOf(form), { enrolledAt: form.registrationDate || null })
+  // Une formation ajoutée en modifiant l'élève commence le jour de l'ajout, pas
+  // à sa date d'inscription scolaire : sinon les mois déjà passés ressortiraient
+  // impayés. Une date d'inscription à venir (pré-inscription) reste le départ.
+  const today = accountingDayBucket(new Date())
+  const formationStart = form.registrationDate && form.registrationDate > today ? form.registrationDate : today
+  await syncStudentFormations(studentId, formationRowsOf(form), { enrolledAt: formationStart })
 
   if (form.photoFile) {
     const photoUrl = await uploadImage({ entity: 'students', id: studentId, file: form.photoFile })
@@ -714,13 +720,16 @@ export async function fetchStudents(branchId = null) {
   const { data: studentFormations, error: formationsError } = await fetchAllRows(() =>
     supabase
       .from('student_formations')
-      .select('student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, formation_levels(name, price, formations(name))')
+      .select('student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, status, formation_levels(name, price, formations(name))')
       .order('id')
   )
   if (formationsError) console.error(formationsError)
 
   const formationsByStudent = {}
   for (const row of studentFormations || []) {
+    // Une formation arrêtée garde sa ligne pour ses paiements passés, mais
+    // l'élève ne la suit plus : elle ne doit pas revenir cochée dans sa fiche.
+    if (row.status === 'inactive') continue
     if (!formationsByStudent[row.student_id]) formationsByStudent[row.student_id] = []
     formationsByStudent[row.student_id].push({
       formationLevelId: row.formation_level_id,
