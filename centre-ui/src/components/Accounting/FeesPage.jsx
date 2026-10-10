@@ -695,10 +695,10 @@ export default function FeesPage() {
     return { monthKey, payment, block, rows, rawPaid, blockCovered, paid, due }
   }
 
-  // Une matière réglée un jour passé est figée : la décocher ou changer son
-  // montant modifierait la caisse de ce jour-là, déjà comptée. Seul un rôle
-  // « centre » peut encore corriger (après confirmation). Une matière réglée
-  // aujourd'hui reste modifiable par tous.
+  // Une matière réglée un jour passé ne peut plus être décochée que par un
+  // rôle « centre » : l'annuler retirerait l'encaissement de la caisse de ce
+  // jour-là. Son montant, lui, reste corrigeable par tous (après confirmation).
+  // Une matière couverte par un paiement en bloc est entièrement figée.
   const lockedPaidSubjects = (student, index) => {
     const { rows, blockCovered } = monthCoverage(student, index)
     const locked = {}
@@ -862,8 +862,8 @@ export default function FeesPage() {
   const selectedCoverage = selected ? monthCoverage(selected.student, selected.index) : null
   const selectedDue = selectedCoverage?.due || []
   const selectedLocked = selected ? lockedPaidSubjects(selected.student, selected.index) : {}
-  // Forfait déjà réglé : la correction suit la même règle que les matières —
-  // libre le jour même, réservée à un rôle « centre » ensuite.
+  // Forfait déjà réglé : comme pour les matières, le montant reste corrigeable
+  // par tous ; l'annulation d'un jour passé est réservée à un rôle « centre ».
   const selectedBlockPayment = selected ? monthPaymentOf(selected.student, selected.index) : null
   const selectedBlockLocked =
     Boolean(selectedBlockPayment) && !isCenterWide && normalizeDateKey(selectedBlockPayment.paid_at) !== currentDayKey
@@ -976,7 +976,7 @@ export default function FeesPage() {
         )
       // Montant corrigé d'une matière déjà réglée (même jour, ou rôle centre).
       const toUpdate = alreadyPaid.filter(
-        (name) => selection.includes(name) && !locked[name] && toNumber(storedRowOf(name)?.amount) !== selectedSubjectAmount(name)
+        (name) => selection.includes(name) && locked[name] !== 'block' && toNumber(storedRowOf(name)?.amount) !== selectedSubjectAmount(name)
       )
 
       // Corriger un encaissement d'un jour passé change la caisse de ce
@@ -1094,6 +1094,8 @@ export default function FeesPage() {
     const month = monthDate(index, Number(schoolYearStart))
     const payment = monthPaymentOf(student, index)
     if (!payment) return
+    // Annuler un forfait d'un jour passé reste réservé à un rôle « centre ».
+    if (cancel && selectedBlockLocked) return
     const previous = toNumber(payment.amount)
     const amount = enteredAmount(blockAmount, previous)
     if (!cancel && amount === previous) return
@@ -1549,8 +1551,9 @@ export default function FeesPage() {
               <>
                 <p className="payment-subjects-hint">
                   Sélectionnez les matières réglées ce mois-ci. Le montant de chaque matière peut
-                  être modifié pour ce mois seulement (ex. inscription en milieu de mois). Une
-                  matière encaissée un jour précédent est figée : la caisse de ce jour-là ne change plus.
+                  être modifié pour ce mois seulement (ex. inscription en milieu de mois), avant
+                  comme après la validation. Une matière encaissée un jour précédent ne peut être
+                  décochée que par un administrateur.
                 </p>
                 <div className="payment-subjects-list">
                   {selectedDue.map((name) => {
@@ -1579,14 +1582,14 @@ export default function FeesPage() {
                           {paidOn && (
                             <small className="payment-paid-on">
                               {lock === 'block' ? 'Réglé avec le mois en bloc' : 'Encaissé'} le {formatFrenchDate(normalizeDateKey(paidOn))}
-                              {lock === 'past' && ' — figé'}
+                              {lock === 'past' && ' — montant modifiable'}
                             </small>
                           )}
                         </span>
                         <span className="payment-amount-field">
                           <button
                             type="button"
-                            disabled={Boolean(lock)}
+                            disabled={lock === 'block'}
                             title="Demi-mois : la moitié du prix habituel"
                             onClick={() => setPaidAmounts((prev) => ({ ...prev, [name]: String(Math.round(usualPrice / 2)) }))}
                           >
@@ -1598,7 +1601,7 @@ export default function FeesPage() {
                             step="any"
                             inputMode="decimal"
                             aria-label={`Montant ${name} pour ce mois`}
-                            disabled={Boolean(lock)}
+                            disabled={lock === 'block'}
                             value={paidAmounts[name] ?? ''}
                             onChange={(event) => setPaidAmounts((prev) => ({ ...prev, [name]: event.target.value }))}
                           />
@@ -1646,49 +1649,50 @@ export default function FeesPage() {
                     {selectedBlockPayment?.paid_at && (
                       <small>Encaissé le {formatFrenchDate(normalizeDateKey(selectedBlockPayment.paid_at))}</small>
                     )}
-                    {selectedBlockLocked ? (
-                      <small className="payment-correction-locked">
-                        Encaissé un jour précédent : seul un administrateur peut le corriger.
-                      </small>
-                    ) : (
-                      <div className="payment-correction">
-                        <span className="payment-amount-field payment-amount-field--block">
-                          <button
-                            type="button"
-                            title="Demi-mois : la moitié du forfait"
-                            onClick={() => setBlockAmount(String(Math.round((selected.student.du_mois || 0) / 2)))}
-                          >
-                            ½
-                          </button>
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            inputMode="decimal"
-                            aria-label="Montant corrigé"
-                            value={blockAmount}
-                            onChange={(event) => setBlockAmount(event.target.value)}
-                          />
-                          <b>DH</b>
-                        </span>
-                        <div className="payment-correction-actions">
-                          <button
-                            type="button"
-                            disabled={
-                              saving ||
-                              enteredAmount(blockAmount, monthBlockAmount(selected.student, selected.index)) ===
-                                monthBlockAmount(selected.student, selected.index)
-                            }
-                            onClick={() => correctBlockPayment(false)}
-                          >
-                            Corriger le montant
-                          </button>
+                    <div className="payment-correction">
+                      <span className="payment-amount-field payment-amount-field--block">
+                        <button
+                          type="button"
+                          title="Demi-mois : la moitié du forfait"
+                          onClick={() => setBlockAmount(String(Math.round((selected.student.du_mois || 0) / 2)))}
+                        >
+                          ½
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          inputMode="decimal"
+                          aria-label="Montant corrigé"
+                          value={blockAmount}
+                          onChange={(event) => setBlockAmount(event.target.value)}
+                        />
+                        <b>DH</b>
+                      </span>
+                      <div className="payment-correction-actions">
+                        <button
+                          type="button"
+                          disabled={
+                            saving ||
+                            enteredAmount(blockAmount, monthBlockAmount(selected.student, selected.index)) ===
+                              monthBlockAmount(selected.student, selected.index)
+                          }
+                          onClick={() => correctBlockPayment(false)}
+                        >
+                          Corriger le montant
+                        </button>
+                        {!selectedBlockLocked && (
                           <button type="button" className="danger" disabled={saving} onClick={() => correctBlockPayment(true)}>
                             Annuler ce paiement
                           </button>
-                        </div>
+                        )}
                       </div>
-                    )}
+                      {selectedBlockLocked && (
+                        <small className="payment-correction-locked">
+                          Encaissé un jour précédent : seul un administrateur peut annuler ce paiement.
+                        </small>
+                      )}
+                    </div>
                   </div>
                 ) : (
                   <div className="payment-amount">
