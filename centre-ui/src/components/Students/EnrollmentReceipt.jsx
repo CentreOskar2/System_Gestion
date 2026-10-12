@@ -3,12 +3,13 @@ import { initials } from './utils/studentHelpers'
 import { getPrice, isPackageLevel, packageAmount } from './enrollment/enrollmentApi'
 import { formatFrenchDate } from '../Accounting/monthUtils'
 import { safeFilename } from '../../utils/exportToPdf'
-import { downloadPdfDocument } from '../pdf/downloadPdf'
+import { downloadPdfDocument, printPdfDocument } from '../pdf/downloadPdf'
 import EnrollmentReceiptPdf from '../pdf/EnrollmentReceiptPdf'
 import './EnrollmentReceipt.css'
 
 export default function EnrollmentReceipt({ form, close, catalog, registrationFee, registrationFeePaid, firstMonthPaid }) {
   const [isExporting, setIsExporting] = useState(false)
+  const [printError, setPrintError] = useState('')
   const amountFor = (subject) => {
     const details = form.subjectDetails?.[subject]
     return details?.priceType === 'manual' ? Number(details.manualPrice || 0) : getPrice(catalog, form.level, subject)
@@ -20,21 +21,35 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
   const dateLabel = formatFrenchDate(form.registrationDate)
   const showFee = registrationFee != null
 
+  const receiptPdf = (
+    <EnrollmentReceiptPdf
+      form={form}
+      lines={lines}
+      total={total}
+      dateLabel={dateLabel}
+      registrationFee={showFee ? registrationFee : null}
+      registrationFeePaid={registrationFeePaid}
+      firstMonthPaid={firstMonthPaid}
+    />
+  )
+
+  const printPdf = async () => {
+    setIsExporting(true)
+    setPrintError('')
+    try {
+      await printPdfDocument(receiptPdf)
+    } catch (err) {
+      console.error(err)
+      setPrintError("L'impression n'a pas pu être lancée. Réessayez ou téléchargez le reçu.")
+    } finally {
+      setIsExporting(false)
+    }
+  }
+
   const downloadPdf = async () => {
     setIsExporting(true)
     try {
-      await downloadPdfDocument(
-        <EnrollmentReceiptPdf
-          form={form}
-          lines={lines}
-          total={total}
-          dateLabel={dateLabel}
-          registrationFee={showFee ? registrationFee : null}
-          registrationFeePaid={registrationFeePaid}
-          firstMonthPaid={firstMonthPaid}
-        />,
-        `recu-inscription-${safeFilename(`${form.firstName}-${form.lastName}`)}.pdf`
-      )
+      await downloadPdfDocument(receiptPdf, `recu-inscription-${safeFilename(`${form.firstName}-${form.lastName}`)}.pdf`)
     } catch (err) {
       console.error(err)
     } finally {
@@ -46,10 +61,14 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
     <main className="receipt-page">
       <div className="receipt-actions">
         <button type="button" onClick={close}>← Retour aux étudiants</button>
-        <button type="button" className="receipt-print" disabled={isExporting} onClick={downloadPdf}>
-          {isExporting ? 'Génération du PDF…' : 'Télécharger le reçu'}
-        </button>
+        <div className="receipt-actions-buttons">
+          <button type="button" disabled={isExporting} onClick={downloadPdf}>Télécharger le PDF</button>
+          <button type="button" className="receipt-print" disabled={isExporting} onClick={printPdf}>
+            {isExporting ? 'Préparation…' : 'Imprimer le reçu'}
+          </button>
+        </div>
       </div>
+      {printError && <p className="receipt-print-error">{printError}</p>}
       <article className="receipt-document">
         <header className="receipt-header">
           <div className="receipt-brand">

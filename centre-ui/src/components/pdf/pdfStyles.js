@@ -20,11 +20,19 @@ export const PDF_FONT_FAMILY = 'Noto Sans Arabic'
 // Helvetica, the default react-pdf font, is limited to Western characters.
 // This bundled OFL font covers French and Arabic; react-pdf/textkit also applies
 // the required right-to-left and OpenType Arabic shaping rules.
+//
+// Ces deux fichiers sont dérivés de NotoSansArabic-Variable.ttf (fontTools) :
+// - instances statiques wght 400 / 700 : react-pdf ne sait pas lire l'axe
+//   « wght » d'une police variable, le gras sortait donc en normal ;
+// - feature OpenType « ccmp » retirée : elle découpe les lettres arabes en
+//   squelette + points (ex. ة → 2 glyphes). react-pdf suppose 1 lettre =
+//   1 glyphe et perdait alors les lettres suivantes (« سارة Benali » → « سارة ali »).
+// Ne pas remplacer par la police Google d'origine sans refaire ces deux étapes.
 Font.register({
   family: PDF_FONT_FAMILY,
   fonts: [
-    { src: '/fonts/NotoSansArabic-Variable.ttf', fontWeight: 400 },
-    { src: '/fonts/NotoSansArabic-Variable.ttf', fontWeight: 700 },
+    { src: '/fonts/NotoSansArabic-Regular.ttf', fontWeight: 400 },
+    { src: '/fonts/NotoSansArabic-Bold.ttf', fontWeight: 700 },
   ],
 })
 

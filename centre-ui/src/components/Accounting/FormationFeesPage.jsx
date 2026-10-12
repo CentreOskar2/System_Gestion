@@ -18,8 +18,7 @@ import {
 } from './monthUtils'
 import { fetchAppSettings } from '../../appSettings'
 import { fetchRegistrationFees, payRegistrationFee } from './registrationFeesApi'
-import { downloadPdfDocument } from '../pdf/downloadPdf'
-import { safeFilename } from '../../utils/exportToPdf'
+import { printPdfDocument } from '../pdf/downloadPdf'
 import RegistrationFeeReceiptPdf from '../pdf/RegistrationFeeReceiptPdf'
 import FormationFeeReceiptPdf from '../pdf/FormationFeeReceiptPdf'
 import DailyHistoryPanel from './DailyHistoryPanel'
@@ -354,7 +353,7 @@ export default function FormationFeesPage() {
   // jamais laisser croire que l'encaissement a échoué : d'où le message distinct.
   const printFormationReceipt = async (row, monthLabel, amount, paidAt) => {
     try {
-      await downloadPdfDocument(
+      await printPdfDocument(
         <FormationFeeReceiptPdf
           student={{ name: row.studentName, code: row.code, photoUrl: row.photoUrl }}
           formationName={row.formationName}
@@ -363,12 +362,11 @@ export default function FormationFeesPage() {
           monthLabel={monthLabel}
           amount={amount}
           dateLabel={formatFrenchDate(String(paidAt || new Date().toISOString()).slice(0, 10))}
-        />,
-        safeFilename(`recu-formation-${row.studentName}-${monthLabel}`)
+        />
       )
     } catch (err) {
       console.error(err)
-      setError("Le paiement est bien enregistré, mais le reçu n'a pas pu être généré.")
+      setError("Le paiement est bien enregistré, mais le reçu n'a pas pu être imprimé.")
     }
   }
 
@@ -392,18 +390,17 @@ export default function FormationFeesPage() {
       setRegistrationFees((prev) => ({ ...prev, [row.studentId]: saved }))
       setFeeModal(null)
       try {
-        await downloadPdfDocument(
+        await printPdfDocument(
           <RegistrationFeeReceiptPdf
             student={{ name: row.studentName, code: row.code, level: row.formationName, photoUrl: row.photoUrl }}
             amount={amount}
             schoolYear={schoolYearKeyLabel}
             dateLabel={formatFrenchDate(String(saved.paid_at || '').slice(0, 10))}
-          />,
-          safeFilename(`recu-inscription-${row.studentName}-${schoolYearKeyLabel}`)
+          />
         )
       } catch (err) {
         console.error(err)
-        setError("Les frais sont bien encaissés, mais le reçu n'a pas pu être généré.")
+        setError("Les frais sont bien encaissés, mais le reçu n'a pas pu être imprimé.")
       }
     } catch (err) {
       console.error(err)

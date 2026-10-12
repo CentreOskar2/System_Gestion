@@ -1,56 +1,45 @@
-import { Document, Page, View, Text } from '@react-pdf/renderer'
-import { pdfStyles, formatMoney } from './pdfStyles'
-import { PdfBrandHeader, PdfSignatures } from './PdfBrandHeader'
-import { initials } from '../Students/utils/studentHelpers'
+import { Document } from '@react-pdf/renderer'
+import { ThermalReceiptPage, ThermalInfo, ThermalSeparator, ThermalLines, ThermalTotal, ThermalStatus } from './ThermalReceipt'
 
-export default function FeeReceiptPdf({ receipt, dateLabel }) {
+function FeeReceiptPage({ receipt, dateLabel }) {
   const { student, lines, total, month } = receipt
 
   return (
+    <ThermalReceiptPage
+      tagline="Cours particuliers — Agadir"
+      title="Reçu de paiement mensuel"
+      code={student.code}
+      date={dateLabel}
+    >
+      <ThermalInfo label="Élève" value={student.name} />
+      <ThermalInfo label="Niveau" value={student.level} />
+      <ThermalInfo label="Mois réglé" value={month} />
+      <ThermalSeparator />
+
+      <ThermalLines title="Détail des matières" lines={lines} />
+      <ThermalTotal label="Total payé" amount={total} />
+
+      <ThermalStatus>{`Paiement reçu en espèces\nle ${dateLabel}`}</ThermalStatus>
+    </ThermalReceiptPage>
+  )
+}
+
+export default function FeeReceiptPdf({ receipt, dateLabel }) {
+  return (
     <Document>
-      <Page size="A4" style={pdfStyles.page}>
-        <PdfBrandHeader
-          tagline="Cours particuliers — Agadir"
-          label="Reçu de paiement mensuel"
-          code={student.code}
-          date={dateLabel}
-        />
+      <FeeReceiptPage receipt={receipt} dateLabel={dateLabel} />
+    </Document>
+  )
+}
 
-        <View style={pdfStyles.personRow}>
-          <View style={pdfStyles.avatar}>
-            <Text style={pdfStyles.avatarText}>{initials(student.name)}</Text>
-          </View>
-          <View>
-            <Text style={pdfStyles.personName}>{student.name}</Text>
-            <Text style={pdfStyles.personMeta}>Niveau : {student.level}</Text>
-            <Text style={pdfStyles.personMeta}>Mois réglé : {month}</Text>
-          </View>
-        </View>
-
-        <View>
-          <Text style={pdfStyles.sectionTitle}>Détail des matières</Text>
-          <View style={pdfStyles.tableHeadRow}>
-            <Text>Matière</Text>
-            <Text>Prix</Text>
-          </View>
-          {lines.map((line) => (
-            <View style={pdfStyles.tableRow} key={line.name}>
-              <Text>{line.name}</Text>
-              <Text>{formatMoney(line.amount)}</Text>
-            </View>
-          ))}
-          <View style={pdfStyles.totalRow}>
-            <Text style={pdfStyles.totalLabel}>Montant total payé</Text>
-            <Text style={pdfStyles.totalValue}>{formatMoney(total)}</Text>
-          </View>
-        </View>
-
-        <View style={pdfStyles.confirmationBox}>
-          <Text>Paiement reçu en espèces — Le {dateLabel}</Text>
-        </View>
-
-        <PdfSignatures />
-      </Page>
+// Plusieurs mois (paiement d'avance) en un seul travail d'impression :
+// un ticket par mois.
+export function FeeReceiptsPdf({ receipts, dateLabelFor }) {
+  return (
+    <Document>
+      {receipts.map((receipt) => (
+        <FeeReceiptPage key={receipt.monthKey || receipt.month} receipt={receipt} dateLabel={dateLabelFor(receipt)} />
+      ))}
     </Document>
   )
 }

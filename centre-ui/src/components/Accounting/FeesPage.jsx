@@ -6,8 +6,8 @@ import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { useBranch } from '../../context/BranchContext'
 import { safeFilename } from '../../utils/exportToPdf'
-import { downloadPdfDocument } from '../pdf/downloadPdf'
-import FeeReceiptPdf from '../pdf/FeeReceiptPdf'
+import { downloadPdfDocument, printPdfDocument } from '../pdf/downloadPdf'
+import FeeReceiptPdf, { FeeReceiptsPdf } from '../pdf/FeeReceiptPdf'
 import { syncSubscriptions, isPackageLevel, packagePrice, teacherForGroupSubject } from '../Students/enrollment/enrollmentApi'
 import { initials } from '../Students/utils/studentHelpers'
 import {
@@ -180,6 +180,7 @@ function AdvanceModal({ student, close, onValidate, months }) {
 
 function Receipt({ receipts, close, catalog }) {
   const [isExporting, setIsExporting] = useState(false)
+  const [printError, setPrintError] = useState('')
 
   const allReceipts = useMemo(() => {
     const list = Array.isArray(receipts) ? receipts : [receipts]
@@ -196,21 +197,22 @@ function Receipt({ receipts, close, catalog }) {
 
   const dateLabelFor = (receipt) => formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey))
 
-  const downloadPdf = async (receipt = allReceipts[0]) => {
+  const many = allReceipts.length > 1
+
+  const handlePrint = async () => {
     setIsExporting(true)
+    setPrintError('')
     try {
-      await downloadPdfDocument(
-        <FeeReceiptPdf receipt={receipt} dateLabel={dateLabelFor(receipt)} />,
-        `recu-paiement-${safeFilename(receipt.student.name)}-${safeFilename(receipt.month)}.pdf`
-      )
+      await printPdfDocument(<FeeReceiptsPdf receipts={allReceipts} dateLabelFor={dateLabelFor} />)
     } catch (err) {
       console.error(err)
+      setPrintError("L'impression n'a pas pu être lancée. Réessayez ou téléchargez le reçu.")
     } finally {
       setIsExporting(false)
     }
   }
 
-  const handleDownloadAll = async () => {
+  const handleDownload = async () => {
     setIsExporting(true)
     try {
       for (const receipt of allReceipts) {
@@ -230,16 +232,16 @@ function Receipt({ receipts, close, catalog }) {
     <main className="fee-receipt">
       <div className="fee-receipt-actions">
         <button onClick={close}>← Retour</button>
-        {allReceipts.length > 1 ? (
-          <button className="fee-print" disabled={isExporting} onClick={handleDownloadAll}>
-            {isExporting ? 'Génération des PDF…' : <><Printer size={18} /> Télécharger tous les reçus</>}
+        <div className="fee-receipt-buttons">
+          <button disabled={isExporting} onClick={handleDownload}>
+            {many ? 'Télécharger les PDF' : 'Télécharger le PDF'}
           </button>
-        ) : (
-          <button className="fee-print" disabled={isExporting} onClick={() => downloadPdf()}>
-            {isExporting ? 'Génération du PDF…' : <><Printer size={18} /> Télécharger le reçu</>}
+          <button className="fee-print" disabled={isExporting} onClick={handlePrint}>
+            {isExporting ? 'Préparation…' : <><Printer size={18} /> {many ? 'Imprimer tous les reçus' : 'Imprimer le reçu'}</>}
           </button>
-        )}
+        </div>
       </div>
+      {printError && <p className="fee-receipt-error">{printError}</p>}
 
       <div className="fee-receipts">
         {allReceipts.map((receipt, index) => (
@@ -303,15 +305,27 @@ function Receipt({ receipts, close, catalog }) {
 
 function RegistrationFeeReceipt({ student, amount, schoolYear, paidAt, close }) {
   const [isExporting, setIsExporting] = useState(false)
+  const [printError, setPrintError] = useState('')
   const dateLabel = formatFrenchDate(String(paidAt || new Date().toISOString()).slice(0, 10))
+  const receiptPdf = <RegistrationFeeReceiptPdf student={student} amount={amount} schoolYear={schoolYear} dateLabel={dateLabel} />
+
+  const printPdf = async () => {
+    setIsExporting(true)
+    setPrintError('')
+    try {
+      await printPdfDocument(receiptPdf)
+    } catch (err) {
+      console.error(err)
+      setPrintError("L'impression n'a pas pu être lancée. Réessayez ou téléchargez le reçu.")
+    } finally {
+      setIsExporting(false)
+    }
+  }
 
   const downloadPdf = async () => {
     setIsExporting(true)
     try {
-      await downloadPdfDocument(
-        <RegistrationFeeReceiptPdf student={student} amount={amount} schoolYear={schoolYear} dateLabel={dateLabel} />,
-        `recu-inscription-${safeFilename(student.name)}-${safeFilename(schoolYear)}.pdf`
-      )
+      await downloadPdfDocument(receiptPdf, `recu-inscription-${safeFilename(student.name)}-${safeFilename(schoolYear)}.pdf`)
     } catch (err) {
       console.error(err)
     } finally {
@@ -323,10 +337,14 @@ function RegistrationFeeReceipt({ student, amount, schoolYear, paidAt, close }) 
     <main className="fee-receipt">
       <div className="fee-receipt-actions">
         <button onClick={close}>← Retour</button>
-        <button className="fee-print" disabled={isExporting} onClick={downloadPdf}>
-          {isExporting ? 'Génération du PDF…' : <><Printer size={18} /> Télécharger le reçu</>}
-        </button>
+        <div className="fee-receipt-buttons">
+          <button disabled={isExporting} onClick={downloadPdf}>Télécharger le PDF</button>
+          <button className="fee-print" disabled={isExporting} onClick={printPdf}>
+            {isExporting ? 'Préparation…' : <><Printer size={18} /> Imprimer le reçu</>}
+          </button>
+        </div>
       </div>
+      {printError && <p className="fee-receipt-error">{printError}</p>}
 
       <div className="fee-receipts">
         <article className="fee-document">
