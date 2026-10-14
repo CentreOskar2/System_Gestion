@@ -1,6 +1,8 @@
+import { registrationFeeStatusLabel } from '../Accounting/registrationFeesApi'
 import { ThermalReceipt, ThermalInfo, ThermalSeparator, ThermalLines, ThermalTotal, ThermalStatus } from './ThermalReceipt'
 
-export default function EnrollmentReceiptPdf({ form, lines, total, dateLabel, registrationFee, registrationFeePaid, firstMonthPaid }) {
+// registrationFee = { due, paidNow, remaining } (frais enregistrés à l'inscription) ou null.
+export default function EnrollmentReceiptPdf({ form, lines, total, dateLabel, registrationFee, firstMonthPaid }) {
   return (
     <ThermalReceipt
       tagline="Centre de soutien scolaire — Agadir"
@@ -11,6 +13,7 @@ export default function EnrollmentReceiptPdf({ form, lines, total, dateLabel, re
       <ThermalInfo label="Élève" value={`${form.firstName || 'Élève'} ${form.lastName || ''}`.trim()} />
       <ThermalInfo label="Niveau" value={form.level} />
       <ThermalInfo label="Cycle" value={form.cycle} />
+      <ThermalInfo label="Paiement" value={form.paymentDay ? `le ${form.paymentDay} de chaque mois` : ''} />
       <ThermalSeparator />
 
       <ThermalLines title="Matières inscrites (prix mensuel)" lines={lines} />
@@ -20,8 +23,8 @@ export default function EnrollmentReceiptPdf({ form, lines, total, dateLabel, re
       {registrationFee != null && (
         <>
           <ThermalSeparator />
-          <ThermalLines title="Frais d'inscription (une seule fois)" lines={[{ name: "Frais d'inscription", amount: registrationFee }]} />
-          <ThermalStatus>{registrationFeePaid ? `Payé le ${dateLabel}` : 'En attente de paiement'}</ThermalStatus>
+          <ThermalLines title="Frais d'inscription (une seule fois)" lines={[{ name: "Frais d'inscription", amount: registrationFee.due }]} />
+          <ThermalStatus>{registrationFeeStatusLabel(registrationFee, dateLabel)}</ThermalStatus>
         </>
       )}
     </ThermalReceipt>

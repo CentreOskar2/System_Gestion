@@ -1,6 +1,7 @@
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer'
 import { pdfStyles, colors, BRAND_NAME, LOGO_SRC, formatMoney, PDF_FONT_FAMILY } from './pdfStyles'
 import { initials } from '../Students/utils/studentHelpers'
+import { paymentDayOf } from '../Accounting/monthUtils'
 
 const styles = StyleSheet.create({
   header: {
@@ -198,6 +199,7 @@ export default function StudentSheetPdf({ data }) {
             <GridItem label="Niveau" value={student.level} />
             <GridItem label="Succursale" value={student.branch} />
             <GridItem label="Date d'inscription" value={formatDate(student.registrationDate)} />
+            <GridItem label="Jour de paiement" value={paymentDayOf(student) ? `Le ${paymentDayOf(student)} de chaque mois` : '—'} />
           </View>
         </View>
 

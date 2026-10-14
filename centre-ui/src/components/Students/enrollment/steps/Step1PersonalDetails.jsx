@@ -1,5 +1,13 @@
 import Icon from '../../../Icon'
 
+const PAYMENT_DAYS = Array.from({ length: 31 }, (_, index) => index + 1)
+
+// "2026-09-20" -> "20"
+const dayOf = (date) => {
+  const day = Number(String(date || '').slice(8, 10))
+  return day ? String(day) : ''
+}
+
 export default function Step1PersonalDetails({ form, set, setPhoneField, errors = {}, onPhoneBlur }) {
   const previewUrl = form.photoFile ? URL.createObjectURL(form.photoFile) : form.photoUrl
 
@@ -48,9 +56,37 @@ export default function Step1PersonalDetails({ form, set, setPhoneField, errors 
           <input
             type="date"
             value={form.registrationDate}
-            onChange={(e) => set('registrationDate', e.target.value)}
+            onChange={(e) => {
+              set('registrationDate', e.target.value)
+              // Tant que le jour de paiement suit la date d'inscription, il la suit
+              // encore ; une fois choisi à la main, il n'est plus touché.
+              if (form.paymentDay === dayOf(form.registrationDate) && dayOf(e.target.value)) {
+                set('paymentDay', dayOf(e.target.value))
+              }
+            }}
             required
           />
+          <small className="field-hint">Première inscription de l'élève au centre.</small>
+        </label>
+        <label>
+          Jour de paiement (chaque mois) *
+          <select
+            value={form.paymentDay}
+            onChange={(e) => set('paymentDay', e.target.value)}
+            required
+          >
+            <option value="">Choisir le jour…</option>
+            {PAYMENT_DAYS.map((day) => (
+              <option key={day} value={String(day)}>
+                Le {day} de chaque mois
+              </option>
+            ))}
+          </select>
+          <small className="field-hint">
+            {form.paymentDay
+              ? `Ex. : le mois d'octobre est dû le ${form.paymentDay.padStart(2, '0')}/10.`
+              : "Jour où l'élève doit régler chaque mois."}
+          </small>
         </label>
         <label>
           Téléphone 1 (WhatsApp) *

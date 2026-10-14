@@ -51,7 +51,7 @@ export function computeOverdueMonths(student, paymentsByStudent, today = new Dat
     const month = monthKeyOf(cursor)
     if (month < windowStart || month > windowEnd) continue
     if (settledMonths.has(month)) continue
-    const dueDate = billingDueDate(registrationDate, month)
+    const dueDate = billingDueDate(registrationDate, month, student.paymentDay)
     if (dueDate) overdue.push({ month, dueDate })
   }
 

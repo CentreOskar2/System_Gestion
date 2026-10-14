@@ -2,7 +2,7 @@ import { supabase } from '../../../supabaseClient'
 import { fetchAllRows } from '../../../utils/fetchAllRows'
 import { uploadImage } from '../../../utils/storage'
 import { syncStudentFormations, formationRowPrice } from '../../Formations/formationsApi'
-import { accountingDayBucket } from '../../Accounting/monthUtils'
+import { accountingDayBucket, normalizePaymentDay } from '../../Accounting/monthUtils'
 
 // Les lignes de formation du formulaire, traduites pour la couche d'accès aux
 // données. Le prix mensuel est résolu ici : standard figé à la sélection, ou
@@ -484,6 +484,25 @@ export function computeDuMois(form, catalog) {
   }, 0)
 }
 
+// Frais d'inscription saisis à l'inscription : montant dû (modifiable, par
+// défaut celui des réglages) et somme encaissée tout de suite selon le choix
+// « tout payer », « avance » ou « plus tard ». error est vide si la saisie est valide.
+export function enrollmentRegistrationFee(form, defaultAmount) {
+  const dueText = form.registrationFeeAmount ?? String(defaultAmount ?? '')
+  const due = Number(dueText)
+  if (String(dueText).trim() === '' || !Number.isFinite(due) || due < 0) {
+    return { due: 0, paid: 0, error: "Saisissez un montant de frais d'inscription valide." }
+  }
+  const mode = form.registrationFeeMode || 'full'
+  if (mode === 'later') return { due, paid: 0, error: '' }
+  if (mode === 'full') return { due, paid: due, error: '' }
+  const advance = Number(form.registrationFeeAdvance)
+  if (!String(form.registrationFeeAdvance || '').trim() || !Number.isFinite(advance) || advance <= 0 || advance > due) {
+    return { due, paid: 0, error: `Saisissez une avance comprise entre 1 et ${due.toLocaleString('fr-FR')} DH.` }
+  }
+  return { due, paid: advance, error: '' }
+}
+
 function studentPayload(form, catalog, filiereId, cycleId, status = 'active') {
   const level = catalog.levelByName[form.level]
   return {
@@ -497,6 +516,7 @@ function studentPayload(form, catalog, filiereId, cycleId, status = 'active') {
     phone1: form.phone || null,
     phone2: form.phone2 || null,
     registration_date: form.registrationDate || null,
+    payment_day: normalizePaymentDay(form.paymentDay),
     address: form.address || null,
     school_origin: form.school || null,
     class_in_school: form.schoolClass || null,
@@ -587,6 +607,7 @@ const STUDENT_CHILD_TABLES = [
   'student_grades',
   'payment_reminders',
   'student_payments',
+  'registration_fee_payments',
   'registration_fees',
   'student_group_subjects',
   'student_subscriptions',
@@ -791,6 +812,7 @@ export async function fetchStudents(branchId = null) {
       phone: s.phone1 || '',
       phone2: s.phone2 || '',
       registrationDate: s.registration_date || '',
+      paymentDay: s.payment_day ?? null,
       address: s.address || '',
       school: s.school_origin || '',
       schoolClass: s.class_in_school || '',

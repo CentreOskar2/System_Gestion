@@ -108,17 +108,36 @@ function daysInMonth(year, monthIndex) {
   return new Date(year, monthIndex + 1, 0).getDate()
 }
 
-// Le cycle de facturation d'un élève est ancré sur son jour d'inscription, pas sur une
-// date fixe du mois : inscrit le 26/07, il doit régler le 26 de chaque mois suivant.
-// Les mois plus courts que le jour d'inscription (le 31 en février) basculent sur leur
-// dernier jour.
-export function billingDueDate(registrationDate, monthKey) {
+// Jour de paiement valide (1 à 31), sinon null.
+export function normalizePaymentDay(value) {
+  const day = Number(value)
+  return Number.isInteger(day) && day >= 1 && day <= 31 ? day : null
+}
+
+// Jour de paiement d'un élève : celui choisi à l'inscription, à défaut le jour
+// de sa date d'inscription (élèves enregistrés avant l'existence du champ).
+export function paymentDayOf(student, registrationDate = enrollmentDateOf(student)) {
+  return normalizePaymentDay(student?.paymentDay) || parseLocalDate(registrationDate)?.getDate() || null
+}
+
+// Échéance d'un mois : le jour de paiement de l'élève dans ce mois (jour 2 →
+// octobre dû le 02/10). Sans jour de paiement, c'est le jour d'inscription
+// (inscrit le 26/07 → dû le 26 de chaque mois). Les mois plus courts que ce
+// jour (le 31 en février) basculent sur leur dernier jour.
+// Le mois d'inscription n'est jamais exigible avant l'inscription elle-même :
+// inscrit le 20/09 avec un paiement le 2, septembre est dû le 20/09.
+export function billingDueDate(registrationDate, monthKey, paymentDay = null) {
   const regDate = parseLocalDate(registrationDate)
   const monthDate = parseLocalDate(normalizeMonthKey(monthKey))
-  if (!regDate || !monthDate) return null
+  if (!monthDate) return null
+  const day = normalizePaymentDay(paymentDay) || regDate?.getDate()
+  if (!day) return null
   const year = monthDate.getFullYear()
   const monthIndex = monthDate.getMonth()
-  return new Date(year, monthIndex, Math.min(regDate.getDate(), daysInMonth(year, monthIndex)))
+  const dueDate = new Date(year, monthIndex, Math.min(day, daysInMonth(year, monthIndex)))
+  return regDate && dueDate < regDate && normalizeMonthKey(registrationDate) === normalizeMonthKey(monthKey)
+    ? regDate
+    : dueDate
 }
 
 // Année scolaire en cours : elle démarre en septembre, donc janvier→août appartient
@@ -127,13 +146,14 @@ export function currentSchoolYearStart(now = new Date()) {
   return now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1
 }
 
-export function receiptDateFromRegistration(registrationDate, monthKey) {
+// Date imprimée sur le reçu d'un mois : son échéance (jour de paiement 2 →
+// reçu d'octobre daté du 02/10).
+export function receiptDateFromRegistration(registrationDate, monthKey, paymentDay = null) {
   const regDate = parseLocalDate(registrationDate)
   const monthDate = parseLocalDate(monthKey)
   if (!regDate && !monthDate) return null
-  if (!regDate) return monthDate
   if (!monthDate) return regDate
-  return billingDueDate(registrationDate, monthKey) || monthDate
+  return billingDueDate(registrationDate, monthKey, paymentDay) || monthDate
 }
 
 // Le jour comptable se calcule TOUJOURS à l'heure du centre, jamais à celle de

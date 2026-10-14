@@ -209,18 +209,35 @@ export default function RegistrationFeesPage() {
     const unpaid = []
     for (const student of filteredStudents) {
       const fee = fees[student.id]
-      const isPaid = fee?.status === 'paid'
-      const paidMonth = isPaid ? accountingDayBucket(fee.paid_at).slice(0, 7) : ''
-      // Payé pendant la période affichée : le mois choisi, ou toute l'année.
-      const paidInPeriod = isPaid && (!month || paidMonth === month)
-      if (paidInPeriod && (isCenterWide || fee.validated_by === user?.id)) {
-        paid.push({ ...student, amount: toNumber(fee.amount), paidAt: fee.paid_at, paidBy: fee.validated_by })
+      const payments = fee?.payments || []
+      const monthOf = (payment) => accountingDayBucket(payment.paid_at).slice(0, 7)
+
+      // Versements reçus pendant la période affichée (le mois choisi, ou toute
+      // l'année) : une avance et son solde peuvent tomber sur deux mois.
+      const received = payments.filter(
+        (payment) => (!month || monthOf(payment) === month) && (isCenterWide || payment.paid_by === user?.id)
+      )
+      if (received.length > 0) {
+        const last = received[received.length - 1]
+        paid.push({
+          ...student,
+          amount: received.reduce((sum, payment) => sum + payment.amount, 0),
+          paidAt: last.paid_at,
+          paidBy: last.paid_by,
+          remaining: fee.remaining,
+        })
       }
-      // Non payé à la fin de la période : inscrit à cette date et pas encore
-      // réglé (ou réglé seulement après). Un élève parti n'est plus relancé.
-      const paidByPeriodEnd = isPaid && (!paidMonth || paidMonth <= periodEnd)
-      if (!paidByPeriodEnd && student.active && student.registrationDate.slice(0, 7) <= periodEnd) {
-        unpaid.push({ ...student, amount: toNumber(fee?.amount) || toNumber(appSettings?.registrationFee) })
+
+      // Reste dû à la fin de la période : inscrit à cette date et pas encore
+      // soldé (ou soldé seulement après). Un élève parti n'est plus relancé.
+      const due = fee ? fee.amount : toNumber(appSettings?.registrationFee)
+      const paidByPeriodEnd = payments
+        .filter((payment) => monthOf(payment) <= periodEnd)
+        .reduce((sum, payment) => sum + payment.amount, 0)
+      const settledWithoutPayments = fee?.status === 'paid' && payments.length === 0
+      const remainingAtEnd = settledWithoutPayments ? 0 : Math.max(0, due - paidByPeriodEnd)
+      if (remainingAtEnd > 0 && student.active && student.registrationDate.slice(0, 7) <= periodEnd) {
+        unpaid.push({ ...student, amount: remainingAtEnd, paidSoFar: paidByPeriodEnd })
       }
     }
     const byName = (a, b) => a.name.localeCompare(b.name, 'fr')
@@ -332,7 +349,7 @@ export default function RegistrationFeesPage() {
             onClick={() => toggleList('unpaid')}
             aria-pressed={openList === 'unpaid'}
           >
-            <span>Élèves non payés</span>
+            <span>Élèves non soldés</span>
             <strong>{loading ? '…' : unpaidRows.length}</strong>
             <small>
               {unpaidRows.reduce((sum, row) => sum + row.amount, 0).toLocaleString('fr-FR')} DH à encaisser
@@ -345,7 +362,7 @@ export default function RegistrationFeesPage() {
           <section className="registration-list">
             <header>
               <div>
-                <h2>{openList === 'paid' ? 'Élèves payés' : 'Élèves non payés'}</h2>
+                <h2>{openList === 'paid' ? 'Élèves payés' : 'Élèves non soldés'}</h2>
                 <p>
                   {openList === 'paid'
                     ? `Frais d'inscription encaissés — ${periodLabel}`
@@ -367,14 +384,16 @@ export default function RegistrationFeesPage() {
                     <th>Date d'inscription</th>
                     {openList === 'paid' ? (
                       <>
-                        <th>Montant</th>
+                        <th>Montant encaissé</th>
                         <th>Payé le</th>
+                        <th>Reste</th>
                         {isCenterWide && <th>Encaissé par</th>}
                       </>
                     ) : (
                       <>
                         <th>Téléphone</th>
-                        <th>Montant dû</th>
+                        <th>Déjà payé</th>
+                        <th>Reste dû</th>
                       </>
                     )}
                   </tr>
@@ -382,7 +401,7 @@ export default function RegistrationFeesPage() {
                 <tbody>
                   {shownRows.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="registration-empty">Aucun élève pour ce filtre.</td>
+                      <td colSpan={7} className="registration-empty">Aucun élève pour ce filtre.</td>
                     </tr>
                   ) : (
                     shownRows.map((row) => (
@@ -399,11 +418,15 @@ export default function RegistrationFeesPage() {
                           <>
                             <td>{row.amount.toLocaleString('fr-FR')} DH</td>
                             <td>{formatFrenchDate(accountingDayBucket(row.paidAt))}</td>
+                            <td className={row.remaining > 0 ? 'registration-due' : ''}>
+                              {row.remaining > 0 ? `${row.remaining.toLocaleString('fr-FR')} DH` : 'Soldé'}
+                            </td>
                             {isCenterWide && <td>{usersById[row.paidBy] || (row.paidBy ? 'Utilisateur supprimé' : 'Non attribué')}</td>}
                           </>
                         ) : (
                           <>
                             <td>{row.phone || '—'}</td>
+                            <td>{row.paidSoFar > 0 ? `${row.paidSoFar.toLocaleString('fr-FR')} DH` : '—'}</td>
                             <td className="registration-due">{row.amount.toLocaleString('fr-FR')} DH</td>
                           </>
                         )}

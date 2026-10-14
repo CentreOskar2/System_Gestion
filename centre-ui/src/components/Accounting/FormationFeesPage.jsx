@@ -12,12 +12,15 @@ import {
   monthLabelOf,
   normalizeMonthKey,
   parseLocalDate,
+  receiptDateFromRegistration,
   schoolYearOptions,
   schoolYearLabel,
   currentMonthKey,
 } from './monthUtils'
 import { fetchAppSettings } from '../../appSettings'
-import { fetchRegistrationFees, payRegistrationFee } from './registrationFeesApi'
+import { fetchRegistrationFees, recordRegistrationFeePayment, registrationFeeCashPayments } from './registrationFeesApi'
+import RegistrationFeeModal from './RegistrationFeeModal'
+import RegistrationFeeBadge from './RegistrationFeeBadge'
 import { printPdfDocument } from '../pdf/downloadPdf'
 import RegistrationFeeReceiptPdf from '../pdf/RegistrationFeeReceiptPdf'
 import FormationFeeReceiptPdf from '../pdf/FormationFeeReceiptPdf'
@@ -147,16 +150,8 @@ export default function FormationFeesPage() {
     // cette page : ils comptent donc dans cette caisse, et dans aucune autre —
     // la page Scolarité les exclut symétriquement.
     const formationOnlyIds = new Set(rows.filter((row) => row.formationOnly).map((row) => row.studentId))
-    const feePayments = Object.values(registrationFees)
-      .filter((fee) => fee.status === 'paid' && fee.paid_at && formationOnlyIds.has(fee.student_id))
-      .map((fee) => ({
-        id: `registration-${fee.id}`,
-        student_id: fee.student_id,
-        amount: Number(fee.amount || 0),
-        paid_at: fee.paid_at,
-        status: 'paid',
-        paid_by: fee.validated_by || null,
-      }))
+    // Chaque versement (avance ou solde) compte le jour où il a été reçu.
+    const feePayments = registrationFeeCashPayments(registrationFees, (studentId) => formationOnlyIds.has(studentId))
     return [...formationPayments, ...feePayments]
   }, [paymentsByEnrollment, studentIdByEnrollment, registrationFees, rows])
 
@@ -206,8 +201,9 @@ export default function FormationFeesPage() {
     if (enrolledMonth && monthKey < enrolledMonth) return 'disabled'
     if (paymentFor(row, monthKey)) return 'paid'
     if (!row.active) return 'inactive'
-    // L'échéance suit le jour d'inscription à la formation, pas le 1er du mois.
-    const dueDate = billingDueDate(row.enrolledAt, monthKey)
+    // L'échéance suit le jour de paiement de l'élève (à défaut le jour
+    // d'inscription à la formation), jamais avant le début de la formation.
+    const dueDate = billingDueDate(row.enrolledAt, monthKey, row.paymentDay)
     if (dueDate && today && today < dueDate) return 'pending'
     return 'unpaid'
   }
@@ -317,7 +313,7 @@ export default function FormationFeesPage() {
         ],
       }))
       setSelected(null)
-      await printFormationReceipt(row, schoolMonths[index].label, amount, saved.paid_at)
+      await printFormationReceipt(row, schoolMonths[index], amount)
     } catch (err) {
       console.error(err)
       setError(err.message)
@@ -351,7 +347,8 @@ export default function FormationFeesPage() {
 
   // Le reçu est imprimé APRÈS l'enregistrement du paiement, et son échec ne doit
   // jamais laisser croire que l'encaissement a échoué : d'où le message distinct.
-  const printFormationReceipt = async (row, monthLabel, amount, paidAt) => {
+  // Comme pour la scolarité, le reçu est daté de l'échéance du mois.
+  const printFormationReceipt = async (row, month, amount) => {
     try {
       await printPdfDocument(
         <FormationFeeReceiptPdf
@@ -359,9 +356,9 @@ export default function FormationFeesPage() {
           formationName={row.formationName}
           levelName={row.levelName}
           groupName={row.groupName}
-          monthLabel={monthLabel}
+          monthLabel={month.label}
           amount={amount}
-          dateLabel={formatFrenchDate(String(paidAt || new Date().toISOString()).slice(0, 10))}
+          dateLabel={formatFrenchDate(receiptDateFromRegistration(row.enrolledAt, month.key, row.paymentDay))}
         />
       )
     } catch (err) {
@@ -371,31 +368,35 @@ export default function FormationFeesPage() {
   }
 
   const registrationFeeOf = (row) => registrationFees[row.studentId] || null
-  const registrationFeeAmountFor = (row) =>
-    toNumber(registrationFeeOf(row)?.amount) || toNumber(appSettings?.registrationFee)
 
-  const validateRegistrationFee = async () => {
+  // dueAmount : montant des frais (ajustable) ; paidAmount : tout le reste ou
+  // une avance saisie par la secrétaire.
+  const validateRegistrationFee = async ({ dueAmount, paidAmount }) => {
     if (!feeModal || saving) return
     setSaving(true)
     setError('')
     try {
       const { row } = feeModal
-      const amount = registrationFeeAmountFor(row)
-      const saved = await payRegistrationFee({
+      const paidBefore = registrationFeeOf(row)?.paidTotal || 0
+      const { fee, paidNow, paidAt } = await recordRegistrationFeePayment({
         studentId: row.studentId,
         schoolYear: schoolYearKeyLabel,
-        amount,
+        dueAmount,
+        paidAmount,
         userId: user?.id || null,
       })
-      setRegistrationFees((prev) => ({ ...prev, [row.studentId]: saved }))
+      setRegistrationFees((prev) => ({ ...prev, [row.studentId]: fee }))
       setFeeModal(null)
       try {
         await printPdfDocument(
           <RegistrationFeeReceiptPdf
             student={{ name: row.studentName, code: row.code, level: row.formationName, photoUrl: row.photoUrl }}
-            amount={amount}
+            amount={paidNow}
+            dueAmount={fee.amount}
+            paidBefore={paidBefore}
+            remaining={fee.remaining}
             schoolYear={schoolYearKeyLabel}
-            dateLabel={formatFrenchDate(String(saved.paid_at || '').slice(0, 10))}
+            dateLabel={formatFrenchDate(accountingDayBucket(paidAt || new Date()))}
           />
         )
       } catch (err) {
@@ -536,16 +537,8 @@ export default function FormationFeesPage() {
                         </span>
                       ) : firstRowIdByStudent.get(row.studentId) !== row.id ? (
                         <span className="registration-elsewhere">—</span>
-                      ) : registrationFeeOf(row)?.status === 'paid' ? (
-                        <span className="registration-badge paid">Payé</span>
                       ) : (
-                        <button
-                          className="registration-badge unpaid"
-                          onClick={() => setFeeModal({ row })}
-                          title="Valider le paiement des frais d'inscription"
-                        >
-                          Impayé
-                        </button>
+                        <RegistrationFeeBadge fee={registrationFeeOf(row)} onOpen={() => setFeeModal({ row })} />
                       )}
                     </td>
                     {schoolMonths.map((month, index) => {
@@ -633,26 +626,18 @@ export default function FormationFeesPage() {
       )}
 
       {feeModal && (
-        <div className="fee-modal-bg" onMouseDown={() => !saving && setFeeModal(null)}>
-          <section className="fee-modal" onMouseDown={(e) => e.stopPropagation()}>
-            <h2>Frais d'inscription</h2>
-            <p>
-              <b>{feeModal.row.studentName}</b> — {schoolYearKeyLabel}
-              <br />
-              Montant : <b>{registrationFeeAmountFor(feeModal.row).toLocaleString('fr-FR')} DH</b>
-            </p>
-            <p className="formation-fee-note">
-              Cet élève ne suit aucun cycle : ses frais d'inscription se règlent ici.
-              Ils ne seront plus demandés cette année, même s'il rejoint un cycle plus tard.
-            </p>
-            <footer>
-              <button type="button" onClick={() => setFeeModal(null)} disabled={saving}>Fermer</button>
-              <button type="button" className="fee-validate" onClick={validateRegistrationFee} disabled={saving}>
-                {saving ? 'Validation...' : 'Valider le paiement'}
-              </button>
-            </footer>
-          </section>
-        </div>
+        <RegistrationFeeModal
+          name={feeModal.row.studentName}
+          code={feeModal.row.code}
+          schoolYear={schoolYearKeyLabel}
+          fee={registrationFeeOf(feeModal.row)}
+          defaultAmount={toNumber(appSettings?.registrationFee)}
+          note="Cet élève ne suit aucun cycle : ses frais d'inscription se règlent ici. Ils ne seront plus demandés cette année, même s'il rejoint un cycle plus tard."
+          error={error}
+          saving={saving}
+          onClose={() => setFeeModal(null)}
+          onSubmit={validateRegistrationFee}
+        />
       )}
     </div>
   )

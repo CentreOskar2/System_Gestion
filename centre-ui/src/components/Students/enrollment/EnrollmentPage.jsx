@@ -5,13 +5,13 @@ import Step2Classification from './steps/Step2Classification'
 import Step3SubjectsGroups from './steps/Step3SubjectsGroups'
 import Step4Billing from './steps/Step4Billing'
 import EnrollmentReceipt from '../EnrollmentReceipt'
-import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment, teacherForGroupSubject, computeDuMois, isPackageLevel } from './enrollmentApi'
+import { fetchCatalog, nextRegistrationNumber, createEnrollment, updateEnrollment, teacherForGroupSubject, computeDuMois, isPackageLevel, enrollmentRegistrationFee } from './enrollmentApi'
 import { today } from '../utils/studentHelpers'
 import { isValidPhoneNumber, normalizePhoneInput, phoneValidationMessage } from '../../../utils/validators'
 import { fetchAppSettings } from '../../../appSettings'
-import { recordRegistrationFee } from '../../Accounting/registrationFeesApi'
+import { recordRegistrationFeePayment } from '../../Accounting/registrationFeesApi'
 import { recordFirstMonthPayment, invalidateFeesCache } from '../../Accounting/feesApi'
-import { normalizeMonthKey } from '../../Accounting/monthUtils'
+import { normalizeMonthKey, normalizePaymentDay } from '../../Accounting/monthUtils'
 import { useAuth } from '../../../context/AuthContext'
 import '../Enrollment.css'
 
@@ -24,6 +24,7 @@ const createInitialForm = (student) => {
       firstName: '',
       lastName: '',
       registrationDate: today(),
+      paymentDay: String(Number(today().slice(8, 10))),
       phone: '',
       phone2: '',
       school: '',
@@ -43,7 +44,10 @@ const createInitialForm = (student) => {
       packageManualPrice: '',
       photoUrl: '',
       photoFile: null,
-      registrationFeePaidNow: true,
+      // null = montant des réglages ; 'full' | 'advance' | 'later'.
+      registrationFeeAmount: null,
+      registrationFeeMode: 'full',
+      registrationFeeAdvance: '',
       firstMonthPaidNow: true,
     }
   }
@@ -55,6 +59,8 @@ const createInitialForm = (student) => {
     firstName,
     lastName: restName.join(' '),
     registrationDate: student.registrationDate || '',
+    // Élève enregistré avant ce champ : son jour d'inscription, qui était son échéance.
+    paymentDay: String(student.paymentDay || Number(String(student.registrationDate || '').slice(8, 10)) || ''),
     phone: student.phone || '',
     phone2: student.phone2 || '',
     school: student.school || '',
@@ -84,7 +90,9 @@ const createInitialForm = (student) => {
     photoUrl: student.photoUrl || '',
     photoFile: null,
     branch_id: student.branch_id,
-    registrationFeePaidNow: true,
+    registrationFeeAmount: null,
+    registrationFeeMode: 'full',
+    registrationFeeAdvance: '',
     firstMonthPaidNow: true,
   }
 }
@@ -96,6 +104,8 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
   const [form, setForm] = useState(() => createInitialForm(student))
   const [appSettings, setAppSettings] = useState(null)
   const [receiptOpen, setReceiptOpen] = useState(false)
+  const [registrationFeeResult, setRegistrationFeeResult] = useState(null)
+  const registrationFee = enrollmentRegistrationFee(form, appSettings?.registrationFee)
   const [codeReady, setCodeReady] = useState(!student || Boolean(student?.code))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -255,6 +265,7 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       if (!form.firstName.trim()) errors.push('Le prénom est obligatoire.')
       if (!form.lastName.trim()) errors.push('Le nom est obligatoire.')
       if (!form.registrationDate) errors.push("La date d'inscription est obligatoire.")
+      if (!normalizePaymentDay(form.paymentDay)) errors.push('Le jour de paiement est obligatoire (entre 1 et 31).')
       if (!isValidPhoneNumber(form.phone)) errors.push('Le numéro doit contenir exactement 10 chiffres.')
       if (form.phone2.trim() && !isValidPhoneNumber(form.phone2)) errors.push('Le numéro doit contenir exactement 10 chiffres.')
       setFieldErrors({
@@ -301,6 +312,10 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
   const handleFinish = async () => {
     if (saving) return
     if (validateStep(1).length > 0) return
+    if (mode !== 'edit' && appSettings && registrationFee.error) {
+      setError(registrationFee.error)
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -311,13 +326,16 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       } else {
         const result = await createEnrollment(form, catalog)
         if (appSettings) {
-          await recordRegistrationFee({
+          const { fee, paidNow } = await recordRegistrationFeePayment({
             studentId: result.id,
             schoolYear: appSettings.activeSchoolYear,
-            amount: appSettings.registrationFee,
-            paid: form.registrationFeePaidNow,
+            dueAmount: registrationFee.due,
+            paidAmount: registrationFee.paid,
             userId: user?.id || null,
           })
+          // Ce que le reçu affiche : les frais réellement enregistrés (déjà
+          // soldés une autre fois, ils ne sont pas encaissés deux fois).
+          setRegistrationFeeResult({ due: fee.amount, paidNow, remaining: fee.remaining })
         }
         // Une inscription en formation seule n'a pas de dû mensuel de scolarité :
         // le 1er mois se règle sur le calendrier des formations.
@@ -377,8 +395,7 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       <EnrollmentReceipt
         form={form}
         catalog={catalog}
-        registrationFee={appSettings?.registrationFee}
-        registrationFeePaid={form.registrationFeePaidNow}
+        registrationFee={registrationFeeResult}
         firstMonthPaid={form.firstMonthPaidNow}
         close={() => { finish(form); close() }}
       />

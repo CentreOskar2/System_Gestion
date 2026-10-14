@@ -11,6 +11,7 @@ import { buildDebtors } from '../Accounting/delinquenciesApi'
 import { subscribeFeesCache } from '../Accounting/feesApi'
 import { academicYearStart, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
 import { fetchFormationRevenue } from '../Formations/formationsApi'
+import { fetchRegistrationFeeRevenue } from '../Accounting/registrationFeesApi'
 import './Dashboard.css'
 
 const MONTHS_SHORT = ['Sept', 'Oct', 'Nov', 'Déc', 'Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
@@ -246,7 +247,7 @@ export default function Dashboard() {
       // Tables qui dépassent 1000 lignes : lues par pages (voir fetchAllRows),
       // d'où des fabriques de requêtes plutôt que des requêtes toutes prêtes.
       const studentsQuery = () => {
-        const query = supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date, created_at').order('id')
+        const query = supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date, payment_day, created_at').order('id')
         return branchFilter ? query.eq('branch_id', branchFilter) : query
       }
       const paymentsQuery = () => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')
@@ -269,7 +270,7 @@ export default function Dashboard() {
           supabase.from('branches').select('id, name, status').order('name'),
           supabase.from('cycles').select('id, name'),
           supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
-          fetchAllRows(() => supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid').order('student_id').order('school_year')),
+          fetchRegistrationFeeRevenue(),
           fetchFormationRevenue(),
         ])
         if (cancelled) return
@@ -277,15 +278,9 @@ export default function Dashboard() {
         const firstError = [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes].find((result) => result.error)
         if (firstError) throw new Error(firstError.error.message)
 
-        // Registration fees are revenue for the month they were cashed in.
-        const registrationFeePayments = (feesRes.data || [])
-          .filter((fee) => fee.paid_at)
-          .map((fee) => ({
-            student_id: fee.student_id,
-            amount: fee.amount,
-            status: 'paid',
-            month: `${String(fee.paid_at).slice(0, 7)}-01`,
-          }))
+        // Registration fees are revenue for the month they were cashed in — each
+        // installment (advance or balance) in its own month.
+        const registrationFeePayments = feesRes
 
         setData({
           students: studentsRes.data || [],
@@ -398,6 +393,7 @@ export default function Dashboard() {
       active: s.status === 'active',
       du_mois: s.du_mois,
       registrationDate: s.registration_date || (s.created_at || '').slice(0, 10),
+      paymentDay: s.payment_day ?? null,
       createdAt: s.created_at || '',
     }))
     const byStudent = {}

@@ -245,7 +245,7 @@ export async function fetchFormationFeesData(branchId = null) {
             // level_id sert à distinguer l'élève « formation seule » de celui qui
           // suit aussi un cursus : les frais d'inscription se règlent sur le
           // calendrier de scolarité pour le second, ici pour le premier.
-          'students!inner(id, first_name, last_name, registration_number, registration_date, created_at, phone1, status, branch_id, level_id, photo_url)'
+          'students!inner(id, first_name, last_name, registration_number, registration_date, payment_day, created_at, phone1, status, branch_id, level_id, photo_url)'
         )
         .order('id')
     ),
@@ -280,6 +280,8 @@ export async function fetchFormationFeesData(branchId = null) {
         phone: student.phone1 || '',
         photoUrl: student.photo_url || '',
         registrationDate: student.registration_date || (student.created_at || '').slice(0, 10),
+        // Jour de paiement de l'élève : il vaut aussi pour ses formations.
+        paymentDay: student.payment_day ?? null,
         studentActive: student.status === 'active',
         branchId: student.branch_id,
         // Sans niveau scolaire, l'élève ne figure pas au calendrier de

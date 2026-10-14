@@ -1,0 +1,129 @@
+.registration-fee-modal {
+  max-height: 92vh;
+  overflow: auto;
+}
+
+.registration-fee-field {
+  display: block;
+  margin: 0 0 18px;
+  color: #34425b;
+  font-weight: 700;
+}
+
+.registration-fee-field small {
+  display: block;
+  margin-top: 6px;
+  color: #647088;
+  font-weight: 500;
+}
+
+.registration-fee-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.registration-fee-input input {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 700;
+  outline: 0;
+}
+
+.registration-fee-input input:focus {
+  border-color: #315fec;
+  box-shadow: 0 0 0 3px rgba(49, 95, 236, 0.12);
+}
+
+.registration-fee-input em {
+  color: #647088;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.registration-fee-history {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #effcf1;
+  color: #1b6d2e;
+  font-size: 0.9rem;
+}
+
+.registration-fee-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+}
+
+.registration-fee-modes label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.registration-fee-modes label.active {
+  border-color: #7fa2ff;
+  background: #f3f6ff;
+}
+
+.registration-fee-modes input {
+  margin-top: 3px;
+  accent-color: #315fec;
+}
+
+.registration-fee-modes b,
+.registration-fee-modes small {
+  display: block;
+}
+
+.registration-fee-modes small {
+  margin-top: 3px;
+  color: #647088;
+  font-size: 0.82rem;
+}
+
+.registration-fee-note {
+  margin: 0 0 14px;
+  color: #647088;
+  font-size: 0.88rem;
+}
+
+.registration-fee-problem {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #b42318;
+  font-weight: 600;
+}
+
+/* Badge « Partiel » dans les tableaux : avance versée, reste dû. */
+.registration-badge.partial {
+  border: 0;
+  background: #fff4e5;
+  color: #9a5b00;
+  cursor: pointer;
+}
+
+@media (max-width: 520px) {
+  .registration-fee-modes {
+    grid-template-columns: 1fr;
+  }
+}

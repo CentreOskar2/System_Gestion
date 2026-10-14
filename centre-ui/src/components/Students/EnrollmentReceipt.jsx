@@ -5,9 +5,11 @@ import { formatFrenchDate } from '../Accounting/monthUtils'
 import { safeFilename } from '../../utils/exportToPdf'
 import { downloadPdfDocument, printPdfDocument } from '../pdf/downloadPdf'
 import EnrollmentReceiptPdf from '../pdf/EnrollmentReceiptPdf'
+import { registrationFeeStatusLabel } from '../Accounting/registrationFeesApi'
 import './EnrollmentReceipt.css'
 
-export default function EnrollmentReceipt({ form, close, catalog, registrationFee, registrationFeePaid, firstMonthPaid }) {
+// registrationFee = { due, paidNow, remaining } (frais enregistrés à l'inscription) ou null.
+export default function EnrollmentReceipt({ form, close, catalog, registrationFee, firstMonthPaid }) {
   const [isExporting, setIsExporting] = useState(false)
   const [printError, setPrintError] = useState('')
   const amountFor = (subject) => {
@@ -28,7 +30,6 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
       total={total}
       dateLabel={dateLabel}
       registrationFee={showFee ? registrationFee : null}
-      registrationFeePaid={registrationFeePaid}
       firstMonthPaid={firstMonthPaid}
     />
   )
@@ -83,7 +84,7 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
           ) : (
             <div className="receipt-avatar">{initials(`${form.firstName} ${form.lastName}`)}</div>
           )}
-          <div><h1>{form.firstName || 'Élève'} {form.lastName}</h1><p>Niveau : <b>{form.level || '—'}</b></p><p>Cycle : <b>{form.cycle || '—'}</b></p></div>
+          <div><h1>{form.firstName || 'Élève'} {form.lastName}</h1><p>Niveau : <b>{form.level || '—'}</b></p><p>Cycle : <b>{form.cycle || '—'}</b></p><p>Paiement : <b>{form.paymentDay ? `le ${form.paymentDay} de chaque mois` : '—'}</b></p></div>
         </section>
         <section className="receipt-lines">
           <h2>Matières inscrites</h2>
@@ -98,10 +99,10 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
           <section className="receipt-registration">
             <div className="receipt-row">
               <span>Frais d'inscription <small>(une seule fois)</small></span>
-              <span>{Number(registrationFee).toLocaleString('fr-FR')} DH</span>
+              <span>{Number(registrationFee.due).toLocaleString('fr-FR')} DH</span>
             </div>
-            <p className={registrationFeePaid ? 'receipt-fee-paid' : 'receipt-fee-pending'}>
-              {registrationFeePaid ? 'Payé le ' + dateLabel : 'En attente de paiement'}
+            <p className={registrationFee.remaining > 0 ? 'receipt-fee-pending' : 'receipt-fee-paid'}>
+              {registrationFeeStatusLabel(registrationFee, dateLabel).replace('\n', ' — ')}
             </p>
           </section>
         )}

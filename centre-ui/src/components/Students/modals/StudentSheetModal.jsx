@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import Icon from '../../Icon'
 import { initials, today } from '../utils/studentHelpers'
 import { supabase } from '../../../supabaseClient'
-import { academicMonths } from '../../Accounting/monthUtils'
+import { academicMonths, paymentDayOf } from '../../Accounting/monthUtils'
 import { safeFilename } from '../../../utils/exportToPdf'
 import { downloadPdfDocument } from '../../pdf/downloadPdf'
 import StudentSheetPdf from '../../pdf/StudentSheetPdf'
@@ -209,7 +209,8 @@ export default function StudentSheetModal({ student, close }) {
             <small>{student.code}</small>
             <b>{student.level}</b>
           </div>
-          <p>♟ &nbsp; {student.registrationDate || '—'}</p>
+          <p>♟ &nbsp; Inscrit le {student.registrationDate || '—'}</p>
+          <p>⏱ &nbsp; Paiement : {paymentDayOf(student) ? `le ${paymentDayOf(student)} de chaque mois` : '—'}</p>
           <p>⌖ &nbsp; {student.address || student.branch || '—'}</p>
           <p>♧ &nbsp; {student.phone || '—'}</p>
           {student.phone2 && <p>☎ &nbsp; {student.phone2}</p>}

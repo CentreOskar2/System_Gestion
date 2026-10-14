@@ -9,6 +9,7 @@ import { academicMonths, calendarMonthOptions, currentMonthKey, schoolYearOption
 import { subscribeFeesCache } from './feesApi'
 import { computeTeacherSalaries, fetchSalaryContext } from './salariesApi'
 import { fetchFormationRevenue } from '../Formations/formationsApi'
+import { fetchRegistrationFeeRevenue } from './registrationFeesApi'
 import './NetProfitPage.css'
 
 const CHART_LABELS = ['Sept', 'Oct', 'Nov', 'Déc', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août']
@@ -161,7 +162,7 @@ export default function NetProfitPage() {
         fetchAllRows(studentsQuery),
         fetchAllRows(expensesQuery),
         supabase.from('branches').select('id, name, status'),
-        fetchAllRows(() => supabase.from('registration_fees').select('student_id, amount, status, paid_at').eq('status', 'paid').order('student_id').order('school_year')),
+        fetchRegistrationFeeRevenue(),
         fetchSalaryContext(),
         fetchFormationRevenue(),
       ])
@@ -169,15 +170,9 @@ export default function NetProfitPage() {
 
       const studentBranch = Object.fromEntries((studentsRes.data || []).map((s) => [s.id, s.branch_id]))
 
-      // Registration fees count toward the month they were actually cashed in.
-      const paidRegistrationFees = (feesRes.data || [])
-        .filter((fee) => fee.paid_at)
-        .map((fee) => ({
-          student_id: fee.student_id,
-          amount: fee.amount,
-          status: 'paid',
-          month: `${String(fee.paid_at).slice(0, 7)}-01`,
-        }))
+      // Registration fees count toward the month they were actually cashed in —
+      // each installment (advance or balance) in its own month.
+      const paidRegistrationFees = feesRes
 
       // Les encaissements de formation sont une recette du centre au même titre
       // que la scolarité. Sans eux, le salaire du professeur de formation entrait

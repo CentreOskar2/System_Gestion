@@ -24,7 +24,9 @@ import {
   currentMonthKey,
 } from './monthUtils'
 import { fetchAppSettings } from '../../appSettings'
-import { fetchRegistrationFees, payRegistrationFee } from './registrationFeesApi'
+import { fetchRegistrationFees, recordRegistrationFeePayment, registrationFeeCashPayments } from './registrationFeesApi'
+import RegistrationFeeModal from './RegistrationFeeModal'
+import RegistrationFeeBadge from './RegistrationFeeBadge'
 import DailyHistoryPanel from './DailyHistoryPanel'
 import RegistrationFeeReceiptPdf from '../pdf/RegistrationFeeReceiptPdf'
 import {
@@ -195,7 +197,7 @@ function Receipt({ receipts, close, catalog }) {
     }))
   }, [receipts, catalog])
 
-  const dateLabelFor = (receipt) => formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey))
+  const dateLabelFor = (receipt) => formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey, receipt.student.paymentDay))
 
   const many = allReceipts.length > 1
 
@@ -257,7 +259,7 @@ function Receipt({ receipts, close, catalog }) {
               <div className="fee-ref">
                 <span>REÇU DE PAIEMENT MENSUEL</span>
                 <b>{receipt.student.code}</b>
-                <small>Date : {formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey))}</small>
+                <small>Date : {formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey, receipt.student.paymentDay))}</small>
               </div>
             </header>
 
@@ -289,7 +291,7 @@ function Receipt({ receipts, close, catalog }) {
             </section>
 
             <div className="fee-confirmation">
-              ✓ Paiement reçu en espèces — Le {formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey))}
+              ✓ Paiement reçu en espèces — Le {formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey, receipt.student.paymentDay))}
             </div>
 
             <footer>
@@ -303,11 +305,23 @@ function Receipt({ receipts, close, catalog }) {
   )
 }
 
-function RegistrationFeeReceipt({ student, amount, schoolYear, paidAt, close }) {
+// amount = somme encaissée par ce reçu ; dueAmount, paidBefore et remaining
+// situent ce versement dans les frais de l'année (paiement en plusieurs fois).
+function RegistrationFeeReceipt({ student, amount, dueAmount = amount, paidBefore = 0, remaining = 0, schoolYear, paidAt, close }) {
   const [isExporting, setIsExporting] = useState(false)
   const [printError, setPrintError] = useState('')
-  const dateLabel = formatFrenchDate(String(paidAt || new Date().toISOString()).slice(0, 10))
-  const receiptPdf = <RegistrationFeeReceiptPdf student={student} amount={amount} schoolYear={schoolYear} dateLabel={dateLabel} />
+  const dateLabel = formatFrenchDate(accountingDayBucket(paidAt || new Date()))
+  const receiptPdf = (
+    <RegistrationFeeReceiptPdf
+      student={student}
+      amount={amount}
+      dueAmount={dueAmount}
+      paidBefore={paidBefore}
+      remaining={remaining}
+      schoolYear={schoolYear}
+      dateLabel={dateLabel}
+    />
+  )
 
   const printPdf = async () => {
     setIsExporting(true)
@@ -382,16 +396,24 @@ function RegistrationFeeReceipt({ student, amount, schoolYear, paidAt, close }) 
             </div>
             <div className="fee-line">
               <span>Frais d'inscription — {schoolYear}</span>
-              <span>{Number(amount).toLocaleString('fr-FR')} DH</span>
+              <span>{Number(dueAmount).toLocaleString('fr-FR')} DH</span>
             </div>
+            {paidBefore > 0 && (
+              <div className="fee-line">
+                <span>Déjà payé avant</span>
+                <span>-{Number(paidBefore).toLocaleString('fr-FR')} DH</span>
+              </div>
+            )}
             <div className="fee-total">
-              <b>Montant total payé</b>
+              <b>{remaining > 0 ? 'Avance payée' : 'Montant total payé'}</b>
               <strong>{Number(amount).toLocaleString('fr-FR')} DH</strong>
             </div>
           </section>
 
           <div className="fee-confirmation">
-            ✓ Paiement reçu en espèces — Le {dateLabel}
+            {remaining > 0
+              ? `✓ Avance reçue le ${dateLabel} — reste à payer : ${Number(remaining).toLocaleString('fr-FR')} DH`
+              : `✓ Paiement reçu en espèces — Le ${dateLabel}`}
           </div>
 
           <footer>
@@ -573,18 +595,8 @@ export default function FeesPage() {
   // cashPayments) : une somme reçue un jour reste comptée ce jour-là, quoi
   // qu'on modifie ensuite sur l'élève (matières, date d'inscription...).
   const allPayments = useMemo(() => {
-    const feePayments = Object.values(registrationFees)
-      .filter((fee) => fee.status === 'paid' && fee.paid_at)
-      .map((fee) => ({
-        id: `registration-${fee.id}`,
-        student_id: fee.student_id,
-        amount: fee.amount,
-        paid_at: fee.paid_at,
-        status: 'paid',
-        // Sur les frais d'inscription, l'encaisseur s'appelle validated_by ; on
-        // l'aligne sur paid_by pour que les deux flux se comptent pareil.
-        paid_by: fee.validated_by || null,
-      }))
+    // Chaque versement (avance ou solde) compte le jour où il a été reçu.
+    const feePayments = registrationFeeCashPayments(registrationFees)
     return [...cashPayments, ...feePayments].filter(
       (payment) =>
         visibleStudentIds.has(payment.student_id) &&
@@ -741,9 +753,9 @@ export default function FeesPage() {
       if (payment && (payment.status === 'paid' || payment.status === 'validé')) return 'paid'
     }
     if (!student.active) return 'inactive'
-    // Un mois n'est exigible qu'à partir de la date anniversaire de l'inscription
-    // (inscrit le 26/07 → échéance le 26 de chaque mois), et non dès le 1er du mois.
-    const dueDate = billingDueDate(student.registrationDate, key)
+    // Un mois n'est exigible qu'à partir du jour de paiement de l'élève
+    // (jour 26 → échéance le 26 de chaque mois), et non dès le 1er du mois.
+    const dueDate = billingDueDate(student.registrationDate, key, student.paymentDay)
     if (dueDate && today < dueDate) return 'pending'
     return 'unpaid'
   }
@@ -821,26 +833,27 @@ export default function FeesPage() {
 
 
   const registrationFeeOf = (student) => registrationFees[student.id] || null
-  const registrationFeeAmountFor = (student) =>
-    toNumber(registrationFeeOf(student)?.amount) || toNumber(appSettings?.registrationFee)
 
-  const validateRegistrationFee = async () => {
+  // dueAmount : montant des frais (ajustable) ; paidAmount : tout le reste ou
+  // une avance saisie par la secrétaire.
+  const validateRegistrationFee = async ({ dueAmount, paidAmount }) => {
     if (!feeModal || saving) return
     setSaving(true)
     setError('')
     try {
       const student = feeModal.student
-      const amount = registrationFeeAmountFor(student)
-      const saved = await payRegistrationFee({
+      const paidBefore = registrationFeeOf(student)?.paidTotal || 0
+      const { fee, paidNow, paidAt } = await recordRegistrationFeePayment({
         studentId: student.id,
         schoolYear: schoolYearKeyLabel,
-        amount,
+        dueAmount,
+        paidAmount,
         userId: user?.id || null,
       })
-      setRegistrationFees((prev) => ({ ...prev, [student.id]: saved }))
+      setRegistrationFees((prev) => ({ ...prev, [student.id]: fee }))
       invalidateFeesCache()
       setFeeModal(null)
-      setFeeReceipt({ student, amount, paidAt: saved.paid_at })
+      setFeeReceipt({ student, amount: paidNow, dueAmount: fee.amount, paidBefore, remaining: fee.remaining, paidAt })
     } catch (err) {
       console.error(err)
       setError(err.message)
@@ -1376,6 +1389,9 @@ export default function FeesPage() {
       <RegistrationFeeReceipt
         student={feeReceipt.student}
         amount={feeReceipt.amount}
+        dueAmount={feeReceipt.dueAmount}
+        paidBefore={feeReceipt.paidBefore}
+        remaining={feeReceipt.remaining}
         paidAt={feeReceipt.paidAt}
         schoolYear={schoolYearKeyLabel}
         close={() => setFeeReceipt(null)}
@@ -1481,17 +1497,7 @@ export default function FeesPage() {
                     <td>{student.chosen.length}</td>
                     <td><b>{student.du_mois.toLocaleString('fr-FR')} DH</b></td>
                     <td>
-                      {registrationFeeOf(student)?.status === 'paid' ? (
-                        <span className="registration-badge paid">Payé</span>
-                      ) : (
-                        <button
-                          className="registration-badge unpaid"
-                          onClick={() => setFeeModal({ student })}
-                          title="Valider le paiement des frais d'inscription"
-                        >
-                          Impayé
-                        </button>
-                      )}
+                      <RegistrationFeeBadge fee={registrationFeeOf(student)} onOpen={() => setFeeModal({ student })} />
                     </td>
                     {schoolMonths.map((month, index) => {
                       const status = stateOf(student, index)
@@ -1764,23 +1770,17 @@ export default function FeesPage() {
       )}
 
       {feeModal && (
-        <div className="fee-overlay">
-          <section className="payment-modal">
-            <button className="modal-close" onClick={() => setFeeModal(null)}>×</button>
-            <h2>Frais d'inscription — {schoolYearKeyLabel}</h2>
-            <div className="payment-person">
-              <i>{initials(feeModal.student.name)}</i>
-              <span><b>{feeModal.student.name}</b><small>{feeModal.student.code}</small></span>
-            </div>
-            <div className="payment-amount">
-              <span>Montant dû</span>
-              <strong>{registrationFeeAmountFor(feeModal.student).toLocaleString('fr-FR')} DH</strong>
-            </div>
-            <button className="validate-button" disabled={saving} onClick={validateRegistrationFee}>
-              {saving ? 'Enregistrement...' : 'Valider le paiement'}
-            </button>
-          </section>
-        </div>
+        <RegistrationFeeModal
+          name={feeModal.student.name}
+          code={feeModal.student.code}
+          schoolYear={schoolYearKeyLabel}
+          fee={registrationFeeOf(feeModal.student)}
+          defaultAmount={toNumber(appSettings?.registrationFee)}
+          error={error}
+          saving={saving}
+          onClose={() => setFeeModal(null)}
+          onSubmit={validateRegistrationFee}
+        />
       )}
 
       {editing && (

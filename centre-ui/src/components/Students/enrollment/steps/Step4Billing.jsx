@@ -1,4 +1,4 @@
-import { getPrice, isPackageLevel, packageAmount } from '../enrollmentApi'
+import { enrollmentRegistrationFee, getPrice, isPackageLevel, packageAmount } from '../enrollmentApi'
 import { formationRowPrice, formationsTotal } from '../../../Formations/formationsApi'
 import { monthLabelOf, normalizeMonthKey } from '../../../Accounting/monthUtils'
 
@@ -32,6 +32,8 @@ export default function Step4Billing({ form, catalog, set, registrationFee, scho
   // mois enregistrerait un paiement de 0 DH.
   const showFirstMonthChoice = !editing && !formationOnly
   const firstMonthLabel = form.registrationDate ? monthLabelOf(normalizeMonthKey(form.registrationDate)) : ''
+  const feeMode = form.registrationFeeMode || 'full'
+  const fee = enrollmentRegistrationFee(form, registrationFee)
 
   return <>
     <h2>Génération de la facture</h2>
@@ -100,28 +102,55 @@ export default function Step4Billing({ form, catalog, set, registrationFee, scho
                 <b>Frais d'inscription</b>
                 <em>Une seule fois — année {schoolYear}</em>
               </span>
-              <strong>{Number(registrationFee).toLocaleString('fr-FR')} DH</strong>
+              <strong>{fee.due.toLocaleString('fr-FR')} DH</strong>
             </div>
-            <div className="billing-registration-choice">
-              <label className={form.registrationFeePaidNow ? 'active' : ''}>
-                <input
-                  type="radio"
-                  name="registration-fee-timing"
-                  checked={form.registrationFeePaidNow}
-                  onChange={() => set('registrationFeePaidNow', true)}
-                />
-                <span>Payer aujourd'hui</span>
-              </label>
-              <label className={!form.registrationFeePaidNow ? 'active' : ''}>
-                <input
-                  type="radio"
-                  name="registration-fee-timing"
-                  checked={!form.registrationFeePaidNow}
-                  onChange={() => set('registrationFeePaidNow', false)}
-                />
-                <span>Payer plus tard</span>
-              </label>
+            <label className="billing-registration-amount">
+              Montant des frais d'inscription
+              <input
+                type="number"
+                min="0"
+                step="1"
+                inputMode="numeric"
+                value={form.registrationFeeAmount ?? String(registrationFee ?? '')}
+                onChange={(e) => set('registrationFeeAmount', e.target.value)}
+              />
+              <small>Modifiable : par défaut {Number(registrationFee || 0).toLocaleString('fr-FR')} DH.</small>
+            </label>
+            <div className="billing-registration-choice billing-registration-choice--three">
+              {[
+                ['full', "Tout payer aujourd'hui"],
+                ['advance', 'Payer une avance'],
+                ['later', 'Payer plus tard'],
+              ].map(([mode, label]) => (
+                <label key={mode} className={feeMode === mode ? 'active' : ''}>
+                  <input
+                    type="radio"
+                    name="registration-fee-timing"
+                    checked={feeMode === mode}
+                    onChange={() => set('registrationFeeMode', mode)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
             </div>
+            {feeMode === 'advance' && (
+              <label className="billing-registration-amount">
+                Montant payé aujourd'hui
+                <input
+                  type="number"
+                  min="1"
+                  max={fee.due}
+                  step="1"
+                  inputMode="numeric"
+                  value={form.registrationFeeAdvance || ''}
+                  onChange={(e) => set('registrationFeeAdvance', e.target.value)}
+                />
+                {!fee.error && fee.paid > 0 && (
+                  <small>Restera à payer : {(fee.due - fee.paid).toLocaleString('fr-FR')} DH</small>
+                )}
+              </label>
+            )}
+            {fee.error && <p className="billing-registration-error">{fee.error}</p>}
           </div>
         )}
       </article>
