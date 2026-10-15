@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import Icon from '../../Icon'
 import { initials, today } from '../utils/studentHelpers'
 import { supabase } from '../../../supabaseClient'
-import { academicMonths, paymentDayOf } from '../../Accounting/monthUtils'
+import { academicMonths, normalizeMonthKey, paymentDayOf } from '../../Accounting/monthUtils'
+import { isBlockPayment } from '../../Accounting/feesApi'
 import { safeFilename } from '../../../utils/exportToPdf'
 import { downloadPdfDocument } from '../../pdf/downloadPdf'
 import StudentSheetPdf from '../../pdf/StudentSheetPdf'
@@ -31,9 +32,33 @@ const EVENT_META = [
 ]
 const labelOf = (type) => EVENT_META.find((meta) => meta.id === type)?.label || type
 
+const sumAmounts = (rows) => rows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
+
+// Sommes réellement encaissées pour l'élève, comptées comme la caisse
+// (feesApi.js, cashPayments) : chaque matière réglée, plus chaque mois payé en
+// bloc. Le résumé d'un mois réglé matière par matière n'est pas recompté.
+function cashTotalsOf({ monthPayments, subjectRows, registrationPayments, formationPayments }) {
+  const rowsByMonth = {}
+  for (const row of subjectRows) {
+    const month = normalizeMonthKey(row.month)
+    if (!rowsByMonth[month]) rowsByMonth[month] = []
+    rowsByMonth[month].push(row)
+  }
+  const blockPayments = monthPayments.filter(
+    (payment) =>
+      (!payment.status || payment.status === 'paid' || payment.status === 'validé') &&
+      isBlockPayment(payment, rowsByMonth[normalizeMonthKey(payment.month)])
+  )
+  const tuition = sumAmounts(subjectRows) + sumAmounts(blockPayments)
+  const registration = sumAmounts(registrationPayments)
+  const formations = sumAmounts(formationPayments)
+  return { tuition, registration, formations, total: tuition + registration + formations }
+}
+
 export default function StudentSheetModal({ student, close }) {
   const [subscriptions, setSubscriptions] = useState(null)
   const [payments, setPayments] = useState(null)
+  const [cashTotals, setCashTotals] = useState(null)
   const [grades, setGrades] = useState(null)
   const [gradeModalOpen, setGradeModalOpen] = useState(false)
   const [selectedMonth, setSelectedMonth] = useState('all')
@@ -44,25 +69,43 @@ export default function StudentSheetModal({ student, close }) {
     let cancelled = false
     async function load() {
       try {
-        const [subsRes, paymentsRes, gradesRes] = await Promise.all([
+        const [subsRes, paymentsRes, gradesRes, subjectRowsRes, registrationRes, formationRes] = await Promise.all([
           supabase
             .from('student_subscriptions')
             .select('subject_id, group_id, teacher_id, pricing_type, monthly_price, subjects(name), groups(name)')
             .eq('student_id', student.id),
           supabase
             .from('student_payments')
-            .select('month, amount')
+            .select('month, amount, status, paid_at')
             .eq('student_id', student.id),
           supabase
             .from('student_grades')
             .select('id, value, exam, session, grade_date, subjects(name)')
             .eq('student_id', student.id)
             .order('grade_date', { ascending: false }),
+          supabase
+            .from('student_payment_subjects')
+            .select('month, amount, paid_at')
+            .eq('student_id', student.id),
+          supabase
+            .from('registration_fee_payments')
+            .select('amount')
+            .eq('student_id', student.id),
+          supabase
+            .from('formation_payments')
+            .select('amount, student_formations!inner(student_id)')
+            .eq('student_formations.student_id', student.id),
         ])
         if (cancelled) return
         setSubscriptions(subsRes.data || [])
         setPayments(paymentsRes.data || [])
         setGrades(gradesRes.data || [])
+        setCashTotals(cashTotalsOf({
+          monthPayments: paymentsRes.data || [],
+          subjectRows: subjectRowsRes.data || [],
+          registrationPayments: registrationRes.data || [],
+          formationPayments: formationRes.data || [],
+        }))
       } catch (err) {
         if (cancelled) {
           console.error(err)
@@ -118,7 +161,9 @@ export default function StudentSheetModal({ student, close }) {
     ? Math.max(1, monthsBetween(new Date(student.registrationDate), new Date()))
     : 0
   const paidMonths = payments ? new Set(payments.map((p) => p.month?.slice(0, 7))).size : 0
-  const totalPaid = (payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0)
+  // Tout ce que l'élève a réellement versé : scolarité, frais d'inscription et
+  // formations (avant, seuls les mois de scolarité soldés étaient comptés).
+  const totalPaid = cashTotals?.total || 0
 
   const periodLabel =
     selectedMonth === 'all'
@@ -159,6 +204,7 @@ export default function StudentSheetModal({ student, close }) {
             totalMonths,
             paidMonths,
             totalPaid,
+            cashTotals,
             formatAmount,
             formatDate,
             generatedDate: formatDate(today()),
@@ -232,6 +278,18 @@ export default function StudentSheetModal({ student, close }) {
             <small>MOIS PAYÉS</small>
             <strong>{totalMonths ? `${paidMonths}/${totalMonths}` : '—'}</strong>
             {totalPaid > 0 && <small>{formatAmount(totalPaid)} réglés</small>}
+            {totalPaid > 0 && (
+              <span className="paid-card-detail">
+                {[
+                  ['Scolarité', cashTotals.tuition],
+                  ['Inscription', cashTotals.registration],
+                  ['Formations', cashTotals.formations],
+                ]
+                  .filter(([, amount]) => amount > 0)
+                  .map(([label, amount]) => `${label} : ${formatAmount(amount)}`)
+                  .join(' · ')}
+              </span>
+            )}
           </div>
           <section className="monthly">
             <header>

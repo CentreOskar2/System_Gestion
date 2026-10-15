@@ -156,6 +156,7 @@ export default function StudentSheetPdf({ data }) {
     totalMonths,
     paidMonths,
     totalPaid,
+    cashTotals,
     formatDate,
     generatedDate,
   } = data
@@ -266,6 +267,9 @@ export default function StudentSheetPdf({ data }) {
           <View style={styles.grid}>
             <GridItem label="Mois payés" value={totalMonths ? `${paidMonths}/${totalMonths}` : '—'} />
             <GridItem label="Total réglé" value={totalPaid > 0 ? formatMoney(totalPaid) : '—'} />
+            {cashTotals?.tuition > 0 && <GridItem label="Dont scolarité" value={formatMoney(cashTotals.tuition)} />}
+            {cashTotals?.registration > 0 && <GridItem label="Dont frais d'inscription" value={formatMoney(cashTotals.registration)} />}
+            {cashTotals?.formations > 0 && <GridItem label="Dont formations" value={formatMoney(cashTotals.formations)} />}
             {student.alerts && (
               <GridItem label="Alertes médicales / comportementales" value={student.alerts} />
             )}
