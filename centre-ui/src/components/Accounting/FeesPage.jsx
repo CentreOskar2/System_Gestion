@@ -27,6 +27,7 @@ import { fetchAppSettings } from '../../appSettings'
 import { fetchRegistrationFees, recordRegistrationFeePayment, registrationFeeCashPayments } from './registrationFeesApi'
 import RegistrationFeeModal from './RegistrationFeeModal'
 import RegistrationFeeBadge from './RegistrationFeeBadge'
+import { isSegmentedPayment as isSegmentedPaymentOf, localMonthKey, monthCoverageOf } from './tuitionCoverage'
 import DailyHistoryPanel from './DailyHistoryPanel'
 import RegistrationFeeReceiptPdf from '../pdf/RegistrationFeeReceiptPdf'
 import {
@@ -34,7 +35,6 @@ import {
   priceFor,
   studentLineItems,
   fetchFeesData,
-  isBlockPayment,
   invalidateFeesCache,
 } from './feesApi'
 import './FeesPage.css'
@@ -59,14 +59,6 @@ function toNumber(value) {
 
 function normalizeDateKey(value) {
   return accountingDayBucket(value)
-}
-
-// Mois (heure locale) d'un horodatage : "2026-10-01T00:30+01:00" est en
-// octobre, même si sa forme UTC tombe encore en septembre.
-function localMonthKey(value) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-01`
 }
 
 // Début de facturation d'une matière ajoutée depuis la modale d'un mois : ce
@@ -682,8 +674,7 @@ export default function FeesPage() {
   // Un élève au forfait ou sans matière propre (ex. classes de Coran facturées
   // en bloc) garde l'affichage à un seul rond, comme avant. Les autres sont
   // "segmentés" : un repère par matière choisie.
-  const isSegmentedPayment = (student) =>
-    Boolean(catalog) && !isPackageLevel(catalog, student.level) && student.chosen.length > 0
+  const isSegmentedPayment = (student) => isSegmentedPaymentOf(catalog, student)
 
   // Situation d'un mois, matière par matière :
   //   - due     : matières à régler ce mois-ci. Une matière ajoutée en cours
@@ -699,31 +690,15 @@ export default function FeesPage() {
   // des matières sans ligne : celles déjà suivies au moment du paiement.
   // asOfDay (jour comptable) : la situation telle qu'elle était à la fin de ce
   // jour, sans les encaissements reçus après (détail de l'historique).
-  const monthCoverage = (student, index, asOfDay = null) => {
-    const monthKey = monthDate(index, Number(schoolYearStart))
-    const receivedBy = (paidAt) => !asOfDay || !paidAt || accountingDayBucket(paidAt) <= asOfDay
-    const payment = (paymentsByStudent[student.id] || []).find(
-      (p) => normalizeMonthKey(p.month) === monthKey && (p.status === 'paid' || p.status === 'validé') && receivedBy(p.paid_at)
-    ) || null
-    const rows = (paymentSubjectsByStudent[student.id] || []).filter((r) => r.month === monthKey && receivedBy(r.paid_at))
-    const block = isBlockPayment(payment, rows) ? payment : null
-    const rowSubjectIds = new Set(rows.map((r) => r.subject_id))
-    const startedAtOf = (name) => student.subjectDetails?.[name]?.startedAt || null
-    const rawPaid = student.chosen.filter((name) => rowSubjectIds.has(student.subjectDetails?.[name]?.subject_id))
-    const blockCovered = block
-      ? student.chosen.filter((name) => {
-          if (rawPaid.includes(name)) return false
-          const startedAt = startedAtOf(name)
-          return !startedAt || !block.paid_at || new Date(startedAt) <= new Date(block.paid_at)
-        })
-      : []
-    const paid = student.chosen.filter((name) => rawPaid.includes(name) || blockCovered.includes(name))
-    const due = student.chosen.filter((name) => {
-      const startedAt = startedAtOf(name)
-      return !startedAt || localMonthKey(startedAt) <= monthKey || paid.includes(name)
+  // La règle elle-même est partagée avec les retards : voir tuitionCoverage.js.
+  const monthCoverage = (student, index, asOfDay = null) =>
+    monthCoverageOf({
+      student,
+      monthKey: monthDate(index, Number(schoolYearStart)),
+      payments: paymentsByStudent[student.id] || [],
+      subjectRows: paymentSubjectsByStudent[student.id] || [],
+      asOfDay,
     })
-    return { monthKey, payment, block, rows, rawPaid, blockCovered, paid, due }
-  }
 
   // Une matière réglée un jour passé ne peut plus être décochée que par un
   // rôle « centre » : l'annuler retirerait l'encaissement de la caisse de ce

@@ -21,8 +21,12 @@ body {
      largeur réellement disponible. */
   max-width: 100%;
   /* Filet de sécurité : les débordements sont traités à la source (conteneurs
-     de tableaux défilants, `min-width: 0` sur les enfants de grille). */
+     de tableaux défilants, `min-width: 0` sur les enfants de grille).
+     `clip` plutôt que `hidden` : `hidden` fait de <body> un conteneur de
+     défilement, ce qui empêchait la barre latérale de rester fixe à l'écran
+     (position: sticky). `hidden` reste en repli pour les vieux navigateurs. */
   overflow-x: hidden;
+  overflow-x: clip;
 }
 
 html {

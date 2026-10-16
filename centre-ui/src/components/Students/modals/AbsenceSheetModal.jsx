@@ -23,7 +23,7 @@ function formatEntryDate(value) {
   return year && month && day ? `${day}/${month}/${year}` : ''
 }
 
-function AbsenceSheet({ meta, students, close }) {
+function AbsenceSheet({ meta, students, onBack, close }) {
   const [isExporting, setIsExporting] = useState(false)
   const downloadPdf = async () => {
     setIsExporting(true)
@@ -39,7 +39,10 @@ function AbsenceSheet({ meta, students, close }) {
   return (
     <main className="absence-sheet-page">
       <div className="absence-sheet-actions">
-        <button onClick={close}>← Retour aux étudiants</button>
+        <div className="absence-sheet-nav">
+          <button onClick={onBack}>← Choisir une autre liste</button>
+          <button onClick={close}>Retour aux étudiants</button>
+        </div>
         <button className="absence-print" disabled={isExporting} onClick={downloadPdf}>
           {isExporting ? 'Génération du PDF…' : '▣  Télécharger le PDF'}
         </button>
@@ -106,7 +109,11 @@ function AbsenceSheet({ meta, students, close }) {
   )
 }
 
-export default function AbsenceSheetModal({ close }) {
+// view : 'form' (choix des paramètres) ou 'list' (fiche générée), lu dans
+// l'adresse par StudentsPage. Les choix restent en mémoire entre les deux : en
+// revenant de la liste, le professeur, le niveau, la matière et le groupe sont
+// toujours sélectionnés.
+export default function AbsenceSheetModal({ view = 'form', onShowList, onBackToForm, close }) {
   const [teachers, setTeachers] = useState([])
   const [subjects, setSubjects] = useState([])
   const [levels, setLevels] = useState([])
@@ -312,6 +319,7 @@ export default function AbsenceSheetModal({ close }) {
         },
         students: roster,
       })
+      onShowList?.()
     } catch (err) {
       console.error(err)
       setLoadError(err.message)
@@ -320,7 +328,11 @@ export default function AbsenceSheetModal({ close }) {
     }
   }
 
-  if (sheet) return <AbsenceSheet meta={sheet.meta} students={sheet.students} close={close} />
+  // Une liste rouverte par l'adresse sans avoir été générée (page rechargée)
+  // n'a rien à afficher : on montre le choix des paramètres.
+  if (view === 'list' && sheet) {
+    return <AbsenceSheet meta={sheet.meta} students={sheet.students} onBack={onBackToForm} close={close} />
+  }
 
   const selectedGroup = groups.find((group) => group.id === groupId) || null
   // Un groupe au forfait n'a pas de matière : ne pas l'exiger pour générer.

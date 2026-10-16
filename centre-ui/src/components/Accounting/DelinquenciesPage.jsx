@@ -13,7 +13,7 @@ import {
   whatsappLink,
 } from './delinquenciesApi'
 import { subscribeFeesCache } from './feesApi'
-import { currentSchoolYearStart, schoolYearOptions } from './monthUtils'
+import { currentSchoolYearStart, monthLabelOf, schoolYearOptions } from './monthUtils'
 import './DelinquenciesPage.css'
 
 export default function DelinquenciesPage() {
@@ -165,6 +165,7 @@ export default function DelinquenciesPage() {
                     <th>Élève</th>
                     <th>Niveau</th>
                     <th>Mois impayés</th>
+                    <th>Reste dû</th>
                     <th>Durée</th>
                     <th>Dette</th>
                     <th>Action</th>
@@ -173,7 +174,7 @@ export default function DelinquenciesPage() {
                 <tbody>
                   {debtors.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="radar-empty">Aucun élève en retard. Tous les paiements sont à jour.</td>
+                      <td colSpan={7} className="radar-empty">Aucun élève en retard. Tous les paiements sont à jour.</td>
                     </tr>
                   ) : (
                     debtors.map((student) => (
@@ -189,6 +190,20 @@ export default function DelinquenciesPage() {
                           {student.filiere && <small className="level-sub">{student.filiere}</small>}
                         </td>
                         <td>{student.months}</td>
+                        <td className="debt-detail">
+                          {student.overdueMonths.map((month) => (
+                            <span key={month.month}>
+                              <b>{monthLabelOf(`${month.month}-01`)}</b>
+                              {month.kind === 'formation'
+                                ? ` : formation ${month.subjects.join(', ')}`
+                                : month.subjects.length > 0
+                                  ? ` : ${month.subjects.join(', ')}${month.partial ? ' (le reste est payé)' : ''}`
+                                  : ' : mois entier'}
+                              {' — '}
+                              {month.amount.toLocaleString('fr-FR')} DH
+                            </span>
+                          ))}
+                        </td>
                         <td><span className="delay-pill">{student.days} j</span></td>
                         <td><strong className="debt">{student.debt.toLocaleString('fr-FR')} DH</strong></td>
                         <td>

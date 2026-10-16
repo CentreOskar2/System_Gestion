@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import Header from '../shared/Header'
 import StudentsToolbar from './StudentsToolbar'
 import StudentsFilters from './StudentsFilters'
@@ -7,16 +7,26 @@ import StudentsTable from './StudentsTable'
 import AttendanceModal from './modals/AttendanceModal'
 import AbsenceSheetModal from './modals/AbsenceSheetModal'
 import StudentSheetModal from './modals/StudentSheetModal'
+import DeleteStudentDialog from './modals/DeleteStudentDialog'
 import EnrollmentPage from './enrollment/EnrollmentPage'
-import { fetchCatalog, fetchStudents, setStudentStatus } from './enrollment/enrollmentApi'
+import { fetchCatalog, fetchStudents, fetchUserBranchIds, setStudentStatus } from './enrollment/enrollmentApi'
 import { useBranch } from '../../context/BranchContext'
+import { useAuth } from '../../context/AuthContext'
 
 import './Students.css'
+
+// Rôles qui gèrent tout le centre : ils peuvent supprimer n'importe quel élève.
+// Les autres (secrétaires) seulement ceux de leurs succursales assignées.
+const CENTER_WIDE_ROLES = ['super_admin', 'admin', 'director']
 
 export default function StudentsPage() {
   const location = useLocation()
   const navigate = useNavigate()
   const { selectedBranch } = useBranch()
+  const { user, role } = useAuth()
+  const isCenterWide = CENTER_WIDE_ROLES.includes(role)
+  const [myBranchIds, setMyBranchIds] = useState([])
+  const [deletingStudent, setDeletingStudent] = useState(null)
   const [items, setItems] = useState([])
   const [catalog, setCatalog] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -26,7 +36,15 @@ export default function StudentsPage() {
   const [activeSubject, setActiveSubject] = useState('Tous')
   const [activeGroup, setActiveGroup] = useState('')
   const [attendanceStudent, setAttendanceStudent] = useState(null)
-  const [absenceSheetOpen, setAbsenceSheetOpen] = useState(location.state?.quick === 'absence-sheet')
+  // La fiche d'absence a sa propre adresse : ?absence=form (choix du professeur,
+  // niveau, matière, groupe) puis ?absence=list (la liste générée). Ainsi le
+  // bouton « retour » du navigateur ramène de la liste au choix, puis à la
+  // liste des élèves — et non plus directement à la page d'avant (Dashboard).
+  const [searchParams, setSearchParams] = useSearchParams()
+  const absenceView = searchParams.get('absence')
+  // Entrées d'historique ajoutées par cette page : fermer la fiche les retire,
+  // pour qu'un « retour » ultérieur ne rouvre pas une fiche déjà fermée.
+  const absenceHistory = useRef({ form: false, list: false })
   const [sheetStudent, setSheetStudent] = useState(null)
   const [editingStudent, setEditingStudent] = useState(null)
   const [isEnrolling, setIsEnrolling] = useState(location.state?.quick === 'enroll' || Boolean(location.state?.enroll))
@@ -181,6 +199,30 @@ export default function StudentsPage() {
     return catalog?.levelsByCycle?.[activeCycle] || []
   }, [catalog, activeCycle])
 
+  // Succursales de la secrétaire connectée (inutile pour un rôle « centre »).
+  useEffect(() => {
+    if (isCenterWide || !user?.id) return undefined
+    let cancelled = false
+    fetchUserBranchIds(user.id)
+      .then((ids) => {
+        if (!cancelled) setMyBranchIds(ids)
+      })
+      .catch((err) => console.error(err))
+    return () => {
+      cancelled = true
+    }
+  }, [isCenterWide, user?.id])
+
+  // Une secrétaire ne supprime que les élèves de SES succursales : un élève
+  // d'une autre succursale n'a pas de bouton, même si elle l'affiche.
+  const canDeleteStudent = (student) =>
+    isCenterWide || (Boolean(student.branch_id) && myBranchIds.includes(student.branch_id))
+
+  const handleStudentDeleted = (student) => {
+    setItems((list) => list.filter((item) => item.id !== student.id))
+    setDeletingStudent(null)
+  }
+
   const handleToggleStatus = async (studentId) => {
     const student = items.find((item) => item.id === studentId)
     if (!student) return
@@ -267,8 +309,33 @@ export default function StudentsPage() {
     )
   }
 
-  if (absenceSheetOpen) {
-    return <AbsenceSheetModal close={() => setAbsenceSheetOpen(false)} />
+  if (absenceView) {
+    const showAbsenceList = () => {
+      absenceHistory.current.list = true
+      setSearchParams({ absence: 'list' })
+    }
+    const backToAbsenceForm = () => {
+      if (absenceHistory.current.list) {
+        absenceHistory.current.list = false
+        navigate(-1)
+      } else {
+        setSearchParams({ absence: 'form' }, { replace: true })
+      }
+    }
+    const closeAbsenceSheet = () => {
+      const steps = (absenceView === 'list' && absenceHistory.current.list ? 1 : 0) + (absenceHistory.current.form ? 1 : 0)
+      absenceHistory.current = { form: false, list: false }
+      if (steps > 0) navigate(-steps)
+      else setSearchParams({}, { replace: true })
+    }
+    return (
+      <AbsenceSheetModal
+        view={absenceView}
+        onShowList={showAbsenceList}
+        onBackToForm={backToAbsenceForm}
+        close={closeAbsenceSheet}
+      />
+    )
   }
 
   return (
@@ -277,7 +344,10 @@ export default function StudentsPage() {
       <main className="students-content">
         <StudentsToolbar
           onAddStudent={() => setIsEnrolling(true)}
-          onOpenAbsenceSheet={() => setAbsenceSheetOpen(true)}
+          onOpenAbsenceSheet={() => {
+            absenceHistory.current = { form: true, list: false }
+            setSearchParams({ absence: 'form' })
+          }}
         />
         <StudentsFilters
           cycles={cycleTabs}
@@ -306,9 +376,18 @@ export default function StudentsPage() {
             onEditStudent={handleOpenEdit}
             onToggleStatus={handleToggleStatus}
             onOpenAttendance={setAttendanceStudent}
+            canDeleteStudent={canDeleteStudent}
+            onDeleteStudent={setDeletingStudent}
           />
         )}
       </main>
+      {deletingStudent && (
+        <DeleteStudentDialog
+          student={deletingStudent}
+          onCancel={() => setDeletingStudent(null)}
+          onDeleted={handleStudentDeleted}
+        />
+      )}
       {attendanceStudent && (
         <AttendanceModal
           student={attendanceStudent}

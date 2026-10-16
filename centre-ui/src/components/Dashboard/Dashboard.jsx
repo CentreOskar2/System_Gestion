@@ -8,9 +8,9 @@ import { useBranch } from '../../context/BranchContext'
 import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
 import { buildDebtors } from '../Accounting/delinquenciesApi'
-import { subscribeFeesCache } from '../Accounting/feesApi'
+import { fetchFeesData, subscribeFeesCache } from '../Accounting/feesApi'
 import { academicYearStart, currentMonthKey, monthLabelOf } from '../Accounting/monthUtils'
-import { fetchFormationRevenue } from '../Formations/formationsApi'
+import { fetchFormationFeesData, fetchFormationRevenue } from '../Formations/formationsApi'
 import { fetchRegistrationFeeRevenue } from '../Accounting/registrationFeesApi'
 import './Dashboard.css'
 
@@ -261,7 +261,7 @@ export default function Dashboard() {
       const teachersQuery = supabase.from('teachers').select('id, first_name, last_name, status')
 
       try {
-        const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes, feesRes, formationRevenue] = await Promise.all([
+        const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes, feesRes, formationRevenue, tuitionFees, formationFees] = await Promise.all([
           fetchAllRows(studentsQuery),
           fetchAllRows(paymentsQuery),
           fetchAllRows(salariesQuery),
@@ -272,6 +272,10 @@ export default function Dashboard() {
           supabase.from('center_settings').select('center_name').limit(1).maybeSingle(),
           fetchRegistrationFeeRevenue(),
           fetchFormationRevenue(),
+          // Détail par matière des mensualités : les impayés se calculent comme
+          // sur la page Retards & Impayés (voir buildDebtors).
+          fetchFeesData(branchFilter),
+          fetchFormationFeesData(branchFilter),
         ])
         if (cancelled) return
 
@@ -287,10 +291,11 @@ export default function Dashboard() {
           // Les encaissements de formation sont une recette du centre : sans eux,
           // le chiffre d'affaires du tableau de bord ignorerait tout un produit.
           payments: [...(paymentsRes.data || []), ...registrationFeePayments, ...formationRevenue],
-          // Les mensualités seules. Elles seules soldent un mois de scolarité : un
-          // élève qui n'a réglé que ses frais d'inscription reste débiteur de son
-          // mois. Mélanger les deux listes ferait passer ce débiteur pour à jour.
-          tuitionPayments: paymentsRes.data || [],
+          // Mensualités détaillées par matière, pour les impayés (buildDebtors).
+          // Elles seules soldent un mois : un élève qui n'a réglé que ses frais
+          // d'inscription reste débiteur de son mois.
+          tuitionFees,
+          formationFees,
           salaries: salariesRes.data || [],
           expenses: expensesRes.data || [],
           teachers: teachersRes.data || [],
@@ -328,7 +333,6 @@ export default function Dashboard() {
 
   const students = useMemo(() => data?.students || [], [data])
   const payments = useMemo(() => data?.payments || [], [data])
-  const tuitionPayments = useMemo(() => data?.tuitionPayments || [], [data])
   const salaries = useMemo(() => data?.salaries || [], [data])
   const expenses = useMemo(() => data?.expenses || [], [data])
   const teachers = useMemo(() => data?.teachers || [], [data])
@@ -379,34 +383,21 @@ export default function Dashboard() {
   const pending = Math.max(0, expected - collected)
 
   // Les impayés sont calculés par buildDebtors, exactement comme sur la page
-  // Retards & Impayés : même échéance ancrée sur le jour d'inscription de chaque
-  // élève, même jour de grâce, même cumul des mois en retard. Les deux écrans
-  // doivent annoncer le même nombre, sinon on ne sait plus lequel croire.
-  //
-  // On lui passe tuitionPayments et non payments : seules les mensualités soldent
-  // un mois de scolarité. L'ancienne version prenait toute la liste, si bien qu'un
-  // élève n'ayant réglé que ses frais d'inscription était compté comme à jour.
+  // Retards & Impayés : même échéance (jour de paiement de l'élève), même jour
+  // de grâce, mêmes matières restant dues. Les deux écrans doivent annoncer le
+  // même nombre, sinon on ne sait plus lequel croire. Seules les mensualités
+  // soldent un mois : les frais d'inscription n'y entrent pas.
   const debtors = useMemo(() => {
-    const debtorStudents = branchStudents.map((s) => ({
-      id: s.id,
-      name: `${s.first_name} ${s.last_name}`.trim(),
-      active: s.status === 'active',
-      du_mois: s.du_mois,
-      registrationDate: s.registration_date || (s.created_at || '').slice(0, 10),
-      paymentDay: s.payment_day ?? null,
-      createdAt: s.created_at || '',
-    }))
-    const byStudent = {}
-    for (const payment of tuitionPayments) {
-      if (!byStudent[payment.student_id]) byStudent[payment.student_id] = []
-      byStudent[payment.student_id].push({
-        month: payment.month,
-        amount: Number(payment.amount) || 0,
-        status: payment.status,
-      })
+    const fees = data?.tuitionFees
+    if (!fees) return []
+    // Même calcul que la page Retards : scolarité et formations.
+    const debtorStudents = fees.students.filter((s) => !branchId || s.branch_id === branchId)
+    const formationFees = data.formationFees && {
+      ...data.formationFees,
+      rows: data.formationFees.rows.filter((row) => !branchId || row.branchId === branchId),
     }
-    return buildDebtors(debtorStudents, byStudent)
-  }, [branchStudents, tuitionPayments])
+    return buildDebtors(debtorStudents, fees, undefined, undefined, formationFees)
+  }, [data, branchId])
 
   const lateCount = debtors.length
 

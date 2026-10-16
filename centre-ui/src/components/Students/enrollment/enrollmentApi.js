@@ -615,6 +615,15 @@ const STUDENT_CHILD_TABLES = [
   'student_formations',
 ]
 
+// Succursales assignées à un utilisateur (page Utilisateurs). Une secrétaire
+// ne peut supprimer que les élèves de ces succursales (voir StudentsPage).
+export async function fetchUserBranchIds(userId) {
+  if (!userId) return []
+  const { data, error } = await supabase.from('user_branches').select('branch_id').eq('user_id', userId)
+  if (error) throw new Error(error.message)
+  return (data || []).map((row) => row.branch_id).filter(Boolean)
+}
+
 export async function deleteStudentCompletely(studentId) {
   if (!studentId) throw new Error('Élève introuvable.')
 

@@ -147,6 +147,29 @@ button.brand:focus-visible {
   padding-right: 2px;
 }
 
+/* Bureau : la barre latérale reste fixe à l'écran pendant que la page défile,
+   « Se déconnecter » toujours visible en bas. Si le menu (Comptabilité
+   ouverte, Administration...) dépasse la hauteur de l'écran, c'est le menu
+   seul qui défile. Sur mobile, la barre est un tiroir (voir responsive.css). */
+@media (min-width: 901px) {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    align-self: start;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  .sidebar__nav {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  .sidebar .logout {
+    flex-shrink: 0;
+  }
+}
+
 .sidebar__section p {
   margin: 0 0 10px;
   padding: 0 8px;

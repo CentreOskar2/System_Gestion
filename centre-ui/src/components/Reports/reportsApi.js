@@ -1,9 +1,10 @@
 import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
 import { fetchFeesData } from '../Accounting/feesApi'
+import { monthBalanceOf } from '../Accounting/tuitionCoverage'
 import { fetchFormationRevenue } from '../Formations/formationsApi'
 import { calculateSalary } from '../Accounting/salaryUtils'
-import { academicMonths, academicYearStart, formatShortDate, isEnrolledInMonth, schoolYearLabel } from '../Accounting/monthUtils'
+import { academicMonths, academicYearStart, accountingDayBucket, formatShortDate, isEnrolledInMonth, schoolYearLabel } from '../Accounting/monthUtils'
 
 const PAID_STATUSES = ['paid', 'validé']
 const TYPE_LABELS = { Auto: 'Auto', Manuel: 'Manuel', recurring_fixed: 'Fixe récurrente' }
@@ -314,15 +315,27 @@ export async function buildNetProfitReport({ branchId, branchName, monthKey }) {
 // 4. Frais de scolarité
 // ---------------------------------------------------------------------------
 export async function buildTuitionReport({ branchId, branchName, monthKey, slug }) {
-  const [{ students, paymentsByStudent }, branchesRes] = await Promise.all([
+  const [{ students, paymentsByStudent, paymentSubjectsByStudent, catalog }, branchesRes] = await Promise.all([
     fetchFeesData(branchId),
     supabase.from('branches').select('id, name'),
   ])
   const branchMap = Object.fromEntries((branchesRes.data || []).map((b) => [b.id, b.name]))
 
+  // Même règle que le calendrier et les retards (tuitionCoverage.js) : un mois
+  // dont seules certaines matières sont réglées est « Partiel », pas « Payé ».
   const rows = students.filter((s) => s.active).map((s) => {
-    const payment = (paymentsByStudent[s.id] || []).find((p) => p.month === monthKey)
-    const paid = Boolean(payment && PAID_STATUSES.includes(payment.status))
+    const balance = monthBalanceOf({
+      student: s,
+      catalog,
+      monthKey,
+      payments: paymentsByStudent[s.id] || [],
+      subjectRows: paymentSubjectsByStudent[s.id] || [],
+    })
+    const lastPaidAt = [balance.payment?.paid_at, ...balance.rows.map((row) => row.paid_at)]
+      .filter(Boolean)
+      .sort()
+      .pop()
+    const status = balance.settled ? 'Payé' : balance.paid.length > 0 ? 'Partiel' : 'Impayé'
     return {
       Nom: s.lastName || '',
       Prénom: s.firstName || '',
@@ -330,8 +343,10 @@ export async function buildTuitionReport({ branchId, branchName, monthKey, slug 
       Niveau: s.level,
       Succursale: branchMap[s.branch_id] || '—',
       'Montant dû': s.du_mois,
-      Statut: paid ? 'Payé' : 'Impayé',
-      'Date de paiement': paid ? formatShortDate(String(payment.paid_at || '').slice(0, 10)) : '',
+      Statut: status,
+      'Reste à payer': balance.settled ? 0 : balance.remaining,
+      'Matières non réglées': balance.unpaid.map((subject) => subject.name).join(', '),
+      'Date de paiement': status !== 'Impayé' && lastPaidAt ? formatShortDate(accountingDayBucket(lastPaidAt)) : '',
     }
   })
 

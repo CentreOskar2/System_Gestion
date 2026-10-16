@@ -7,6 +7,8 @@ export default function StudentsTable({
   onEditStudent,
   onToggleStatus,
   onOpenAttendance,
+  canDeleteStudent = () => false,
+  onDeleteStudent,
 }) {
   const subjectLabel = (student) => {
     // Au forfait l'élève suit tout le niveau : lister ses matières n'a pas de sens.
@@ -88,6 +90,17 @@ export default function StudentsTable({
                   >
                     <Icon name="calendar" />
                   </button>
+                  {canDeleteStudent(student) && (
+                    <button
+                      className="student-delete-action"
+                      type="button"
+                      title="Supprimer définitivement"
+                      aria-label={`Supprimer définitivement ${student.name}`}
+                      onClick={(event) => { event.stopPropagation(); onDeleteStudent(student) }}
+                    >
+                      <Icon name="delete" />
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>
