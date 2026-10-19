@@ -53,9 +53,12 @@ const isLateOn = (today) => (dueDate) => diffDays(startOfDay(today), dueDate) >=
 // Exemple : inscrit en Math, PC, FR et ANG, l'élève ne règle en octobre que Math
 // et PC. Le lendemain de son jour de paiement, octobre ressort en retard pour FR
 // et ANG, et la dette est leur prix — pas le mois entier.
+// Une matière dont seule une avance a été versée (75 DH sur 150) est en retard
+// pour le reste (75 DH) une fois l'échéance passée.
 //
 // fees = { paymentsByStudent, paymentSubjectsByStudent, catalog } (fetchFeesData).
-// Chaque mois rendu : { month, dueDate, amount, subjects, partial, kind }.
+// Chaque mois rendu : { month, dueDate, amount, subjects, subjectLabels, partial, kind }
+// (subjectLabels : « Maths (reste 75 DH) » pour une matière en avance).
 export function computeOverdueMonths(student, fees, today = new Date(), schoolYearStart = currentSchoolYearStart(today)) {
   const registrationDate = enrollmentDateOf(student)
   const isLate = isLateOn(today)
@@ -75,7 +78,7 @@ export function computeOverdueMonths(student, fees, today = new Date(), schoolYe
     if (balance.unpaid.length === 0) {
       // Forfait (ou élève sans matière propre) : le mois entier.
       if (isLate(dueDate)) {
-        overdue.push({ month, dueDate, amount: balance.remaining, subjects: [], partial: false, kind: 'tuition' })
+        overdue.push({ month, dueDate, amount: balance.remaining, subjects: [], subjectLabels: [], partial: false, kind: 'tuition' })
       }
       continue
     }
@@ -94,8 +97,11 @@ export function computeOverdueMonths(student, fees, today = new Date(), schoolYe
       dueDate: new Date(Math.min(...lateSubjects.map((subject) => subject.dueDate.getTime()))),
       amount: lateSubjects.reduce((sum, subject) => sum + subject.amount, 0),
       subjects: lateSubjects.map((subject) => subject.name),
-      // Une partie du mois a déjà été réglée : seules ces matières restent dues.
-      partial: balance.paid.length > 0,
+      subjectLabels: lateSubjects.map((subject) =>
+        subject.partial ? `${subject.name} (reste ${subject.amount.toLocaleString('fr-FR')} DH)` : subject.name
+      ),
+      // Une partie du mois a déjà été réglée : seul ce qui est listé reste dû.
+      partial: balance.paid.length > 0 || balance.partial.length > 0,
       kind: 'tuition',
     })
   }

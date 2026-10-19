@@ -294,6 +294,11 @@ function subjectDetailsFor(form, catalog, subjectName) {
   }
 }
 
+// Prix mensuel d'une matière pour cet élève (manuel ou tarif du niveau).
+export function subjectMonthlyPrice(form, catalog, subjectName) {
+  return subjectDetailsFor(form, catalog, subjectName).monthly_price
+}
+
 export function teacherForGroupSubject(catalog, groupId, subjectName) {
   if (!groupId || !subjectName) return ''
   const subject = catalog.subjectsByName?.[subjectName]

@@ -335,7 +335,7 @@ export async function buildTuitionReport({ branchId, branchName, monthKey, slug 
       .filter(Boolean)
       .sort()
       .pop()
-    const status = balance.settled ? 'Payé' : balance.paid.length > 0 ? 'Partiel' : 'Impayé'
+    const status = balance.settled ? 'Payé' : balance.paid.length > 0 || balance.partial.length > 0 ? 'Partiel' : 'Impayé'
     return {
       Nom: s.lastName || '',
       Prénom: s.firstName || '',

@@ -197,7 +197,7 @@ export default function DelinquenciesPage() {
                               {month.kind === 'formation'
                                 ? ` : formation ${month.subjects.join(', ')}`
                                 : month.subjects.length > 0
-                                  ? ` : ${month.subjects.join(', ')}${month.partial ? ' (le reste est payé)' : ''}`
+                                  ? ` : ${(month.subjectLabels || month.subjects).join(', ')}${month.partial ? ' (le reste est payé)' : ''}`
                                   : ' : mois entier'}
                               {' — '}
                               {month.amount.toLocaleString('fr-FR')} DH

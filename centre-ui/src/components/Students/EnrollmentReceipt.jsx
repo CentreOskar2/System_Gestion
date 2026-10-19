@@ -6,10 +6,12 @@ import { safeFilename } from '../../utils/exportToPdf'
 import { downloadPdfDocument, printPdfDocument } from '../pdf/downloadPdf'
 import EnrollmentReceiptPdf from '../pdf/EnrollmentReceiptPdf'
 import { registrationFeeStatusLabel } from '../Accounting/registrationFeesApi'
+import { firstMonthStatusLabel } from '../Accounting/subjectPaymentsApi'
 import './EnrollmentReceipt.css'
 
 // registrationFee = { due, paidNow, remaining } (frais enregistrés à l'inscription) ou null.
-export default function EnrollmentReceipt({ form, close, catalog, registrationFee, firstMonthPaid }) {
+// firstMonth = plan du 1er mois payé à l'inscription (firstMonthPlan) ou null.
+export default function EnrollmentReceipt({ form, close, catalog, registrationFee, firstMonth }) {
   const [isExporting, setIsExporting] = useState(false)
   const [printError, setPrintError] = useState('')
   const amountFor = (subject) => {
@@ -30,7 +32,7 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
       total={total}
       dateLabel={dateLabel}
       registrationFee={showFee ? registrationFee : null}
-      firstMonthPaid={firstMonthPaid}
+      firstMonth={firstMonth}
     />
   )
 
@@ -91,8 +93,8 @@ export default function EnrollmentReceipt({ form, close, catalog, registrationFe
           <div className="receipt-row receipt-row--head"><span>Matière</span><span>Prix mensuel</span></div>
           {lines.map((line) => <div className="receipt-row" key={line.name}><span>{line.name}</span><span>{line.amount} DH</span></div>)}
           <div className="receipt-total"><span>Total mensuel à payer</span><strong>{total} DH</strong></div>
-          <p className={firstMonthPaid ? 'receipt-fee-paid' : 'receipt-fee-pending'}>
-            {firstMonthPaid ? 'Payé le ' + dateLabel : 'En attente de paiement'}
+          <p className={firstMonth && firstMonth.remaining <= 0 ? 'receipt-fee-paid' : 'receipt-fee-pending'}>
+            {firstMonthStatusLabel(firstMonth, dateLabel).split('\n').join(' — ')}
           </p>
         </section>
         {showFee && (

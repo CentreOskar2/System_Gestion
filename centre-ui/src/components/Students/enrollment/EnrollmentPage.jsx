@@ -10,8 +10,9 @@ import { today } from '../utils/studentHelpers'
 import { isValidPhoneNumber, normalizePhoneInput, phoneValidationMessage } from '../../../utils/validators'
 import { fetchAppSettings } from '../../../appSettings'
 import { recordRegistrationFeePayment } from '../../Accounting/registrationFeesApi'
-import { recordFirstMonthPayment, invalidateFeesCache } from '../../Accounting/feesApi'
-import { normalizeMonthKey, normalizePaymentDay } from '../../Accounting/monthUtils'
+import { invalidateFeesCache } from '../../Accounting/feesApi'
+import { firstMonthPlan, recordFirstMonthPlan } from '../../Accounting/subjectPaymentsApi'
+import { normalizePaymentDay } from '../../Accounting/monthUtils'
 import { useAuth } from '../../../context/AuthContext'
 import '../Enrollment.css'
 
@@ -49,6 +50,10 @@ const createInitialForm = (student) => {
       registrationFeeMode: 'full',
       registrationFeeAdvance: '',
       firstMonthPaidNow: true,
+      // null = demi-mois proposé si l'inscription a lieu après le 15.
+      firstMonthHalf: null,
+      // Montant payé aujourd'hui par matière ; absent = le dû du 1er mois.
+      firstMonthAmounts: {},
     }
   }
 
@@ -94,6 +99,8 @@ const createInitialForm = (student) => {
     registrationFeeMode: 'full',
     registrationFeeAdvance: '',
     firstMonthPaidNow: true,
+    firstMonthHalf: null,
+    firstMonthAmounts: {},
   }
 }
 
@@ -104,6 +111,8 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
   const [form, setForm] = useState(() => createInitialForm(student))
   const [appSettings, setAppSettings] = useState(null)
   const [receiptOpen, setReceiptOpen] = useState(false)
+  // Plan du 1er mois réellement enregistré, pour le reçu (null = pas payé).
+  const [firstMonthResult, setFirstMonthResult] = useState(null)
   const [registrationFeeResult, setRegistrationFeeResult] = useState(null)
   const registrationFee = enrollmentRegistrationFee(form, appSettings?.registrationFee)
   const [codeReady, setCodeReady] = useState(!student || Boolean(student?.code))
@@ -316,6 +325,14 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       setError(registrationFee.error)
       return
     }
+    // Une inscription en formation seule n'a pas de dû mensuel de scolarité :
+    // le 1er mois se règle sur le calendrier des formations.
+    const payFirstMonth = mode !== 'edit' && form.firstMonthPaidNow && !form.formationOnly
+    const plan = payFirstMonth ? firstMonthPlan(form, catalog) : null
+    if (plan?.error) {
+      setError(plan.error)
+      return
+    }
     setSaving(true)
     setError(null)
     try {
@@ -337,16 +354,12 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
           // soldés une autre fois, ils ne sont pas encaissés deux fois).
           setRegistrationFeeResult({ due: fee.amount, paidNow, remaining: fee.remaining })
         }
-        // Une inscription en formation seule n'a pas de dû mensuel de scolarité :
-        // le 1er mois se règle sur le calendrier des formations.
-        if (form.firstMonthPaidNow && !form.formationOnly) {
-          await recordFirstMonthPayment({
-            studentId: result.id,
-            month: normalizeMonthKey(form.registrationDate),
-            amount: computeDuMois(form, catalog),
-            userId: user?.id || null,
-          })
+        // 1er mois : demi-mois éventuel, et ce qui est payé en plus va en
+        // avance sur les mois suivants (voir firstMonthPlan).
+        if (plan) {
+          await recordFirstMonthPlan({ studentId: result.id, form, catalog, plan, userId: user?.id || null })
           invalidateFeesCache()
+          setFirstMonthResult(plan)
         }
         if (result.photoUrl) setForm((f) => ({ ...f, photoUrl: result.photoUrl }))
         setReceiptOpen(true)
@@ -396,7 +409,7 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
         form={form}
         catalog={catalog}
         registrationFee={registrationFeeResult}
-        firstMonthPaid={form.firstMonthPaidNow}
+        firstMonth={firstMonthResult}
         close={() => { finish(form); close() }}
       />
     )

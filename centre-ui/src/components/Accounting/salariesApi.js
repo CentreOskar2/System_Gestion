@@ -230,8 +230,10 @@ async function fetchPaymentsIndex() {
   const subjectPaid = {}
   // Mois pour lesquels l'élève a un détail par matière.
   const hasSubjectDetail = new Set()
+  // Une matière payée en plusieurs fois (avance puis solde) a plusieurs lignes.
   for (const row of subjectRes.data || []) {
-    subjectPaid[`${row.student_id}:${row.subject_id}:${monthOf(row.month)}`] = Number(row.amount) || 0
+    const key = `${row.student_id}:${row.subject_id}:${monthOf(row.month)}`
+    subjectPaid[key] = (subjectPaid[key] || 0) + (Number(row.amount) || 0)
     hasSubjectDetail.add(`${row.student_id}:${monthOf(row.month)}`)
   }
   // Formations : « élève:groupe:AAAA-MM » → montant encaissé.

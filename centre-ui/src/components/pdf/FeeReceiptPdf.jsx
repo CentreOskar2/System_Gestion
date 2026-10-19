@@ -2,7 +2,7 @@ import { Document } from '@react-pdf/renderer'
 import { ThermalReceiptPage, ThermalInfo, ThermalSeparator, ThermalLines, ThermalTotal, ThermalStatus } from './ThermalReceipt'
 
 function FeeReceiptPage({ receipt, dateLabel }) {
-  const { student, lines, total, month } = receipt
+  const { student, lines, total, month, remaining = 0 } = receipt
 
   return (
     <ThermalReceiptPage
@@ -17,9 +17,10 @@ function FeeReceiptPage({ receipt, dateLabel }) {
       <ThermalSeparator />
 
       <ThermalLines title="Détail des matières" lines={lines} />
-      <ThermalTotal label="Total payé" amount={total} />
+      <ThermalTotal label={remaining > 0 ? 'Avance payée' : 'Total payé'} amount={total} />
+      {remaining > 0 && <ThermalInfo label="Reste à payer" value={`${remaining.toLocaleString('fr-FR')} DH`} />}
 
-      <ThermalStatus>{`Paiement reçu en espèces\nle ${dateLabel}`}</ThermalStatus>
+      <ThermalStatus>{`${remaining > 0 ? 'Avance reçue' : 'Paiement reçu'} en espèces\nle ${dateLabel}`}</ThermalStatus>
     </ThermalReceiptPage>
   )
 }

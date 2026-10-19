@@ -63,6 +63,25 @@ export function academicMonths(startYear = academicYearStart()) {
   return months
 }
 
+// Le mois donné puis les suivants, jusqu'à la fin (août) de son année
+// scolaire : "2026-10-01" -> octobre 2026 ... août 2027. Sert à répartir une
+// avance sur les mois à venir.
+export function schoolMonthsFrom(monthKey) {
+  const match = /^(\d{4})-(\d{2})/.exec(String(monthKey || ''))
+  if (!match) return []
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const endYear = month >= 9 ? year + 1 : year
+  const keys = []
+  let [y, m] = [year, month]
+  while (y < endYear || (y === endYear && m <= 8)) {
+    keys.push(`${y}-${String(m).padStart(2, '0')}-01`)
+    m += 1
+    if (m > 12) [y, m] = [y + 1, 1]
+  }
+  return keys
+}
+
 export function monthLabelOf(key) {
   const match = /^(\d{4})-(\d{2})-01$/.exec(String(key))
   if (!match) return String(key)

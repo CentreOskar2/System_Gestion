@@ -27,7 +27,14 @@ import { fetchAppSettings } from '../../appSettings'
 import { fetchRegistrationFees, recordRegistrationFeePayment, registrationFeeCashPayments } from './registrationFeesApi'
 import RegistrationFeeModal from './RegistrationFeeModal'
 import RegistrationFeeBadge from './RegistrationFeeBadge'
-import { isSegmentedPayment as isSegmentedPaymentOf, localMonthKey, monthCoverageOf } from './tuitionCoverage'
+import { isSegmentedPayment as isSegmentedPaymentOf, localMonthKey, monthBalanceOf, monthCoverageOf } from './tuitionCoverage'
+import {
+  allocateAcrossMonths,
+  applySubjectPaymentChanges,
+  laterSubjectSlots,
+  syncMonthSummaries,
+  writeSubjectPaymentChanges,
+} from './subjectPaymentsApi'
 import DailyHistoryPanel from './DailyHistoryPanel'
 import RegistrationFeeReceiptPdf from '../pdf/RegistrationFeeReceiptPdf'
 import {
@@ -76,7 +83,9 @@ function subjectStartForMonth(monthKey) {
 // voient que ce qu'ils ont eux-mêmes encaissé. Même liste que AuthContext.
 const CENTER_WIDE_ROLES = ['super_admin', 'admin', 'director']
 
-function AdvanceModal({ student, close, onValidate, months }) {
+// amountOf(index) : ce qui reste à payer sur ce mois (moins que le dû mensuel
+// si une avance a déjà été versée).
+function AdvanceModal({ student, close, onValidate, months, amountOf }) {
   const [selectedMonths, setSelectedMonths] = useState([])
 
   const payableMonths = student.payments
@@ -94,7 +103,7 @@ function AdvanceModal({ student, close, onValidate, months }) {
   }
 
   const monthly = Number(student.monthly) || 0
-  const totalAmount = selectedMonths.length * monthly
+  const totalAmount = selectedMonths.reduce((sum, index) => sum + amountOf(index), 0)
   const formatAmount = (value) => `${Number(value || 0).toLocaleString('fr-FR')} DH`
 
   const handleValidate = () => {
@@ -186,6 +195,8 @@ function Receipt({ receipts, close, catalog }) {
       // modifié à la validation, ex. demi-mois) ; sinon les prix de l'élève.
       lines: r.lines || studentLineItems(r.student, catalog),
       total: r.total ?? (r.student.du_mois || 0),
+      // Avance : ce qui reste dû sur le mois après ce paiement.
+      remaining: r.remaining || 0,
     }))
   }, [receipts, catalog])
 
@@ -277,13 +288,19 @@ function Receipt({ receipts, close, catalog }) {
                 </div>
               ))}
               <div className="fee-total">
-                <b>Montant total payé</b>
+                <b>{receipt.remaining > 0 ? 'Avance payée' : 'Montant total payé'}</b>
                 <strong>{receipt.total.toLocaleString('fr-FR')} DH</strong>
               </div>
+              {receipt.remaining > 0 && (
+                <div className="fee-line">
+                  <span>Reste à payer sur ce mois</span>
+                  <span>{receipt.remaining.toLocaleString('fr-FR')} DH</span>
+                </div>
+              )}
             </section>
 
             <div className="fee-confirmation">
-              ✓ Paiement reçu en espèces — Le {formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey, receipt.student.paymentDay))}
+              ✓ {receipt.remaining > 0 ? 'Avance reçue' : 'Paiement reçu'} en espèces — Le {formatFrenchDate(receiptDateFromRegistration(receipt.student.registrationDate, receipt.monthKey, receipt.student.paymentDay))}
             </div>
 
             <footer>
@@ -491,6 +508,10 @@ export default function FeesPage() {
   // paiement segmenté, `blockAmount` pour un forfait. Pré-rempli avec le prix
   // habituel, il peut être baissé (élève inscrit en milieu de mois...).
   const [paidAmounts, setPaidAmounts] = useState({})
+  // Total payé par matière sur ce mois, saisi dans la même modale. Moins que le
+  // prix du mois : une avance (matière en orange) ; plus : le surplus va en
+  // avance sur les mois suivants.
+  const [paidTotals, setPaidTotals] = useState({})
   const [blockAmount, setBlockAmount] = useState('')
 
   const schoolYearKeyLabel = schoolYearLabel(schoolYearStart)
@@ -710,8 +731,8 @@ export default function FeesPage() {
     for (const name of blockCovered) locked[name] = 'block'
     if (isCenterWide) return locked
     for (const name of student.chosen) {
-      const row = rows.find((r) => r.subject_id === student.subjectDetails?.[name]?.subject_id)
-      if (row && normalizeDateKey(row.paid_at) !== currentDayKey) locked[name] = 'past'
+      const subjectId = student.subjectDetails?.[name]?.subject_id
+      if (rows.some((r) => r.subject_id === subjectId && normalizeDateKey(r.paid_at) !== currentDayKey)) locked[name] = 'past'
     }
     return locked
   }
@@ -740,16 +761,18 @@ export default function FeesPage() {
   const studentsById = useMemo(() => Object.fromEntries(students.map((s) => [s.id, s])), [students])
 
   // Reste à régler sur un mois, à la fin d'un jour donné : les matières dues
-  // pas encore payées, à leur prix habituel. Une matière réglée en demi-mois ou
-  // avec une remise compte comme réglée, comme dans le calendrier.
+  // pas encore payées à leur prix habituel, et le reste des avances. Même règle
+  // que le calendrier et les retards (tuitionCoverage.js).
   const monthRemainingAsOf = (student, monthKey, dayKey) => {
-    const index = schoolMonths.findIndex((m) => m.key === monthKey)
-    if (index < 0) return null
-    const { payment, paid, due } = monthCoverage(student, index, dayKey)
-    if (!isSegmentedPayment(student)) return payment ? 0 : toNumber(student.du_mois)
-    return due
-      .filter((name) => !paid.includes(name))
-      .reduce((sum, name) => sum + priceFor(catalog, student, name), 0)
+    if (!schoolMonths.some((m) => m.key === monthKey)) return null
+    return monthBalanceOf({
+      student,
+      catalog,
+      monthKey,
+      payments: paymentsByStudent[student.id] || [],
+      subjectRows: paymentSubjectsByStudent[student.id] || [],
+      asOfDay: dayKey,
+    }).remaining
   }
 
   const subjectNameOf = (student, subjectId) =>
@@ -842,15 +865,10 @@ export default function FeesPage() {
     return (paymentsByStudent[student.id] || []).find((p) => normalizeMonthKey(p.month) === key) || null
   }
 
-  // Montant déjà enregistré pour cette matière ce mois-ci, sinon son prix habituel.
-  const monthSubjectAmount = (student, index, name) => {
-    const monthKey = monthDate(index, Number(schoolYearStart))
-    const subjectId = student.subjectDetails?.[name]?.subject_id
-    const row = (paymentSubjectsByStudent[student.id] || []).find(
-      (r) => r.month === monthKey && r.subject_id === subjectId
-    )
-    return row ? toNumber(row.amount) : priceFor(catalog, student, name)
-  }
+  // Prix de cette matière ce mois-ci : celui enregistré avec ses versements
+  // (demi-mois, remise), sinon son prix habituel.
+  const monthSubjectAmount = (student, index, name) =>
+    monthCoverage(student, index).bySubject[name]?.dueAmount ?? priceFor(catalog, student, name)
 
   const monthBlockAmount = (student, index) => {
     const payment = monthPaymentOf(student, index)
@@ -864,6 +882,21 @@ export default function FeesPage() {
   }
   const selectedSubjectAmount = (name) =>
     enteredAmount(paidAmounts[name], priceFor(catalog, selected.student, name))
+  // Total payé pour la matière ce mois-ci, tel que saisi (vide = le prix du mois).
+  const selectedSubjectPaid = (name) => enteredAmount(paidTotals[name], selectedSubjectAmount(name))
+  // Corriger le prix d'une matière payée en entier corrige aussi ce qui est
+  // payé (ex. demi-mois saisi après coup) ; une avance garde sa somme.
+  const setSubjectDue = (name, value) => {
+    if (selectedSubjectPaid(name) === selectedSubjectAmount(name)) {
+      setPaidTotals((prev) => ({ ...prev, [name]: value }))
+    }
+    setPaidAmounts((prev) => ({ ...prev, [name]: value }))
+  }
+  // Saisir ce qui est payé coche la matière.
+  const setSubjectPaid = (name, value) => {
+    setPaidTotals((prev) => ({ ...prev, [name]: value }))
+    setPaidSelection((prev) => (prev.includes(name) ? prev : [...prev, name]))
+  }
   // Matières proposées dans la modale de validation : celles dues ce mois-là.
   const selectedCoverage = selected ? monthCoverage(selected.student, selected.index) : null
   const selectedDue = selectedCoverage?.due || []
@@ -874,19 +907,23 @@ export default function FeesPage() {
   const selectedBlockLocked =
     Boolean(selectedBlockPayment) && !isCenterWide && normalizeDateKey(selectedBlockPayment.paid_at) !== currentDayKey
 
-  // Date à laquelle une matière de la modale a été encaissée (ligne par
-  // matière, ou paiement en bloc qui la couvre).
-  const selectedPaidOn = (name) => {
-    if (!selectedCoverage) return ''
-    if (selectedCoverage.blockCovered.includes(name)) return selectedCoverage.block?.paid_at || ''
-    const subjectId = selected.student.subjectDetails?.[name]?.subject_id
-    return selectedCoverage.rows.find((r) => r.subject_id === subjectId)?.paid_at || ''
-  }
+  // Versements déjà reçus pour une matière de la modale, du plus ancien au
+  // plus récent : « 75 DH le 18/10 · 75 DH le 05/11 ».
+  const selectedPaymentsLabel = (name) =>
+    [...(selectedCoverage?.bySubject[name]?.rows || [])]
+      .sort((a, b) => new Date(a.paid_at || 0) - new Date(b.paid_at || 0))
+      .map((row) => `${toNumber(row.amount).toLocaleString('fr-FR')} DH le ${formatFrenchDate(normalizeDateKey(row.paid_at))}`)
+      .join(' · ')
 
   // Reçu d'un mois déjà payé : les montants enregistrés, pas les prix du moment.
   const receiptFor = (student, index) => {
     const monthKey = monthDate(index, Number(schoolYearStart))
     const base = { student, month: schoolMonths[index]?.label || '', monthKey, catalog }
+    // Mois réglé matière par matière, même en partie (avance) : chaque ligne
+    // porte ce qui a été payé.
+    if (isSegmentedPayment(student) && monthCoverage(student, index).rows.length > 0) {
+      return subjectsReceiptFor(student, index)
+    }
     const payment = monthPaymentOf(student, index)
     if (!payment) return base
     const total = toNumber(payment.amount)
@@ -897,23 +934,59 @@ export default function FeesPage() {
       return { ...base, total, lines: [{ name: line?.name || 'Forfait', amount: total }] }
     }
 
-    // Mois réglé matière par matière : chaque ligne porte le montant enregistré.
-    // Un mois payé en bloc (avance) n'a pas ce détail : lignes aux prix
+    // Mois payé en bloc (avance) : pas de détail par matière, lignes aux prix
     // habituels, limitées aux matières que ce paiement couvrait.
-    const { rows, paid, due } = monthCoverage(student, index)
-    if (rows.length === 0) {
-      return { ...base, total, lines: paid.map((name) => ({ name, amount: priceFor(catalog, student, name) })) }
+    const { paid } = monthCoverage(student, index)
+    return { ...base, total, lines: paid.map((name) => ({ name, amount: priceFor(catalog, student, name) })) }
+  }
+
+  // Reçu d'un mois réglé matière par matière, entièrement ou en partie (avance) :
+  // ce qui a été payé par matière, et ce qui reste dû sur le mois.
+  const subjectsReceiptFor = (student, index, subjectRows = paymentSubjectsByStudent[student.id] || [], extraLines = []) => {
+    const monthKey = monthDate(index, Number(schoolYearStart))
+    const balance = monthBalanceOf({
+      student,
+      catalog,
+      monthKey,
+      payments: paymentsByStudent[student.id] || [],
+      subjectRows,
+    })
+    const lines = [
+      ...balance.due
+        .map((name) => ({
+          name,
+          amount: balance.blockCovered.includes(name) ? priceFor(catalog, student, name) : balance.bySubject[name].paidAmount,
+        }))
+        .filter((line) => line.amount > 0 || balance.paid.includes(line.name)),
+      ...extraLines,
+    ]
+    return {
+      student,
+      month: schoolMonths[index]?.label || '',
+      monthKey,
+      catalog,
+      total: lines.reduce((sum, line) => sum + line.amount, 0),
+      lines,
+      remaining: balance.settled ? 0 : balance.remaining,
     }
-    const lines = due.map((name) => ({ name, amount: monthSubjectAmount(student, index, name) }))
-    return { ...base, total, lines }
   }
 
   const openPayment = (student, index) => {
     const status = stateOf(student, index)
     if (status === 'inactive' || status === 'disabled') return
     setSelected({ student, index })
-    setPaidSelection(monthCoverage(student, index).paid)
+    const coverage = monthCoverage(student, index)
+    // Cochées : les matières qui ont déjà un versement ce mois-ci (soldées ou avance).
+    setPaidSelection([...coverage.paid, ...coverage.partial])
     setPaidAmounts(Object.fromEntries(student.chosen.map((name) => [name, String(monthSubjectAmount(student, index, name))])))
+    setPaidTotals(
+      Object.fromEntries(
+        student.chosen.map((name) => {
+          const paidAmount = coverage.bySubject[name]?.paidAmount || 0
+          return [name, String(paidAmount > 0 ? paidAmount : monthSubjectAmount(student, index, name))]
+        })
+      )
+    )
     setBlockAmount(String(monthBlockAmount(student, index)))
   }
 
@@ -959,37 +1032,97 @@ export default function FeesPage() {
         return
       }
 
-      // Paiement par matière : on aligne student_payment_subjects sur les
-      // cases cochées (ajouts et retraits). Chaque ligne est un encaissement
-      // réel, compté dans la caisse du jour où il a été fait.
-      const { rawPaid: alreadyPaid, blockCovered, block, due } = monthCoverage(student, index)
+      // Paiement par matière : chaque somme reçue est une ligne de
+      // student_payment_subjects, comptée dans la caisse du jour où elle a été
+      // reçue. On compare le total payé saisi à ce qui est déjà encaissé :
+      //   - plus : un nouveau versement, ce mois-ci jusqu'à son prix, le
+      //     surplus en avance sur les mois suivants ;
+      //   - moins : correction, en retirant les versements les plus récents ;
+      //   - décochée : tous ses versements du mois sont annulés.
+      const coverage = monthCoverage(student, index)
+      const { blockCovered, due } = coverage
       const locked = lockedPaidSubjects(student, index)
       // Une matière retirée de l'élève entre-temps n'est plus proposée ; une
-      // matière figée (payée en bloc ou un jour passé) reste comme elle est.
+      // matière figée (payée en bloc ou un jour passé) reste cochée.
       const selection = [
-        ...new Set([
-          ...paidSelection.filter((name) => due.includes(name) && !locked[name]),
-          ...due.filter((name) => locked[name] && (alreadyPaid.includes(name) || blockCovered.includes(name))),
-        ]),
+        ...new Set([...paidSelection.filter((name) => due.includes(name) && !locked[name]), ...due.filter((name) => locked[name])]),
       ]
-      // Les matières couvertes par un paiement en bloc n'ont pas de ligne à
-      // créer : le bloc est déjà compté, en entier, le jour où il a été reçu.
-      const toAdd = selection.filter((name) => !alreadyPaid.includes(name) && !blockCovered.includes(name))
-      const toRemove = alreadyPaid.filter((name) => !selection.includes(name))
-      const storedRowOf = (name) =>
-        (paymentSubjectsByStudent[student.id] || []).find(
-          (r) => r.month === month && r.subject_id === student.subjectDetails?.[name]?.subject_id
-        )
-      // Montant corrigé d'une matière déjà réglée (même jour, ou rôle centre).
-      const toUpdate = alreadyPaid.filter(
-        (name) => selection.includes(name) && locked[name] !== 'block' && toNumber(storedRowOf(name)?.amount) !== selectedSubjectAmount(name)
-      )
+      const nowIso = new Date().toISOString()
+      const userId = user?.id || null
+      const subjectRows = paymentSubjectsByStudent[student.id] || []
+      const changes = { inserts: [], updates: [], deletes: [] }
+      const touchedMonths = new Set([month])
+      const advanceLines = []
+      const pastDays = []
+
+      for (const name of due) {
+        // Couverte par un paiement en bloc : déjà comptée, en entier, le jour
+        // où le bloc a été reçu.
+        if (blockCovered.includes(name)) continue
+        const subjectId = student.subjectDetails?.[name]?.subject_id
+        if (!subjectId) continue
+        const status = coverage.bySubject[name]
+        const dueAmount = selectedSubjectAmount(name)
+        const checked = selection.includes(name)
+        const target = checked ? selectedSubjectPaid(name) : 0
+        const already = status.paidAmount
+        const newRow = (monthKey, amount, dueOfMonth) => ({
+          student_id: student.id,
+          subject_id: subjectId,
+          month: monthKey,
+          amount,
+          due_amount: dueOfMonth,
+          paid_at: nowIso,
+          paid_by: userId,
+        })
+
+        if (target > already) {
+          const extra = target - already
+          const forThisMonth = Math.min(extra, Math.max(0, dueAmount - already))
+          if (forThisMonth > 0) changes.inserts.push(newRow(month, forThisMonth, dueAmount))
+          const surplus = extra - forThisMonth
+          if (surplus > 0) {
+            const { parts, rest } = allocateAcrossMonths(
+              surplus,
+              laterSubjectSlots({ student, catalog, name, afterMonthKey: month, payments: paymentsByStudent[student.id] || [], subjectRows })
+            )
+            if (rest > 0) throw new Error(`Le montant payé pour ${name} dépasse ce qui reste à payer jusqu'en août.`)
+            for (const part of parts) {
+              changes.inserts.push(newRow(part.monthKey, part.amount, part.dueAmount))
+              touchedMonths.add(part.monthKey)
+              advanceLines.push({ name: `${name} — avance ${monthLabelOf(part.monthKey)}`, amount: part.amount })
+            }
+          }
+        } else if (checked && target === 0 && already === 0 && dueAmount === 0) {
+          // Matière offerte ce mois-ci : réglée sans encaissement.
+          changes.inserts.push(newRow(month, 0, 0))
+        } else if (target < already) {
+          let excess = already - target
+          for (const row of [...status.rows].sort((a, b) => new Date(b.paid_at || 0) - new Date(a.paid_at || 0))) {
+            if (excess <= 0) break
+            const amount = toNumber(row.amount)
+            if (amount <= excess) changes.deletes.push(row.id)
+            else changes.updates.push({ id: row.id, changes: { amount: amount - excess } })
+            excess -= Math.min(amount, excess)
+            const day = normalizeDateKey(row.paid_at)
+            if (day && day !== currentDayKey) pastDays.push(day)
+          }
+        }
+
+        // Le prix du mois est porté par chacun des versements de la matière.
+        // Une ligne ancienne (sans prix) qu'on ne touche pas reste telle quelle.
+        const untouched = target === already && dueAmount === status.dueAmount
+        for (const row of status.rows) {
+          if (changes.deletes.includes(row.id) || row.due_amount === dueAmount) continue
+          if (untouched && row.due_amount == null) continue
+          const update = changes.updates.find((u) => u.id === row.id)
+          if (update) update.changes.due_amount = dueAmount
+          else changes.updates.push({ id: row.id, changes: { due_amount: dueAmount } })
+        }
+      }
 
       // Corriger un encaissement d'un jour passé change la caisse de ce
       // jour-là : on le dit clairement avant de le faire.
-      const pastDays = [...toRemove, ...toUpdate]
-        .map((name) => normalizeDateKey(storedRowOf(name)?.paid_at))
-        .filter((day) => day && day !== currentDayKey)
       if (pastDays.length > 0) {
         const days = [...new Set(pastDays)].map((day) => formatFrenchDate(day)).join(', ')
         const ok = window.confirm(
@@ -998,89 +1131,27 @@ export default function FeesPage() {
         if (!ok) return
       }
 
-      const nowIso = new Date().toISOString()
-      if (toAdd.length > 0 || toUpdate.length > 0) {
-        const rows = [...toAdd, ...toUpdate].map((name) => {
-          const stored = toUpdate.includes(name) ? storedRowOf(name) : null
-          return {
-            student_id: student.id,
-            subject_id: student.subjectDetails?.[name]?.subject_id,
-            month,
-            amount: selectedSubjectAmount(name),
-            paid_at: stored?.paid_at || nowIso,
-            paid_by: stored ? stored.paid_by ?? null : user?.id || null,
-          }
-        })
-        const { error: err } = await supabase
-          .from('student_payment_subjects')
-          .upsert(rows, { onConflict: 'student_id,subject_id,month' })
-        if (err) throw err
-      }
-      if (toRemove.length > 0) {
-        const subjectIds = toRemove.map((name) => student.subjectDetails?.[name]?.subject_id).filter(Boolean)
-        const { error: err } = await supabase
-          .from('student_payment_subjects')
-          .delete()
-          .eq('student_id', student.id)
-          .eq('month', month)
-          .in('subject_id', subjectIds)
-        if (err) throw err
-      }
-
-      // student_payments (le résumé "mois complet") suit : présent seulement
-      // si TOUTES les matières du mois sont désormais payées, absent sinon —
-      // c'est ce que lisent Retards & Impayés, le Dashboard et les Rapports.
-      // Il ne compte plus dans la caisse du jour : le créer, le supprimer ou
-      // changer son montant ne déplace aucun encaissement.
-      // Un paiement en bloc, lui, est un vrai encaissement : on n'y touche pas.
-      const fullyPaid = due.every((name) => selection.includes(name))
-      const monthLines = due.map((name) => ({
-        name,
-        amount: blockCovered.includes(name) ? priceFor(catalog, student, name) : selectedSubjectAmount(name),
-      }))
-      const monthTotal = monthLines.reduce((sum, line) => sum + line.amount, 0)
-      if (!block) {
-        const changed = toAdd.length > 0 || toUpdate.length > 0 || toRemove.length > 0
-        if (fullyPaid) {
-          const existing = monthPaymentOf(student, index)
-          const { error: err } = await supabase
-            .from('student_payments')
-            .upsert(
-              {
-                student_id: student.id,
-                month,
-                amount: monthTotal,
-                status: 'paid',
-                // Daté après les lignes qu'il résume : c'est ce qui le
-                // distingue d'un paiement en bloc (voir isBlockPayment).
-                paid_at: existing && !changed ? existing.paid_at : nowIso,
-                paid_by: existing && !changed ? existing.paid_by ?? null : user?.id || null,
-              },
-              { onConflict: 'student_id,month' }
-            )
-          if (err) throw err
-        } else {
-          const { error: err } = await supabase
-            .from('student_payments')
-            .delete()
-            .eq('student_id', student.id)
-            .eq('month', month)
-          if (err) throw err
-        }
-      }
+      await writeSubjectPaymentChanges(changes)
+      // student_payments (le résumé "mois complet") suit, pour ce mois et ceux
+      // qui ont reçu une avance : présent seulement si TOUTES les matières du
+      // mois sont soldées — c'est ce que lisent le Dashboard et les Rapports.
+      const nextRows = applySubjectPaymentChanges(subjectRows, changes)
+      await syncMonthSummaries({
+        student,
+        catalog,
+        monthKeys: [...touchedMonths],
+        payments: paymentsByStudent[student.id] || [],
+        subjectRows: nextRows,
+        previousRows: subjectRows,
+        userId,
+      })
 
       invalidateFeesCache()
       await load()
-      if (fullyPaid) {
-        setReceipt({
-          student,
-          month: schoolMonths[index]?.label || '',
-          monthKey: month,
-          catalog,
-          total: monthTotal,
-          lines: monthLines,
-        })
-      }
+      // Reçu dès qu'une somme a été reçue : mois soldé, ou avance (le reçu
+      // indique alors ce qui reste dû sur le mois).
+      const nextReceipt = subjectsReceiptFor(student, index, nextRows, advanceLines)
+      if (changes.inserts.some((row) => row.amount > 0) || nextReceipt.remaining === 0) setReceipt(nextReceipt)
       setSelected(null)
     } catch (err) {
       console.error(err)
@@ -1143,7 +1214,7 @@ export default function FeesPage() {
       // Mois sans rien de payé : un paiement en bloc, comme avant. Mois déjà
       // réglé en partie : on complète matière par matière (les matières déjà
       // payées, et un éventuel bloc déjà reçu, ne sont pas touchés).
-      const subjectRows = []
+      const newSubjectRows = []
       const summaryRows = []
       for (const index of selectedMonths) {
         const month = monthDate(index, Number(schoolYearStart))
@@ -1159,12 +1230,16 @@ export default function FeesPage() {
           })
           continue
         }
+        // Matière partielle (avance déjà versée) : seul le reste est encaissé.
         for (const name of coverage.due.filter((n) => !coverage.paid.includes(n))) {
-          subjectRows.push({
+          const status = coverage.bySubject[name]
+          const price = priceFor(catalog, student, name)
+          newSubjectRows.push({
             student_id: student.id,
             subject_id: student.subjectDetails?.[name]?.subject_id,
             month,
-            amount: priceFor(catalog, student, name),
+            amount: status.partial ? status.remaining : price,
+            due_amount: status.partial ? status.dueAmount : price,
             paid_at: nowIso,
             paid_by: user?.id || null,
           })
@@ -1180,12 +1255,7 @@ export default function FeesPage() {
           })
         }
       }
-      if (subjectRows.length > 0) {
-        const { error: err } = await supabase
-          .from('student_payment_subjects')
-          .upsert(subjectRows, { onConflict: 'student_id,subject_id,month' })
-        if (err) throw err
-      }
+      await writeSubjectPaymentChanges({ inserts: newSubjectRows })
       if (summaryRows.length > 0) {
         const { error: err } = await supabase
           .from('student_payments')
@@ -1347,6 +1417,11 @@ export default function FeesPage() {
             fresh.chosen.map((name) => [name, prev[name] ?? String(priceFor(data.catalog, fresh, name))])
           )
         )
+        setPaidTotals((prev) =>
+          Object.fromEntries(
+            fresh.chosen.map((name) => [name, prev[name] ?? String(priceFor(data.catalog, fresh, name))])
+          )
+        )
       } else if (paymentIndex != null) {
         setSelected(null)
       }
@@ -1491,13 +1566,17 @@ export default function FeesPage() {
                       }
                       // Un repère par matière due CE mois-ci : une matière ajoutée
                       // en cours d'année n'apparaît qu'à partir de son mois d'ajout.
+                      // Orange : une avance a été versée, il reste à payer.
                       const coverage = monthCoverage(student, index)
                       const paidNames = disabled ? [] : coverage.paid
+                      const partialNames = disabled ? [] : coverage.partial
                       const segmentNames = coverage.due.length > 0 ? coverage.due : student.chosen
+                      const segmentClass = (name) =>
+                        paidNames.includes(name) ? 'paid' : partialNames.includes(name) ? 'partial' : status
                       return (
                         <td key={index}>
                           <button
-                            aria-label={`${month.label} : ${status} (${paidNames.length}/${segmentNames.length} matières)`}
+                            aria-label={`${month.label} : ${status} (${paidNames.length}/${segmentNames.length} matières${partialNames.length ? `, ${partialNames.length} en avance` : ''})`}
                             className={`payment-segments ${status}`}
                             disabled={disabled}
                             onClick={() => openPayment(student, index)}
@@ -1505,7 +1584,10 @@ export default function FeesPage() {
                             {segmentNames.map((name) => (
                               <span
                                 key={name}
-                                className={`payment-segment ${paidNames.includes(name) ? 'paid' : status}`}
+                                className={`payment-segment ${segmentClass(name)}`}
+                                title={partialNames.includes(name)
+                                  ? `${name} : avance ${coverage.bySubject[name].paidAmount.toLocaleString('fr-FR')} DH, reste ${coverage.bySubject[name].remaining.toLocaleString('fr-FR')} DH`
+                                  : name}
                               />
                             ))}
                           </button>
@@ -1549,10 +1631,11 @@ export default function FeesPage() {
             {isSegmentedPayment(selected.student) ? (
               <>
                 <p className="payment-subjects-hint">
-                  Sélectionnez les matières réglées ce mois-ci. Le montant de chaque matière peut
-                  être modifié pour ce mois seulement (ex. inscription en milieu de mois), avant
-                  comme après la validation. Une matière encaissée un jour précédent ne peut être
-                  décochée que par un administrateur.
+                  Sélectionnez les matières réglées ce mois-ci. « Prix » est le prix de la matière pour
+                  ce mois seulement (½ pour un demi-mois) ; « Payé » est ce que l'élève a versé. Moins
+                  que le prix : c'est une avance, la matière reste en orange jusqu'au paiement du reste.
+                  Plus que le prix : le surplus va en avance sur les mois suivants. Une matière encaissée
+                  un jour précédent ne peut être décochée que par un administrateur.
                 </p>
                 <div className="payment-subjects-list">
                   {selectedDue.map((name) => {
@@ -1560,9 +1643,15 @@ export default function FeesPage() {
                     const usualPrice = priceFor(catalog, selected.student, name)
                     const amount = selectedSubjectAmount(name)
                     const lock = selectedLocked[name]
-                    const paidOn = selectedPaidOn(name)
+                    const isBlock = lock === 'block'
+                    const already = selectedCoverage.bySubject[name]?.paidAmount || 0
+                    const paidTotal = checked ? selectedSubjectPaid(name) : 0
+                    const paymentsLabel = selectedPaymentsLabel(name)
+                    // Ce qui partira en avance sur les mois suivants à la validation.
+                    const surplus = paidTotal > already ? paidTotal - Math.max(amount, already) : 0
+                    const partial = checked && !isBlock && paidTotal < amount
                     return (
-                      <label key={name} className={`payment-subject-row ${checked ? 'checked' : ''} ${lock ? 'locked' : ''}`}>
+                      <label key={name} className={`payment-subject-row ${checked ? 'checked' : ''} ${lock ? 'locked' : ''} ${partial ? 'partial' : ''}`}>
                         <input
                           type="checkbox"
                           checked={checked}
@@ -1578,44 +1667,84 @@ export default function FeesPage() {
                           {amount !== usualPrice && (
                             <small className="payment-usual-price">Prix habituel : {usualPrice.toLocaleString('fr-FR')} DH</small>
                           )}
-                          {paidOn && (
+                          {isBlock && selectedCoverage.block?.paid_at && (
                             <small className="payment-paid-on">
-                              {lock === 'block' ? 'Réglé avec le mois en bloc' : 'Encaissé'} le {formatFrenchDate(normalizeDateKey(paidOn))}
+                              Réglé avec le mois en bloc le {formatFrenchDate(normalizeDateKey(selectedCoverage.block.paid_at))}
+                            </small>
+                          )}
+                          {!isBlock && paymentsLabel && (
+                            <small className="payment-paid-on">
+                              Encaissé : {paymentsLabel}
                               {lock === 'past' && ' — montant modifiable'}
                             </small>
                           )}
+                          {partial && (
+                            <small className="payment-partial-hint">
+                              Avance — reste {(amount - paidTotal).toLocaleString('fr-FR')} DH à payer
+                            </small>
+                          )}
+                          {checked && !isBlock && surplus > 0 && (
+                            <small className="payment-advance-hint">
+                              dont {surplus.toLocaleString('fr-FR')} DH d'avance sur les mois suivants
+                            </small>
+                          )}
                         </span>
-                        <span className="payment-amount-field">
-                          <button
-                            type="button"
-                            disabled={lock === 'block'}
-                            title="Demi-mois : la moitié du prix habituel"
-                            onClick={() => setPaidAmounts((prev) => ({ ...prev, [name]: String(Math.round(usualPrice / 2)) }))}
-                          >
-                            ½
-                          </button>
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            inputMode="decimal"
-                            aria-label={`Montant ${name} pour ce mois`}
-                            disabled={lock === 'block'}
-                            value={paidAmounts[name] ?? ''}
-                            onChange={(event) => setPaidAmounts((prev) => ({ ...prev, [name]: event.target.value }))}
-                          />
-                          <b>DH</b>
+                        <span className="payment-amount-fields">
+                          <span className="payment-amount-field">
+                            <em>Prix</em>
+                            <button
+                              type="button"
+                              disabled={isBlock}
+                              title="Demi-mois : la moitié du prix habituel"
+                              onClick={() => setSubjectDue(name, String(Math.round(usualPrice / 2)))}
+                            >
+                              ½
+                            </button>
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              inputMode="decimal"
+                              aria-label={`Prix de ${name} pour ce mois`}
+                              disabled={isBlock}
+                              value={paidAmounts[name] ?? ''}
+                              onChange={(event) => setSubjectDue(name, event.target.value)}
+                            />
+                            <b>DH</b>
+                          </span>
+                          <span className="payment-amount-field">
+                            <em>Payé</em>
+                            <button
+                              type="button"
+                              disabled={isBlock}
+                              title="Solder : payer tout le prix du mois"
+                              onClick={() => setSubjectPaid(name, String(amount))}
+                            >
+                              ✓
+                            </button>
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              inputMode="decimal"
+                              aria-label={`Montant payé pour ${name} ce mois-ci`}
+                              disabled={isBlock}
+                              value={paidTotals[name] ?? ''}
+                              onChange={(event) => setSubjectPaid(name, event.target.value)}
+                            />
+                            <b>DH</b>
+                          </span>
                         </span>
                       </label>
                     )
                   })}
                 </div>
                 <div className="payment-amount">
-                  <span>Montant sélectionné</span>
+                  <span>Payé sur ce mois</span>
                   <strong>
                     {selectedDue
                       .filter((name) => paidSelection.includes(name))
-                      .reduce((sum, name) => sum + selectedSubjectAmount(name), 0)
+                      .reduce((sum, name) => sum + Math.min(selectedSubjectPaid(name), selectedSubjectAmount(name)), 0)
                       .toLocaleString('fr-FR')} DH
                     <small>
                       / {selectedDue
@@ -1623,11 +1752,18 @@ export default function FeesPage() {
                         .toLocaleString('fr-FR')} DH
                     </small>
                   </strong>
+                  {(() => {
+                    // Somme réellement reçue à la validation (avances comprises).
+                    const collectedNow = selectedDue
+                      .filter((name) => paidSelection.includes(name) && !selectedCoverage.blockCovered.includes(name))
+                      .reduce((sum, name) => sum + Math.max(0, selectedSubjectPaid(name) - (selectedCoverage.bySubject[name]?.paidAmount || 0)), 0)
+                    return collectedNow > 0 ? <small>À encaisser maintenant : {collectedNow.toLocaleString('fr-FR')} DH</small> : null
+                  })()}
                 </div>
                 <button className="validate-button" disabled={saving} onClick={handleValidate}>
                   {saving ? 'Enregistrement...' : 'Valider le paiement'}
                 </button>
-                {stateOf(selected.student, selected.index) === 'paid' && (
+                {(stateOf(selected.student, selected.index) === 'paid' || selectedCoverage.rows.length > 0) && (
                   <button
                     className="receipt-button"
                     onClick={() => {
@@ -1897,6 +2033,12 @@ export default function FeesPage() {
       {advance && (
         <AdvanceModal
           student={{ ...advance, payments: paymentsOf(advance), monthly: advance.du_mois }}
+          amountOf={(index) => {
+            // Mois sans aucun versement : payé en bloc au dû mensuel (validateAdvance).
+            const coverage = isSegmentedPayment(advance) ? monthCoverage(advance, index) : null
+            if (!coverage || (coverage.rows.length === 0 && !coverage.block)) return toNumber(advance.du_mois)
+            return monthRemainingAsOf(advance, monthDate(index, Number(schoolYearStart)), null) || 0
+          }}
           close={() => setAdvance(null)}
           onValidate={validateAdvance}
           months={schoolMonths}

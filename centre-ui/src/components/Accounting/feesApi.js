@@ -139,7 +139,7 @@ export async function fetchFeesData(branchId = null) {
     fetchAllRows(() =>
       supabase
         .from('student_payment_subjects')
-        .select('id, student_id, subject_id, month, amount, paid_at, paid_by')
+        .select('id, student_id, subject_id, month, amount, due_amount, paid_at, paid_by')
         .order('id')
     ),
   ])
@@ -215,16 +215,20 @@ export async function fetchFeesData(branchId = null) {
   }
 
   // Détail par matière : sert au calendrier "segmenté" et à la modale de
-  // validation. student_payments (ci-dessus) reste la source de vérité pour
+  // validation. Une ligne par somme reçue : une matière réglée en plusieurs
+  // fois (avance puis solde) a plusieurs lignes sur le même mois. student_payments (ci-dessus) reste la source de vérité pour
   // "le mois est-il intégralement réglé" — inchangée pour ne rien casser
   // ailleurs (Dashboard, Rapports, Retards & Impayés, Salaires).
   const paymentSubjectsByStudent = {}
   for (const p of paymentSubjectsRes.data || []) {
     if (!paymentSubjectsByStudent[p.student_id]) paymentSubjectsByStudent[p.student_id] = []
     paymentSubjectsByStudent[p.student_id].push({
+      id: p.id,
       subject_id: p.subject_id,
       month: normalizeMonthKey(p.month),
       amount: Number(p.amount),
+      // Prix attendu ce mois-là ; null = ligne d'avant les avances (migration 043).
+      due_amount: p.due_amount == null ? null : Number(p.due_amount),
       paid_at: p.paid_at,
       paid_by: p.paid_by,
     })

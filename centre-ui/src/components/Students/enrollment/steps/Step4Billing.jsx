@@ -1,6 +1,7 @@
 import { enrollmentRegistrationFee, getPrice, isPackageLevel, packageAmount } from '../enrollmentApi'
 import { formationRowPrice, formationsTotal } from '../../../Formations/formationsApi'
 import { monthLabelOf, normalizeMonthKey } from '../../../Accounting/monthUtils'
+import { firstMonthPlan } from '../../../Accounting/subjectPaymentsApi'
 
 export default function Step4Billing({ form, catalog, set, registrationFee, schoolYear, editing }) {
   const amountFor = (subject) => {
@@ -33,6 +34,11 @@ export default function Step4Billing({ form, catalog, set, registrationFee, scho
   const showFirstMonthChoice = !editing && !formationOnly
   const firstMonthLabel = form.registrationDate ? monthLabelOf(normalizeMonthKey(form.registrationDate)) : ''
   const feeMode = form.registrationFeeMode || 'full'
+  // 1er mois payé aujourd'hui : demi-mois éventuel et avance par matière.
+  const plan = showFirstMonthChoice ? firstMonthPlan(form, catalog) : null
+  const nextMonthLabel = plan?.nextMonth ? monthLabelOf(plan.nextMonth) : ''
+  const setFirstMonthAmount = (name, value) =>
+    set('firstMonthAmounts', { ...(form.firstMonthAmounts || {}), [name]: value })
   const fee = enrollmentRegistrationFee(form, registrationFee)
 
   return <>
@@ -92,6 +98,82 @@ export default function Step4Billing({ form, catalog, set, registrationFee, scho
                 <span>Payer plus tard</span>
               </label>
             </div>
+            {form.firstMonthPaidNow && plan && (
+              <div className="billing-first-month-plan">
+                <div className="billing-registration-choice">
+                  <label className={!plan.half ? 'active' : ''}>
+                    <input
+                      type="radio"
+                      name="first-month-length"
+                      checked={!plan.half}
+                      onChange={() => set('firstMonthHalf', false)}
+                    />
+                    <span>Mois complet</span>
+                  </label>
+                  <label className={plan.half ? 'active' : ''}>
+                    <input
+                      type="radio"
+                      name="first-month-length"
+                      checked={plan.half}
+                      onChange={() => set('firstMonthHalf', true)}
+                    />
+                    <span>Demi-mois (moitié du prix)</span>
+                  </label>
+                </div>
+                {plan.isPackage ? (
+                  <p className="billing-first-month-line">
+                    <span>À payer pour {firstMonthLabel}</span>
+                    <strong>{plan.firstDue.toLocaleString('fr-FR')} DH</strong>
+                  </p>
+                ) : (
+                  <>
+                    <div className="billing-first-month-row billing-first-month-row--head">
+                      <span>Matière</span>
+                      <span>Dû {firstMonthLabel}</span>
+                      <span>Payé aujourd'hui</span>
+                    </div>
+                    {plan.lines.map((line) => (
+                      <div className="billing-first-month-row" key={line.name}>
+                        <span>
+                          {line.name}
+                          {line.advance > 0 && (
+                            <small className="billing-first-month-advance">
+                              dont {line.advance.toLocaleString('fr-FR')} DH d'avance sur {nextMonthLabel}
+                            </small>
+                          )}
+                          {line.remaining > 0 && (
+                            <small className="billing-first-month-partial">
+                              reste {line.remaining.toLocaleString('fr-FR')} DH à payer
+                            </small>
+                          )}
+                        </span>
+                        <span>{line.firstDue.toLocaleString('fr-FR')} DH</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          inputMode="numeric"
+                          aria-label={`Montant payé aujourd'hui pour ${line.name}`}
+                          value={form.firstMonthAmounts?.[line.name] ?? String(line.firstDue)}
+                          onChange={(e) => setFirstMonthAmount(line.name, e.target.value)}
+                        />
+                      </div>
+                    ))}
+                    <div className="billing-total">
+                      <b>Payé aujourd'hui</b>
+                      <strong>{plan.total.toLocaleString('fr-FR')} DH</strong>
+                    </div>
+                    {plan.advance > 0 && (
+                      <em className="billing-formations-note">
+                        Le surplus ({plan.advance.toLocaleString('fr-FR')} DH) est enregistré en avance sur {nextMonthLabel} :
+                        une matière dont le mois n'est pas entièrement payé reste en orange jusqu'au paiement du reste.
+                      </em>
+                    )}
+                  </>
+                )}
+                {plan.error && <p className="billing-registration-error">{plan.error}</p>}
+              </div>
+            )}
           </div>
         )}
 

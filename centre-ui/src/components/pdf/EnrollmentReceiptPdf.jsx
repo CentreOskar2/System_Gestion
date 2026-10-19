@@ -1,8 +1,10 @@
 import { registrationFeeStatusLabel } from '../Accounting/registrationFeesApi'
+import { firstMonthStatusLabel } from '../Accounting/subjectPaymentsApi'
 import { ThermalReceipt, ThermalInfo, ThermalSeparator, ThermalLines, ThermalTotal, ThermalStatus } from './ThermalReceipt'
 
 // registrationFee = { due, paidNow, remaining } (frais enregistrés à l'inscription) ou null.
-export default function EnrollmentReceiptPdf({ form, lines, total, dateLabel, registrationFee, firstMonthPaid }) {
+// firstMonth = plan du 1er mois payé à l'inscription (firstMonthPlan) ou null.
+export default function EnrollmentReceiptPdf({ form, lines, total, dateLabel, registrationFee, firstMonth }) {
   return (
     <ThermalReceipt
       tagline="Centre de soutien scolaire — Agadir"
@@ -18,7 +20,7 @@ export default function EnrollmentReceiptPdf({ form, lines, total, dateLabel, re
 
       <ThermalLines title="Matières inscrites (prix mensuel)" lines={lines} />
       <ThermalTotal label="Total mensuel" amount={total} />
-      <ThermalStatus>{firstMonthPaid ? `Payé le ${dateLabel}` : 'En attente de paiement'}</ThermalStatus>
+      <ThermalStatus>{firstMonthStatusLabel(firstMonth, dateLabel)}</ThermalStatus>
 
       {registrationFee != null && (
         <>

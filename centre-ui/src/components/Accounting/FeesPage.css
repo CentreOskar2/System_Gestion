@@ -1051,3 +1051,54 @@
   height: 52px;
   font-size: 1.1rem;
 }
+
+/* Avance par matière : une partie seulement du prix du mois est payée. */
+.payment-segment.partial {
+  background: #f59e0b;
+}
+
+.payment-subject-row.partial {
+  border-color: #fcd9a0;
+  background: #fffaf0;
+}
+
+.payment-amount-fields {
+  display: grid;
+  gap: 6px;
+  justify-items: end;
+}
+
+.payment-amount-field em {
+  width: 34px;
+  color: #647088;
+  font-size: 0.75rem;
+  font-style: normal;
+  font-weight: 700;
+  text-align: right;
+}
+
+.payment-partial-hint,
+.payment-advance-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.payment-partial-hint {
+  color: #d97706;
+}
+
+.payment-advance-hint {
+  color: #b45309;
+}
+
+@media (max-width: 600px) {
+  .payment-subject-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .payment-amount-fields {
+    grid-column: 1 / -1;
+  }
+}
