@@ -884,10 +884,13 @@ export default function FeesPage() {
     enteredAmount(paidAmounts[name], priceFor(catalog, selected.student, name))
   // Total payé pour la matière ce mois-ci, tel que saisi (vide = le prix du mois).
   const selectedSubjectPaid = (name) => enteredAmount(paidTotals[name], selectedSubjectAmount(name))
-  // Corriger le prix d'une matière payée en entier corrige aussi ce qui est
-  // payé (ex. demi-mois saisi après coup) ; une avance garde sa somme.
+  // Matière pas encore payée : « Payé » suit le prix (payer le mois entier par
+  // défaut). Matière déjà encaissée : « Payé » reste la somme réellement reçue,
+  // seul le prix change — remonter le prix d'un mois sous-payé (375 DH reçus
+  // sur 400) fait apparaître le reste dû au lieu d'encaisser une somme fictive.
   const setSubjectDue = (name, value) => {
-    if (selectedSubjectPaid(name) === selectedSubjectAmount(name)) {
+    const alreadyPaid = selectedCoverage?.bySubject[name]?.paidAmount || 0
+    if (alreadyPaid === 0 && selectedSubjectPaid(name) === selectedSubjectAmount(name)) {
       setPaidTotals((prev) => ({ ...prev, [name]: value }))
     }
     setPaidAmounts((prev) => ({ ...prev, [name]: value }))
