@@ -1102,3 +1102,19 @@
     grid-column: 1 / -1;
   }
 }
+
+/* Statut enregistré du mois dans la fenêtre de paiement. */
+.payment-month-status {
+  margin-bottom: 12px;
+}
+
+.payment-month-remaining {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border: 1px solid #fcd9a0;
+  border-radius: 10px;
+  background: #fffaf0;
+  color: #b45309;
+  font-weight: 700;
+  text-align: center;
+}

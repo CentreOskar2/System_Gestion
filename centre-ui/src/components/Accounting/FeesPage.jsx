@@ -902,6 +902,16 @@ export default function FeesPage() {
   }
   // Matières proposées dans la modale de validation : celles dues ce mois-là.
   const selectedCoverage = selected ? monthCoverage(selected.student, selected.index) : null
+  // Ce qui est déjà enregistré pour ce mois (pas la saisie en cours) : réglé ou reste dû.
+  const selectedSaved = selected && catalog
+    ? monthBalanceOf({
+        student: selected.student,
+        catalog,
+        monthKey: monthDate(selected.index, Number(schoolYearStart)),
+        payments: paymentsByStudent[selected.student.id] || [],
+        subjectRows: paymentSubjectsByStudent[selected.student.id] || [],
+      })
+    : null
   const selectedDue = selectedCoverage?.due || []
   const selectedLocked = selected ? lockedPaidSubjects(selected.student, selected.index) : {}
   // Forfait déjà réglé : comme pour les matières, le montant reste corrigeable
@@ -1678,6 +1688,7 @@ export default function FeesPage() {
                           {!isBlock && paymentsLabel && (
                             <small className="payment-paid-on">
                               Encaissé : {paymentsLabel}
+                              {selectedCoverage.bySubject[name]?.settled && ' — ✓ réglé'}
                               {lock === 'past' && ' — montant modifiable'}
                             </small>
                           )}
@@ -1763,8 +1774,18 @@ export default function FeesPage() {
                     return collectedNow > 0 ? <small>À encaisser maintenant : {collectedNow.toLocaleString('fr-FR')} DH</small> : null
                   })()}
                 </div>
+                {selectedSaved?.settled && (
+                  <div className="validated payment-month-status">
+                    <Check size={18} /> {schoolMonths[selected.index]?.label} réglé — toutes les matières sont payées
+                  </div>
+                )}
+                {selectedSaved && !selectedSaved.settled && (selectedSaved.rows.length > 0 || selectedSaved.payment) && (
+                  <div className="payment-month-remaining">
+                    Reste à payer sur {schoolMonths[selected.index]?.label} : {selectedSaved.remaining.toLocaleString('fr-FR')} DH
+                  </div>
+                )}
                 <button className="validate-button" disabled={saving} onClick={handleValidate}>
-                  {saving ? 'Enregistrement...' : 'Valider le paiement'}
+                  {saving ? 'Enregistrement...' : selectedSaved?.settled ? 'Enregistrer les modifications' : 'Valider le paiement'}
                 </button>
                 {(stateOf(selected.student, selected.index) === 'paid' || selectedCoverage.rows.length > 0) && (
                   <button
