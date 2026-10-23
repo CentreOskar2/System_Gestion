@@ -3,6 +3,7 @@ import { fetchAllRows } from '../../utils/fetchAllRows'
 import { isEnrolledInMonth } from './monthUtils'
 import { calculateSalary } from './salaryUtils'
 import { fetchTeacherAdvances, indexAdvances } from './advancesApi'
+import { isBlockPayment } from './feesApi'
 
 /* Calcul de la paie, partagé par les pages Salaires, Charges et Bénéfice net.
  *
@@ -37,7 +38,7 @@ export async function fetchSalaryContext() {
     fetchAllRows(() => supabase.from('student_group_subjects').select('group_id, student_id, subject_id').order('student_id').order('group_id').order('subject_id')),
     // Le prix réellement facturé à chaque élève. Un prix manuel (une remise)
     // ne figure QUE là : la table tariffs ne connaît que le prix standard.
-    fetchAllRows(() => supabase.from('student_subscriptions').select('student_id, group_id, subject_id, monthly_price').order('id')),
+    fetchAllRows(() => supabase.from('student_subscriptions').select('student_id, group_id, subject_id, monthly_price, started_at').order('id')),
     fetchAllRows(() => supabase.from('group_students').select('group_id, student_id').order('student_id').order('group_id')),
     fetchAllRows(() => supabase.from('students').select('id, first_name, last_name, status, registration_date, created_at, branch_id').order('id')),
     fetchAllRows(() => supabase.from('teacher_salaries').select('teacher_id, month, amount').eq('status', 'paid').order('teacher_id').order('month')),
@@ -47,7 +48,7 @@ export async function fetchSalaryContext() {
   const firstError = [teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes, tgRes, tgnRes, studentSubjectsRes, subscriptionsRes, groupStudentsRes, studentsRes, salaryRes, tariffsRes].find((r) => r.error)
   if (firstError) throw new Error(firstError.error.message)
 
-  const paymentsIndex = await fetchPaymentsIndex()
+  const paymentsIndex = await fetchPaymentsIndex(subscriptionsRes.data || [])
 
   const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
   const levelMap = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l.name]))
@@ -207,10 +208,10 @@ const monthOf = (value) => String(value || '').slice(0, 7)
 // Encaissements, indexés pour répondre vite à « cet élève a-t-il payé cette
 // matière ce mois-ci, et combien ? ». Le professeur au pourcentage n'est payé
 // que sur ce qui a été réellement encaissé (décision du centre, 01/10).
-async function fetchPaymentsIndex() {
+async function fetchPaymentsIndex(subscriptions) {
   const [monthRes, subjectRes, formationsRes, formationPaymentsRes] = await Promise.all([
-    fetchAllRows(() => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')),
-    fetchAllRows(() => supabase.from('student_payment_subjects').select('student_id, subject_id, month, amount').order('id')),
+    fetchAllRows(() => supabase.from('student_payments').select('student_id, month, amount, status, paid_at').order('month').order('student_id')),
+    fetchAllRows(() => supabase.from('student_payment_subjects').select('student_id, subject_id, month, amount, paid_at').order('id')),
     fetchAllRows(() => supabase.from('student_formations').select('id, student_id, group_id').order('id')),
     fetchAllRows(() => supabase.from('formation_payments').select('student_formation_id, month, amount, status').order('month').order('id')),
   ])
@@ -228,13 +229,51 @@ async function fetchPaymentsIndex() {
   }
   // Détail par matière : « élève:matière:AAAA-MM » → montant encaissé.
   const subjectPaid = {}
-  // Mois pour lesquels l'élève a un détail par matière.
-  const hasSubjectDetail = new Set()
   // Une matière payée en plusieurs fois (avance puis solde) a plusieurs lignes.
+  const rowsByStudentMonth = {}
   for (const row of subjectRes.data || []) {
     const key = `${row.student_id}:${row.subject_id}:${monthOf(row.month)}`
     subjectPaid[key] = (subjectPaid[key] || 0) + (Number(row.amount) || 0)
-    hasSubjectDetail.add(`${row.student_id}:${monthOf(row.month)}`)
+    const monthKey = `${row.student_id}:${monthOf(row.month)}`
+    if (!rowsByStudentMonth[monthKey]) rowsByStudentMonth[monthKey] = []
+    rowsByStudentMonth[monthKey].push(row)
+  }
+
+  // Paiement en bloc (une somme pour tout le mois, sans détail par matière) :
+  // il règle les matières que la page Frais de scolarité lui attribue — celles
+  // sans ligne propre ce mois-là et déjà suivies le jour du paiement (voir
+  // monthCoverageOf). Chacune reçoit sa part de ce qui a VRAIMENT été versé, au
+  // prorata de son prix, sans dépasser ce prix : un bloc de 300 DH pour 400 DH
+  // de matières crédite chaque professeur de 75 % de son prix, plus de 100 %.
+  // Avant, un bloc comptait toujours au prix plein, et était ignoré dès qu'une
+  // matière du même mois avait été réglée à part.
+  const subscriptionsByStudent = {}
+  for (const row of subscriptions) {
+    if (!row.subject_id) continue
+    if (!subscriptionsByStudent[row.student_id]) subscriptionsByStudent[row.student_id] = new Map()
+    const bySubject = subscriptionsByStudent[row.student_id]
+    if (!bySubject.has(row.subject_id)) bySubject.set(row.subject_id, { price: 0, startedAt: row.started_at || null })
+    const entry = bySubject.get(row.subject_id)
+    entry.price = Math.max(entry.price, Number(row.monthly_price) || 0)
+  }
+  for (const payment of monthRes.data || []) {
+    if (!PAID_STATUSES.has(payment.status || 'paid')) continue
+    const monthKey = `${payment.student_id}:${monthOf(payment.month)}`
+    const rows = rowsByStudentMonth[monthKey] || []
+    if (!isBlockPayment(payment, rows)) continue
+    const rowSubjectIds = new Set(rows.map((row) => row.subject_id))
+    const covered = [...(subscriptionsByStudent[payment.student_id] || new Map())]
+      .filter(([subjectId, { startedAt }]) =>
+        !rowSubjectIds.has(subjectId) && (!startedAt || !payment.paid_at || new Date(startedAt) <= new Date(payment.paid_at))
+      )
+    if (!covered.length) continue
+    const amount = Number(payment.amount) || 0
+    const total = covered.reduce((sum, [, { price }]) => sum + price, 0)
+    for (const [subjectId, { price }] of covered) {
+      const share = total > 0 ? Math.min(price, (amount * price) / total) : amount / covered.length
+      const key = `${payment.student_id}:${subjectId}:${monthOf(payment.month)}`
+      subjectPaid[key] = Math.round(((subjectPaid[key] || 0) + share) * 100) / 100
+    }
   }
   // Formations : « élève:groupe:AAAA-MM » → montant encaissé.
   const enrollmentById = Object.fromEntries((formationsRes.data || []).map((row) => [row.id, row]))
@@ -244,7 +283,7 @@ async function fetchPaymentsIndex() {
     if (!enrollment?.group_id || !PAID_STATUSES.has(row.status || 'paid')) continue
     formationPaid[`${enrollment.student_id}:${enrollment.group_id}:${monthOf(row.month)}`] = Number(row.amount) || 0
   }
-  return { monthPaid, subjectPaid, hasSubjectDetail, formationPaid }
+  return { monthPaid, subjectPaid, formationPaid }
 }
 
 // Montant encaissé pour cet élève dans ce groupe ce mois-ci, ou null s'il n'a
@@ -259,12 +298,10 @@ function paidAmountFor(paymentsIndex, { studentId, groupId, subjectId, isFormati
   }
   const monthAmount = paymentsIndex.monthPaid[`${studentId}:${key}`]
   if (isPackage) return monthAmount === undefined ? null : monthAmount
+  // Matière réglée à part, ou sa part d'un paiement en bloc (voir
+  // fetchPaymentsIndex) : le montant réellement encaissé, jamais le prix prévu.
   const subjectAmount = paymentsIndex.subjectPaid[`${studentId}:${subjectId}:${key}`]
-  if (subjectAmount !== undefined) return subjectAmount
-  // Mois payé en bloc sans détail par matière (avance, ou paiement antérieur
-  // au détail par matière) : toutes les matières sont réglées, au prix prévu.
-  if (monthAmount !== undefined && !paymentsIndex.hasSubjectDetail.has(`${studentId}:${key}`)) return price
-  return null
+  return subjectAmount === undefined ? null : subjectAmount
 }
 
 // Rejoue le contexte sur un mois donné. Retourne, par professeur, le détail des

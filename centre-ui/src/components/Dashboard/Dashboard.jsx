@@ -250,7 +250,6 @@ export default function Dashboard() {
         const query = supabase.from('students').select('id, first_name, last_name, status, du_mois, branch_id, cycle_id, registration_date, payment_day, created_at').order('id')
         return branchFilter ? query.eq('branch_id', branchFilter) : query
       }
-      const paymentsQuery = () => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')
       const salariesQuery = () => supabase.from('teacher_salaries').select('teacher_id, month, amount, status').order('teacher_id').order('month')
       const expensesQuery = () => {
         const query = supabase.from('expenses').select('id, title, amount, month, branch_id, type').order('id')
@@ -261,9 +260,8 @@ export default function Dashboard() {
       const teachersQuery = supabase.from('teachers').select('id, first_name, last_name, status')
 
       try {
-        const [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes, feesRes, formationRevenue, tuitionFees, formationFees] = await Promise.all([
+        const [studentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes, feesRes, formationRevenue, tuitionFees, formationFees] = await Promise.all([
           fetchAllRows(studentsQuery),
-          fetchAllRows(paymentsQuery),
           fetchAllRows(salariesQuery),
           fetchAllRows(expensesQuery),
           teachersQuery,
@@ -279,7 +277,7 @@ export default function Dashboard() {
         ])
         if (cancelled) return
 
-        const firstError = [studentsRes, paymentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes].find((result) => result.error)
+        const firstError = [studentsRes, salariesRes, expensesRes, teachersRes, branchesRes, cyclesRes, settingsRes].find((result) => result.error)
         if (firstError) throw new Error(firstError.error.message)
 
         // Registration fees are revenue for the month they were cashed in — each
@@ -290,7 +288,10 @@ export default function Dashboard() {
           students: studentsRes.data || [],
           // Les encaissements de formation sont une recette du centre : sans eux,
           // le chiffre d'affaires du tableau de bord ignorerait tout un produit.
-          payments: [...(paymentsRes.data || []), ...registrationFeePayments, ...formationRevenue],
+          // Scolarité : l'argent réellement reçu (comme la caisse et la fiche
+          // élève), pas le seul résumé des mois complets — un mois payé en
+          // partie, ou une matière réglée après un paiement en bloc, y manquait.
+          payments: [...(tuitionFees.cashPayments || []), ...registrationFeePayments, ...formationRevenue],
           // Mensualités détaillées par matière, pour les impayés (buildDebtors).
           // Elles seules soldent un mois : un élève qui n'a réglé que ses frais
           // d'inscription reste débiteur de son mois.

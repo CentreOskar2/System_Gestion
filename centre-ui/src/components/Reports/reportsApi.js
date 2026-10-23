@@ -1,6 +1,6 @@
 import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
-import { fetchFeesData } from '../Accounting/feesApi'
+import { fetchFeesData, fetchTuitionCashPayments } from '../Accounting/feesApi'
 import { monthBalanceOf } from '../Accounting/tuitionCoverage'
 import { fetchFormationRevenue } from '../Formations/formationsApi'
 import { calculateSalary } from '../Accounting/salaryUtils'
@@ -248,7 +248,8 @@ export async function buildNetProfitReport({ branchId, branchName, monthKey }) {
   }
 
   const [paymentsRes, studentsRes, expensesRes, salariesRes, branchesRes, formationRevenue] = await Promise.all([
-    fetchAllRows(() => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')),
+    // Scolarité réellement encaissée (voir fetchTuitionCashPayments).
+    fetchTuitionCashPayments().then((data) => ({ data })),
     fetchAllRows(studentsQuery),
     fetchAllRows(expensesQuery),
     fetchAllRows(() => supabase.from('teacher_salaries').select('teacher_id, month, amount, status').order('teacher_id').order('month')),

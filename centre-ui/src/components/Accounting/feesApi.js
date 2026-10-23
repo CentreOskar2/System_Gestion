@@ -107,6 +107,63 @@ export async function recordFirstMonthPayment({ studentId, month, amount, userId
   if (error) throw new Error(error.message)
 }
 
+// Encaissements réels, un par somme reçue, chacun à SA date : c'est ce que
+// la caisse du jour, l'historique journalier et la fiche élève additionnent.
+//   - chaque matière réglée (student_payment_subjects) ;
+//   - chaque paiement en bloc (student_payments sans détail qui le précède).
+// Le résumé « mois complet » n'y figure pas : il est supprimé quand on
+// décoche une matière, recréé quand le mois se complète, et son montant
+// couvre des matières payées à des jours différents. L'additionner faisait
+// bouger les montants des jours passés, et ignorait les mois payés en partie.
+export function buildCashPayments(payments, subjectRows) {
+  const rowsByStudentMonth = {}
+  for (const row of subjectRows) {
+    const key = `${row.student_id}:${normalizeMonthKey(row.month)}`
+    if (!rowsByStudentMonth[key]) rowsByStudentMonth[key] = []
+    rowsByStudentMonth[key].push(row)
+  }
+  return [
+    ...subjectRows.map((row) => ({
+      id: `subject-${row.id}`,
+      student_id: row.student_id,
+      subject_id: row.subject_id,
+      month: normalizeMonthKey(row.month),
+      amount: Number(row.amount),
+      status: 'paid',
+      paid_at: row.paid_at,
+      paid_by: row.paid_by,
+    })),
+    ...payments
+      .filter((payment) => isBlockPayment(payment, rowsByStudentMonth[`${payment.student_id}:${normalizeMonthKey(payment.month)}`]))
+      .map((payment) => ({
+        id: `month-${payment.student_id}-${normalizeMonthKey(payment.month)}`,
+        student_id: payment.student_id,
+        month: normalizeMonthKey(payment.month),
+        amount: Number(payment.amount),
+        status: payment.status || 'paid',
+        paid_at: payment.paid_at,
+        paid_by: payment.paid_by,
+      })),
+  ]
+}
+
+// La scolarité réellement encaissée, sans le reste de fetchFeesData : pour le
+// chiffre d'affaires (Dashboard, Bénéfice net, rapports). Un mois payé en
+// partie compte pour ce qui a été reçu, un mois en bloc pour son montant.
+export async function fetchTuitionCashPayments() {
+  const [paymentsRes, subjectRes] = await Promise.all([
+    fetchAllRows(() =>
+      supabase.from('student_payments').select('student_id, month, amount, status, paid_at, paid_by').order('month').order('student_id')
+    ),
+    fetchAllRows(() =>
+      supabase.from('student_payment_subjects').select('id, student_id, subject_id, month, amount, paid_at, paid_by').order('id')
+    ),
+  ])
+  const failed = [paymentsRes, subjectRes].find((res) => res.error)
+  if (failed) throw new Error(failed.error.message)
+  return buildCashPayments(paymentsRes.data || [], subjectRes.data || [])
+}
+
 export async function fetchFeesData(branchId = null) {
   const catalog = await fetchCatalog()
 
@@ -234,43 +291,7 @@ export async function fetchFeesData(branchId = null) {
     })
   }
 
-  // Encaissements réels, un par somme reçue, chacun à SA date : c'est ce que
-  // la caisse du jour et l'historique journalier additionnent.
-  //   - chaque matière réglée (student_payment_subjects) ;
-  //   - chaque paiement en bloc (student_payments sans détail qui le précède).
-  // Le résumé « mois complet » n'y figure pas : il est supprimé quand on
-  // décoche une matière, recréé quand le mois se complète, et son montant
-  // couvre des matières payées à des jours différents. L'additionner faisait
-  // bouger les montants des jours passés.
-  const rowsByStudentMonth = {}
-  for (const row of paymentSubjectsRes.data || []) {
-    const key = `${row.student_id}:${normalizeMonthKey(row.month)}`
-    if (!rowsByStudentMonth[key]) rowsByStudentMonth[key] = []
-    rowsByStudentMonth[key].push(row)
-  }
-  const cashPayments = [
-    ...(paymentSubjectsRes.data || []).map((row) => ({
-      id: `subject-${row.id}`,
-      student_id: row.student_id,
-      subject_id: row.subject_id,
-      month: normalizeMonthKey(row.month),
-      amount: Number(row.amount),
-      status: 'paid',
-      paid_at: row.paid_at,
-      paid_by: row.paid_by,
-    })),
-    ...(paymentsRes.data || [])
-      .filter((payment) => isBlockPayment(payment, rowsByStudentMonth[`${payment.student_id}:${normalizeMonthKey(payment.month)}`]))
-      .map((payment) => ({
-        id: `month-${payment.student_id}-${normalizeMonthKey(payment.month)}`,
-        student_id: payment.student_id,
-        month: normalizeMonthKey(payment.month),
-        amount: Number(payment.amount),
-        status: payment.status || 'paid',
-        paid_at: payment.paid_at,
-        paid_by: payment.paid_by,
-      })),
-  ]
+  const cashPayments = buildCashPayments(paymentsRes.data || [], paymentSubjectsRes.data || [])
 
   return {
     students,

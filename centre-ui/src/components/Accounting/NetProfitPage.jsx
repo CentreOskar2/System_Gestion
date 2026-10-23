@@ -6,7 +6,7 @@ import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
 import { useBranch } from '../../context/BranchContext'
 import { academicMonths, calendarMonthOptions, currentMonthKey, schoolYearOptions } from './monthUtils'
-import { subscribeFeesCache } from './feesApi'
+import { fetchTuitionCashPayments, subscribeFeesCache } from './feesApi'
 import { computeTeacherSalaries, fetchSalaryContext } from './salariesApi'
 import { fetchFormationRevenue } from '../Formations/formationsApi'
 import { fetchRegistrationFeeRevenue } from './registrationFeesApi'
@@ -158,7 +158,8 @@ export default function NetProfitPage() {
       }
       // Tables qui dépassent 1000 lignes : lues par pages (voir fetchAllRows).
       const [paymentsRes, studentsRes, expensesRes, branchesRes, feesRes, salaryContext, formationRevenue] = await Promise.all([
-        fetchAllRows(() => supabase.from('student_payments').select('student_id, month, amount, status').order('month').order('student_id')),
+        // Scolarité réellement encaissée (voir fetchTuitionCashPayments).
+        fetchTuitionCashPayments().then((data) => ({ data })),
         fetchAllRows(studentsQuery),
         fetchAllRows(expensesQuery),
         supabase.from('branches').select('id, name, status'),
