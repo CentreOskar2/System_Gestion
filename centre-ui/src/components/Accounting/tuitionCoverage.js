@@ -96,6 +96,29 @@ export function monthCoverageOf({ student, monthKey, payments = [], subjectRows 
   return { monthKey, payment, block, rows, rawPaid, partial, blockCovered, paid, due, bySubject }
 }
 
+// Ce que chaque matière a réellement reçu d'un paiement en bloc : le montant
+// du bloc, réparti au prorata du prix de chaque matière couverte (à parts
+// égales si aucune n'a de prix). Les parts redonnent exactement la somme
+// encaissée : un prix modifié après coup (demi-mois remonté au prix plein)
+// ne change pas ce qui a été payé ce mois-là.
+export function blockSharesOf({ student, catalog, coverage }) {
+  const names = coverage?.block ? coverage.blockCovered : []
+  if (names.length === 0) return {}
+  const amount = toNumber(coverage.block.amount)
+  const prices = names.map((name) => Math.max(0, toNumber(priceFor(catalog, student, name))))
+  const total = prices.reduce((sum, price) => sum + price, 0)
+  const shares = {}
+  let given = 0
+  names.forEach((name, index) => {
+    const share = index === names.length - 1
+      ? amount - given
+      : total > 0 ? (amount * prices[index]) / total : amount / names.length
+    shares[name] = Math.round(share * 100) / 100
+    given += shares[name]
+  })
+  return shares
+}
+
 // Ce qui reste à régler sur un mois :
 //   - settled   : le mois est entièrement réglé (même règle que le calendrier) ;
 //   - unpaid    : matières dues et non soldées, avec ce qui reste à payer (le

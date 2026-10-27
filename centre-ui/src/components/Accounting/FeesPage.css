@@ -1108,6 +1108,18 @@
   margin-bottom: 12px;
 }
 
+/* Mois réglé en bloc : la somme réellement reçue ce jour-là. */
+.payment-block-paid {
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border: 1px solid #c7d2fe;
+  border-radius: 10px;
+  background: #f5f7ff;
+  color: #3651d4;
+  font-weight: 700;
+  text-align: center;
+}
+
 .payment-month-remaining {
   margin-bottom: 12px;
   padding: 14px 16px;

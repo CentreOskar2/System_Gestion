@@ -27,7 +27,7 @@ import { fetchAppSettings } from '../../appSettings'
 import { fetchRegistrationFees, recordRegistrationFeePayment, registrationFeeCashPayments } from './registrationFeesApi'
 import RegistrationFeeModal from './RegistrationFeeModal'
 import RegistrationFeeBadge from './RegistrationFeeBadge'
-import { isSegmentedPayment as isSegmentedPaymentOf, localMonthKey, monthBalanceOf, monthCoverageOf } from './tuitionCoverage'
+import { blockSharesOf, isSegmentedPayment as isSegmentedPaymentOf, localMonthKey, monthBalanceOf, monthCoverageOf } from './tuitionCoverage'
 import {
   allocateAcrossMonths,
   applySubjectPaymentChanges,
@@ -721,6 +721,12 @@ export default function FeesPage() {
       asOfDay,
     })
 
+  // Mois réglé en bloc : ce que chaque matière a réellement reçu (voir
+  // blockSharesOf). La fenêtre de paiement et le reçu montrent l'argent reçu,
+  // pas le prix actuel de la matière, qui a pu changer depuis.
+  const monthBlockShares = (student, index, coverage = monthCoverage(student, index)) =>
+    blockSharesOf({ student, catalog, coverage })
+
   // Une matière réglée un jour passé ne peut plus être décochée que par un
   // rôle « centre » : l'annuler retirerait l'encaissement de la caisse de ce
   // jour-là. Son montant, lui, reste corrigeable par tous (après confirmation).
@@ -947,10 +953,16 @@ export default function FeesPage() {
       return { ...base, total, lines: [{ name: line?.name || 'Forfait', amount: total }] }
     }
 
-    // Mois payé en bloc (avance) : pas de détail par matière, lignes aux prix
-    // habituels, limitées aux matières que ce paiement couvrait.
-    const { paid } = monthCoverage(student, index)
-    return { ...base, total, lines: paid.map((name) => ({ name, amount: priceFor(catalog, student, name) })) }
+    // Mois payé en bloc (avance, 1er mois à l'inscription) : pas de détail par
+    // matière ; chaque matière que ce paiement couvrait porte sa part de la
+    // somme encaissée.
+    const coverage = monthCoverage(student, index)
+    const shares = monthBlockShares(student, index, coverage)
+    return {
+      ...base,
+      total,
+      lines: coverage.paid.map((name) => ({ name, amount: shares[name] ?? priceFor(catalog, student, name) })),
+    }
   }
 
   // Reçu d'un mois réglé matière par matière, entièrement ou en partie (avance) :
@@ -964,11 +976,12 @@ export default function FeesPage() {
       payments: paymentsByStudent[student.id] || [],
       subjectRows,
     })
+    const shares = blockSharesOf({ student, catalog, coverage: balance })
     const lines = [
       ...balance.due
         .map((name) => ({
           name,
-          amount: balance.blockCovered.includes(name) ? priceFor(catalog, student, name) : balance.bySubject[name].paidAmount,
+          amount: shares[name] ?? balance.bySubject[name].paidAmount,
         }))
         .filter((line) => line.amount > 0 || balance.paid.includes(line.name)),
       ...extraLines,
@@ -989,12 +1002,17 @@ export default function FeesPage() {
     if (status === 'inactive' || status === 'disabled') return
     setSelected({ student, index })
     const coverage = monthCoverage(student, index)
+    // Matières réglées en bloc : prix et payé de CE mois = leur part du bloc.
+    const shares = monthBlockShares(student, index, coverage)
     // Cochées : les matières qui ont déjà un versement ce mois-ci (soldées ou avance).
     setPaidSelection([...coverage.paid, ...coverage.partial])
-    setPaidAmounts(Object.fromEntries(student.chosen.map((name) => [name, String(monthSubjectAmount(student, index, name))])))
+    setPaidAmounts(
+      Object.fromEntries(student.chosen.map((name) => [name, String(shares[name] ?? monthSubjectAmount(student, index, name))]))
+    )
     setPaidTotals(
       Object.fromEntries(
         student.chosen.map((name) => {
+          if (shares[name] !== undefined) return [name, String(shares[name])]
           const paidAmount = coverage.bySubject[name]?.paidAmount || 0
           return [name, String(paidAmount > 0 ? paidAmount : monthSubjectAmount(student, index, name))]
         })
@@ -1774,6 +1792,14 @@ export default function FeesPage() {
                     return collectedNow > 0 ? <small>À encaisser maintenant : {collectedNow.toLocaleString('fr-FR')} DH</small> : null
                   })()}
                 </div>
+                {selectedCoverage.block && selectedCoverage.blockCovered.length > 0 && (
+                  <div className="payment-block-paid">
+                    Payé en bloc
+                    {selectedCoverage.block.paid_at && ` le ${formatFrenchDate(normalizeDateKey(selectedCoverage.block.paid_at))}`}
+                    {' : '}{toNumber(selectedCoverage.block.amount).toLocaleString('fr-FR')} DH
+                    {selectedCoverage.blockCovered.length > 1 && ` pour ${selectedCoverage.blockCovered.join(', ')}`}
+                  </div>
+                )}
                 {selectedSaved?.settled && (
                   <div className="validated payment-month-status">
                     <Check size={18} /> {schoolMonths[selected.index]?.label} réglé — toutes les matières sont payées
