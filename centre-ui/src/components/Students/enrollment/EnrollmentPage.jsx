@@ -10,8 +10,16 @@ import { today } from '../utils/studentHelpers'
 import { isValidPhoneNumber, normalizePhoneInput, phoneValidationMessage } from '../../../utils/validators'
 import { fetchAppSettings } from '../../../appSettings'
 import { recordRegistrationFeePayment } from '../../Accounting/registrationFeesApi'
-import { invalidateFeesCache } from '../../Accounting/feesApi'
-import { firstMonthPlan, recordFirstMonthPlan } from '../../Accounting/subjectPaymentsApi'
+import { fetchFeesData, invalidateFeesCache } from '../../Accounting/feesApi'
+import {
+  firstMonthPlan,
+  paymentRowsLabel,
+  recordFirstMonthPlan,
+  resyncAfterDeletion,
+  writeSubjectPaymentChanges,
+} from '../../Accounting/subjectPaymentsApi'
+import { localMonthKey } from '../../Accounting/tuitionCoverage'
+import { supabase } from '../../../supabaseClient'
 import { normalizePaymentDay } from '../../Accounting/monthUtils'
 import { useAuth } from '../../../context/AuthContext'
 import '../Enrollment.css'
@@ -118,6 +126,26 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
   const [codeReady, setCodeReady] = useState(!student || Boolean(student?.code))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  // Modification : versements de l'élève sur les mois encore ouverts, pour
+  // proposer de les supprimer si on lui retire une matière.
+  const [openPaymentRows, setOpenPaymentRows] = useState([])
+  const [removedChoices, setRemovedChoices] = useState({})
+
+  useEffect(() => {
+    if (mode !== 'edit' || !student?.id) return undefined
+    let active = true
+    supabase
+      .from('student_payment_subjects')
+      .select('id, subject_id, month, amount, due_amount, paid_at, paid_by')
+      .eq('student_id', student.id)
+      .gte('month', localMonthKey(new Date()))
+      .then(({ data, error: loadError }) => {
+        if (!active) return
+        if (loadError) console.error(loadError)
+        else setOpenPaymentRows(data || [])
+      })
+    return () => { active = false }
+  }, [mode, student?.id])
   const [fieldErrors, setFieldErrors] = useState({ phone: '', phone2: '' })
 
   useEffect(() => {
@@ -318,6 +346,24 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
     return errors
   }
 
+  // Matières retirées à l'élève qui ont des versements sur un mois encore ouvert.
+  const removedWithPayments = (() => {
+    if (mode !== 'edit' || !catalog) return []
+    const kept = new Set(
+      form.formationOnly ? [] : (form.chosen || []).map((name) => catalog.subjectsByName?.[name]?.id).filter(Boolean)
+    )
+    const nameById = Object.fromEntries((catalog.subjects || []).map((subject) => [subject.id, subject.name]))
+    const bySubject = new Map()
+    for (const row of openPaymentRows) {
+      if (kept.has(row.subject_id)) continue
+      if (!bySubject.has(row.subject_id)) {
+        bySubject.set(row.subject_id, { subjectId: row.subject_id, name: nameById[row.subject_id] || 'Matière', rows: [] })
+      }
+      bySubject.get(row.subject_id).rows.push(row)
+    }
+    return [...bySubject.values()]
+  })()
+
   const handleFinish = async () => {
     if (saving) return
     if (validateStep(1).length > 0) return
@@ -333,11 +379,48 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
       setError(plan.error)
       return
     }
+    // Matière retirée avec des versements sur un mois encore ouvert : garder ou
+    // supprimer ces versements est un choix explicite.
+    const undecided = removedWithPayments.filter((item) => !removedChoices[item.subjectId])
+    if (undecided.length > 0) {
+      setError(`Choisissez quoi faire des paiements de : ${undecided.map((item) => item.name).join(', ')}.`)
+      return
+    }
+    const rowsToDelete = removedWithPayments
+      .filter((item) => removedChoices[item.subjectId] === 'delete')
+      .flatMap((item) => item.rows)
+    if (rowsToDelete.length > 0) {
+      const total = rowsToDelete.reduce((sum, row) => sum + (Number(row.amount) || 0), 0)
+      const todayLabel = new Date().toLocaleDateString('fr-FR')
+      const days = [...new Set(rowsToDelete.map((row) => (row.paid_at ? new Date(row.paid_at).toLocaleDateString('fr-FR') : '')))]
+        .filter((day) => day && day !== todayLabel)
+      let message = `Supprimer ${total.toLocaleString('fr-FR')} DH de paiements : ${paymentRowsLabel(rowsToDelete)} ?`
+      if (days.length > 0) message += `\n\nAttention : la caisse du ${days.join(', ')} sera modifiée.`
+      if (!window.confirm(message)) return
+    }
     setSaving(true)
     setError(null)
     try {
       if (mode === 'edit') {
         await updateEnrollment(student.id, form, catalog, student.status)
+        if (rowsToDelete.length > 0) {
+          await writeSubjectPaymentChanges({ deletes: rowsToDelete.map((row) => row.id) })
+          // Le résumé « mois complet » des mois touchés suit (voir syncMonthSummaries).
+          invalidateFeesCache()
+          const data = await fetchFeesData(null)
+          const updated = data.students.find((item) => item.id === student.id)
+          if (updated) {
+            await resyncAfterDeletion({
+              student: updated,
+              catalog: data.catalog,
+              payments: data.paymentsByStudent[updated.id] || [],
+              subjectRows: data.paymentSubjectsByStudent[updated.id] || [],
+              deletedRows: rowsToDelete,
+              userId: user?.id || null,
+            })
+          }
+          invalidateFeesCache()
+        }
         finish({ ...form, id: student.id })
         close()
       } else {
@@ -450,6 +533,36 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
           <section className="enrollment-card">
             {renderStep()}
           </section>
+          {step === STEPS.length && removedWithPayments.length > 0 && (
+            <section className="enrollment-removed-payments">
+              <b>Matières retirées qui ont des paiements sur les mois en cours</b>
+              <p>Choisissez pour chacune : garder ses paiements, ou les supprimer. Les mois terminés gardent les leurs.</p>
+              {removedWithPayments.map((item) => (
+                <div className="removed-payment-choice" key={item.subjectId}>
+                  <span>
+                    <b>{item.name}</b>
+                    <small>{paymentRowsLabel(item.rows)}</small>
+                  </span>
+                  <div>
+                    <button
+                      type="button"
+                      className={removedChoices[item.subjectId] === 'keep' ? 'active' : ''}
+                      onClick={() => setRemovedChoices((current) => ({ ...current, [item.subjectId]: 'keep' }))}
+                    >
+                      Garder ses paiements
+                    </button>
+                    <button
+                      type="button"
+                      className={removedChoices[item.subjectId] === 'delete' ? 'danger active' : 'danger'}
+                      onClick={() => setRemovedChoices((current) => ({ ...current, [item.subjectId]: 'delete' }))}
+                    >
+                      Supprimer ses paiements
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </section>
+          )}
           {error && <div className="enrollment-error">{error}</div>}
           <footer className="enrollment-footer">
             {step > 1 && <button type="button" onClick={prevStep}>Précédent</button>}

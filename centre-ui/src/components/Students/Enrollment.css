@@ -34,3 +34,15 @@
 .billing-first-month-line{display:flex;justify-content:space-between;gap:12px;margin:0}
 .billing-first-month-line strong{color:#315fec}
 @media(max-width:560px){.billing-first-month-row{grid-template-columns:1fr 70px 90px}}
+
+/* Modification : matières retirées qui ont des paiements sur les mois en cours. */
+.enrollment-removed-payments{margin-top:18px;padding:16px 18px;border:1px solid #f0c9c9;border-radius:12px;background:#fffafa}
+.enrollment-removed-payments>b{display:block;color:#7a2e2e;font-size:.92rem}
+.enrollment-removed-payments>p{margin:6px 0 12px;color:#6b4a4a;font-size:.85rem}
+.removed-payment-choice{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px dashed #f0d4d4}
+.removed-payment-choice span b,.removed-payment-choice span small{display:block}
+.removed-payment-choice span small{margin-top:3px;color:#647088;font-size:.82rem}
+.removed-payment-choice>div{display:flex;flex-wrap:wrap;gap:8px}
+.removed-payment-choice button{padding:8px 12px;border:1px solid #dce3ed;border-radius:9px;background:#fff;color:#34425b;font-weight:650;cursor:pointer}
+.removed-payment-choice button.active{border-color:#315fec;background:#eef3ff;color:#264fc9}
+.removed-payment-choice button.danger.active{border-color:#d64545;background:#fdecec;color:#b42323}

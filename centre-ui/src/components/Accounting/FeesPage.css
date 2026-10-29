@@ -1130,3 +1130,79 @@
   font-weight: 700;
   text-align: center;
 }
+
+/* Montant augmenté sur une matière déjà payée : nouveau versement ou correction. */
+.payment-increase-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.payment-increase-mode button,
+.payment-block-detail button,
+.edit-removed-payments button {
+  padding: 5px 10px;
+  border: 1px solid #c9d5ea;
+  border-radius: 8px;
+  background: #fff;
+  color: #34425b;
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.payment-increase-mode button.active,
+.edit-removed-payments button.active {
+  border-color: #315fec;
+  background: #eef3ff;
+  color: #264fc9;
+}
+
+.edit-removed-payments button.danger.active {
+  border-color: #d64545;
+  background: #fdecec;
+  color: #b42323;
+}
+
+/* Mois payé en bloc : le détailler par matière pour le modifier. */
+.payment-block-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-weight: 500;
+}
+
+.payment-block-detail button {
+  border-color: #315fec;
+  color: #315fec;
+}
+
+.payment-block-detail small {
+  color: #647088;
+  font-size: 0.75rem;
+}
+
+/* Matière retirée qui a des paiements sur les mois en cours. */
+.edit-removed-payments {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px dashed #f0b4b4;
+  border-radius: 10px;
+  background: #fffafa;
+}
+
+.edit-removed-payments p {
+  margin: 0 0 8px;
+  color: #6b3a3a;
+  font-size: 0.8rem;
+}
+
+.edit-removed-payments div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

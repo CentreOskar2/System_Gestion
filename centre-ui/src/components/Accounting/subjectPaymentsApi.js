@@ -1,7 +1,7 @@
 import { supabase } from '../../supabaseClient'
 import { isPackageLevel, packageAmount, subjectMonthlyPrice } from '../Students/enrollment/enrollmentApi'
 import { priceFor, recordFirstMonthPayment } from './feesApi'
-import { monthBalanceOf, monthCoverageOf } from './tuitionCoverage'
+import { localMonthKey, monthBalanceOf, monthCoverageOf } from './tuitionCoverage'
 import { monthLabelOf, normalizeMonthKey, parseLocalDate, schoolMonthsFrom } from './monthUtils'
 
 // Versements par matière (student_payment_subjects, migration 043) : une ligne
@@ -72,6 +72,38 @@ export async function writeSubjectPaymentChanges({ inserts = [], updates = [], d
     const { error } = await supabase.from('student_payment_subjects').delete().in('id', deletes)
     if (error) throw new Error(error.message)
   }
+}
+
+// Un mois reste ouvert jusqu'à sa fin : tout y est modifiable par tous.
+// Ensuite il est clôturé — on peut encore y encaisser un retard, mais seul un
+// rôle « centre » (administrateur, directeur) corrige ce qui y est enregistré.
+export function isMonthClosed(monthKey, now = new Date()) {
+  return normalizeMonthKey(monthKey) < localMonthKey(now)
+}
+
+// Versements d'une matière sur les mois encore ouverts : ceux qu'on propose de
+// supprimer quand on retire la matière à l'élève. Les mois clôturés gardent
+// les leurs.
+export function openMonthRowsOf(subjectRows, subjectId, now = new Date()) {
+  return (subjectRows || []).filter((row) => row.subject_id === subjectId && !isMonthClosed(row.month, now))
+}
+
+// « 100 DH — Octobre 2026 · 50 DH — Novembre 2026 »
+export function paymentRowsLabel(rows) {
+  return [...(rows || [])]
+    .sort((a, b) => normalizeMonthKey(a.month).localeCompare(normalizeMonthKey(b.month)))
+    .map((row) => `${toNumber(row.amount).toLocaleString('fr-FR')} DH — ${monthLabelOf(normalizeMonthKey(row.month))}`)
+    .join(' · ')
+}
+
+// Après la suppression de versements : remet d'aplomb le résumé « mois
+// complet » des mois touchés. `student`, `payments`, `subjectRows` : la
+// situation rechargée APRÈS la suppression ; `deletedRows` : ce qui a été retiré.
+export async function resyncAfterDeletion({ student, catalog, payments = [], subjectRows = [], deletedRows = [], userId = null }) {
+  const deleted = deletedRows.map((row) => ({ ...row, month: normalizeMonthKey(row.month) }))
+  const monthKeys = [...new Set(deleted.map((row) => row.month))]
+  if (monthKeys.length === 0) return
+  await syncMonthSummaries({ student, catalog, monthKeys, payments, subjectRows, previousRows: [...subjectRows, ...deleted], userId })
 }
 
 // Résumé « mois complet » (student_payments) des mois réglés matière par
