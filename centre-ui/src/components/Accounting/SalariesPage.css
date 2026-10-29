@@ -135,3 +135,6 @@
 .journal-status{display:inline-block;padding:2px 8px;border-radius:7px;font-size:.68rem;font-weight:700;white-space:nowrap}
 .journal-status.paid{background:#e7f8ea;color:#1b6d2e}
 .journal-status.unpaid{background:#fdecea;color:#c0392b}
+
+/* Prime des professeurs (élèves payés au-delà du seuil). */
+.journal-prime,.journal-prime th,.journal-prime span{color:#1b6d2e}

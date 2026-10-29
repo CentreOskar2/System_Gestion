@@ -10,6 +10,7 @@ import FormationsSettings from '../Formations/FormationsSettings'
 import StudentDeletion from './StudentDeletion'
 import { normalizePhoneInput, phoneValidationMessage } from '../../utils/validators'
 import { fetchAppSettings, saveAppSettings } from '../../appSettings'
+import { primeCycleIdsOf } from '../Accounting/salaryUtils'
 import { schoolYearLabel, academicYearStart } from '../Accounting/monthUtils'
 import './Settings.css'
 
@@ -418,6 +419,9 @@ export default function Settings() {
   const [tariffSaving, setTariffSaving] = useState(false)
   const [appSettings, setAppSettings] = useState(null)
   const [registrationFeeDraft, setRegistrationFeeDraft] = useState('')
+  // Prime des professeurs : { threshold, amountPerStudent, cycleIds } en saisie.
+  const [primeDraft, setPrimeDraft] = useState(null)
+  const [primeDirty, setPrimeDirty] = useState(false)
   const [schoolYearDraft, setSchoolYearDraft] = useState('')
   const [centerSettings, setCenterSettings] = useState(null)
   const [centerForm, setCenterForm] = useState({ center_name: '', logo_url: '', address: '', phone: '', contact_info: '' })
@@ -597,6 +601,11 @@ export default function Settings() {
         setAppSettings(settings)
         setRegistrationFeeDraft(String(settings.registrationFee))
         setSchoolYearDraft(settings.activeSchoolYear)
+        setPrimeDraft({
+          threshold: String(settings.teacherPrime.threshold),
+          amountPerStudent: String(settings.teacherPrime.amountPerStudent),
+          cycleIds: settings.teacherPrime.cycleIds,
+        })
       })
       .catch((err) => {
         if (!ignore) notify(err.message || 'Une erreur est survenue', 'error')
@@ -887,6 +896,38 @@ export default function Settings() {
     }
   }
 
+  // Cycles cochés : ceux enregistrés, sinon le cycle préscolaire (reconnu à son nom).
+  const primeCycleSelection = primeDraft?.cycleIds ?? [...primeCycleIdsOf({ cycleIds: null }, cycles)]
+  const editPrime = (changes) => {
+    setPrimeDraft((current) => ({ ...current, ...changes }))
+    setPrimeDirty(true)
+  }
+  const togglePrimeCycle = (cycleId) =>
+    editPrime({
+      cycleIds: primeCycleSelection.includes(cycleId)
+        ? primeCycleSelection.filter((id) => id !== cycleId)
+        : [...primeCycleSelection, cycleId],
+    })
+
+  const saveTeacherPrime = async () => {
+    const threshold = Number(primeDraft?.threshold)
+    const amountPerStudent = Number(primeDraft?.amountPerStudent)
+    if (!Number.isInteger(threshold) || threshold < 0 || !Number.isFinite(amountPerStudent) || amountPerStudent < 0) {
+      notify('Le seuil ou le montant de la prime est invalide', 'error')
+      return
+    }
+    const teacherPrime = { threshold, amountPerStudent, cycleIds: primeCycleSelection }
+    try {
+      await saveAppSettings({ teacherPrime })
+      setAppSettings((current) => ({ ...current, teacherPrime }))
+      setPrimeDraft({ threshold: String(threshold), amountPerStudent: String(amountPerStudent), cycleIds: primeCycleSelection })
+      setPrimeDirty(false)
+      notify('Prime des professeurs enregistrée')
+    } catch (err) {
+      notify(err.message || 'Une erreur est survenue', 'error')
+    }
+  }
+
   const applySchoolYearChange = async () => {
     try {
       await saveAppSettings({ activeSchoolYear: schoolYearDraft })
@@ -1140,6 +1181,78 @@ export default function Settings() {
                 Changer l'année active
               </button>
             </footer>
+          </section>
+
+          <section className="settings-card settings-teacher-prime">
+            <header className="settings-card-head">
+              <div>
+                <strong>Prime des professeurs</strong>
+                <p>
+                  Ajoutée au salaire, groupe par groupe : un montant pour chaque élève qui a payé le mois au-delà du
+                  seuil. Les salaires déjà validés ne changent pas.
+                </p>
+              </div>
+            </header>
+            {!isSuperAdmin && (
+              <p className="registration-fee-locked">Seul un Super Admin peut modifier ces réglages.</p>
+            )}
+            {primeDraft && (
+              <>
+                <div className="registration-fee-fields">
+                  <label>
+                    Seuil (élèves payés par groupe)
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={primeDraft.threshold}
+                      disabled={!isSuperAdmin}
+                      onChange={(e) => editPrime({ threshold: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    Prime par élève au-delà (DH)
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={primeDraft.amountPerStudent}
+                      disabled={!isSuperAdmin}
+                      onChange={(e) => editPrime({ amountPerStudent: e.target.value })}
+                    />
+                  </label>
+                </div>
+                <div className="prime-cycles">
+                  <span>Cycles concernés</span>
+                  <div>
+                    {cycles.map((cycle) => {
+                      const checked = primeCycleSelection.includes(cycle.id)
+                      return (
+                        <label className={checked ? 'is-checked' : ''} key={cycle.id}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            disabled={!isSuperAdmin}
+                            onChange={() => togglePrimeCycle(cycle.id)}
+                          />
+                          {cycle.name}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+                <p className="prime-example">
+                  Exemple : 25 élèves payés dans un groupe → (25 − {Number(primeDraft.threshold) || 0}) ×{' '}
+                  {Number(primeDraft.amountPerStudent) || 0} DH ={' '}
+                  {(Math.max(0, 25 - (Number(primeDraft.threshold) || 0)) * (Number(primeDraft.amountPerStudent) || 0)).toLocaleString('fr-FR')} DH
+                </p>
+                <footer className="registration-fee-footer">
+                  <button className="settings-save" disabled={!isSuperAdmin || !primeDirty} onClick={saveTeacherPrime}>
+                    <Icon name="save" /> Enregistrer la prime
+                  </button>
+                </footer>
+              </>
+            )}
           </section>
 
           <section className="settings-card settings-pricing">

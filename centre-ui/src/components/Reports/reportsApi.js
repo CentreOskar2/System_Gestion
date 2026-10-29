@@ -3,7 +3,8 @@ import { fetchAllRows } from '../../utils/fetchAllRows'
 import { fetchFeesData, fetchTuitionCashPayments } from '../Accounting/feesApi'
 import { monthBalanceOf } from '../Accounting/tuitionCoverage'
 import { fetchFormationRevenue } from '../Formations/formationsApi'
-import { calculateSalary, formationRateKey } from '../Accounting/salaryUtils'
+import { calculateSalary, formationRateKey, groupPrimeOf, primeCycleIdsOf } from '../Accounting/salaryUtils'
+import { DEFAULT_TEACHER_PRIME, fetchAppSettings } from '../../appSettings'
 import { academicMonths, academicYearStart, accountingDayBucket, formatShortDate, isEnrolledInMonth, schoolYearLabel } from '../Accounting/monthUtils'
 
 const PAID_STATUSES = ['paid', 'validé']
@@ -137,6 +138,8 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     fetchAllRows(() => supabase.from('formation_payments').select('student_formation_id, status').eq('month', monthKey).order('id')),
   ])
 
+  const teacherPrime = (await fetchAppSettings()).teacherPrime || DEFAULT_TEACHER_PRIME
+  const primeCycleIds = primeCycleIdsOf(teacherPrime, cyclesRes.data)
   const formationLevelById = Object.fromEntries((formationLevelsRes.data || []).map((row) => [row.id, row]))
   const formationNameById = Object.fromEntries((formationsRes.data || []).map((row) => [row.id, row.name]))
   const studentFormationById = Object.fromEntries((studentFormationsRes.data || []).map((row) => [row.id, row]))
@@ -216,10 +219,13 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
         const group = groupById[groupId]
         if (!group) return null
         const formationId = formationLevelById[group.formation_level_id]?.formation_id
+        const cycleId = formationId ? formationRateKey(formationId) : levelById[group.level_id]?.cycle_id
+        const studentsCount = (studentsByGroup[groupId] || []).length
         return {
-          cycleId: formationId ? formationRateKey(formationId) : levelById[group.level_id]?.cycle_id,
+          cycleId,
           price: priceForGroup(groupId),
-          studentsCount: (studentsByGroup[groupId] || []).length,
+          studentsCount,
+          prime: !formationId && primeCycleIds.has(cycleId) ? groupPrimeOf(studentsCount, teacherPrime).amount : 0,
         }
       })
       .filter(Boolean)

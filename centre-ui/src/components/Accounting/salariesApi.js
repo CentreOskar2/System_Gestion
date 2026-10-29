@@ -1,7 +1,8 @@
 import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
 import { isEnrolledInMonth } from './monthUtils'
-import { calculateSalary, formationRateKey } from './salaryUtils'
+import { calculateSalary, formationRateKey, groupPrimeOf, primeCycleIdsOf } from './salaryUtils'
+import { DEFAULT_TEACHER_PRIME, fetchAppSettings } from '../../appSettings'
 import { fetchTeacherAdvances, indexAdvances } from './advancesApi'
 import { isBlockPayment } from './feesApi'
 
@@ -78,6 +79,11 @@ export async function fetchSalaryContext() {
     return { advances: [] }
   })
   const advancesIndex = indexAdvances(advances)
+
+  // Prime des professeurs : réglée dans Paramètres (seuil, montant, cycles).
+  const appSettings = await fetchAppSettings()
+  const teacherPrime = appSettings.teacherPrime || DEFAULT_TEACHER_PRIME
+  const primeCycleIds = primeCycleIdsOf(teacherPrime, cyclesRes.data)
 
   const [formationLevelsRes, formationsRes] = await Promise.all([
     supabase.from('formation_levels').select('id, name, formation_id, price'),
@@ -202,6 +208,8 @@ export async function fetchSalaryContext() {
     paymentsIndex,
     formationLevelById,
     formationNameById,
+    teacherPrime,
+    primeCycleIds,
   }
 }
 
@@ -328,6 +336,8 @@ export function computeTeacherSalaries(context, month) {
     paymentsIndex = null,
     formationLevelById = {},
     formationNameById = {},
+    teacherPrime = null,
+    primeCycleIds = new Set(),
   } = context
 
   const validatedAmountByTeacher = validatedByMonth[String(month).slice(0, 7)] || {}
@@ -421,6 +431,11 @@ export function computeTeacherSalaries(context, month) {
         // salaire augmente au fil des validations de paiement. Une remise ou un
         // demi-mois s'y reflète puisque c'est le montant encaissé qui compte.
         const revenue = roster.reduce((sum, entry) => sum + (Number(entry.paidAmount) || 0), 0)
+        const paidCount = roster.filter((entry) => entry.paid).length
+        // Prime : sur les élèves qui ont payé ce mois-ci, groupe par groupe.
+        const prime = !formationLevel && primeCycleIds.has(cycleId)
+          ? groupPrimeOf(paidCount, teacherPrime)
+          : { students: 0, amount: 0 }
         return {
           id: assignment.key,
           name: group.name,
@@ -436,8 +451,12 @@ export function computeTeacherSalaries(context, month) {
           price: priceForGroup(group.id, assignment.subjectId),
           students,
           studentsCount: students.length,
-          paidCount: roster.filter((entry) => entry.paid).length,
+          paidCount,
           revenue,
+          prime: prime.amount,
+          primeStudents: prime.students,
+          primeThreshold: Number(teacherPrime?.threshold) || 0,
+          primePerStudent: Number(teacherPrime?.amountPerStudent) || 0,
           // Prix par élève, pour le journal imprimé : il doit montrer ce que
           // l'élève paie vraiment, pas le tarif du catalogue.
           // `price` est ce qui a été encaissé (0 tant que l'élève n'a pas payé),
@@ -482,6 +501,7 @@ export function computeTeacherSalaries(context, month) {
       validated,
       amount: computed,
       effectiveAmount,
+      primeTotal: groups.reduce((sum, group) => sum + (group.prime || 0), 0),
       // Avances versées sur le salaire de ce mois : déduites du net à verser
       // (voir netToPay dans salaryUtils).
       advances: monthAdvances,

@@ -3,6 +3,7 @@ import { pdfStyles, colors, formatMoney, PDF_FONT_FAMILY } from './pdfStyles'
 import { PdfBrandHeader, PdfSignatures } from './PdfBrandHeader'
 import { initials } from '../Students/utils/studentHelpers'
 import { formatShortDate } from '../Accounting/monthUtils'
+import { fixedSalaryOf } from '../Accounting/salaryUtils'
 
 const styles = StyleSheet.create({
   teacherCard: {
@@ -69,6 +70,8 @@ const styles = StyleSheet.create({
     fontWeight: 700,
     color: colors.primary,
   },
+  primeRow: { flexDirection: 'row', justifyContent: 'space-between', paddingTop: 4 },
+  primeText: { fontSize: 9, color: colors.successText, fontFamily: PDF_FONT_FAMILY, fontWeight: 700 },
   summaryCard: { marginTop: 10, padding: 14, borderRadius: 8, backgroundColor: '#f1f5ff', border: '1px solid #bfd0ff' },
   totalBox: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTop: '1px solid #bfd0ff' },
   totalLabel: { fontSize: 10, fontFamily: PDF_FONT_FAMILY, fontWeight: 700 },
@@ -162,6 +165,14 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
                   <Text style={styles.groupTotalLabel}>Total encaissé du groupe</Text>
                   <Text style={styles.groupTotalValue}>{formatMoney(groupTotals[index])}</Text>
                 </View>
+                {group.prime > 0 && (
+                  <View style={styles.primeRow} wrap={false}>
+                    <Text style={styles.primeText}>
+                      Prime : {group.primeStudents} élève{group.primeStudents > 1 ? 's' : ''} payé{group.primeStudents > 1 ? 's' : ''} au-delà de {group.primeThreshold} × {formatMoney(group.primePerStudent)}
+                    </Text>
+                    <Text style={styles.primeText}>+ {formatMoney(group.prime)}</Text>
+                  </View>
+                )}
               </View>
             )
           })
@@ -177,18 +188,32 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
             <Text style={styles.summaryCol3}>Taux</Text>
             <Text style={styles.summaryCol4}>Montant dû</Text>
           </View>
-          {teacher.groups.map((group, index) => (
-            <View style={pdfStyles.tableRow} key={group.id} wrap={false}>
-              <Text style={styles.summaryCol1}>{group.name}</Text>
-              <Text style={styles.summaryCol2}>{formatMoney(groupTotals[index])}</Text>
-              <Text style={styles.summaryCol3}>{percentage ? `${group.rate}%` : 'Fixe'}</Text>
-              <Text style={styles.summaryCol4}>
-                {percentage
-                  ? formatMoney(Math.round((groupTotals[index] * group.rate) / 100))
-                  : formatMoney(groupTotals[index])}
-              </Text>
+          {percentage ? (
+            teacher.groups.map((group, index) => (
+              <View style={pdfStyles.tableRow} key={group.id} wrap={false}>
+                <Text style={styles.summaryCol1}>{group.name}</Text>
+                <Text style={styles.summaryCol2}>{formatMoney(groupTotals[index])}</Text>
+                <Text style={styles.summaryCol3}>{`${group.rate}%`}</Text>
+                <Text style={styles.summaryCol4}>{formatMoney(Math.round((groupTotals[index] * group.rate) / 100))}</Text>
+              </View>
+            ))
+          ) : (
+            // Au fixe, le salaire ne dépend pas des groupes : le fixe, puis la prime.
+            <View style={pdfStyles.tableRow} wrap={false}>
+              <Text style={styles.summaryCol1}>Salaire fixe</Text>
+              <Text style={styles.summaryCol2} />
+              <Text style={styles.summaryCol3}>Fixe</Text>
+              <Text style={styles.summaryCol4}>{formatMoney(fixedSalaryOf(teacher))}</Text>
             </View>
-          ))}
+          )}
+          {teacher.primeTotal > 0 && (
+            <View style={pdfStyles.tableRow} wrap={false}>
+              <Text style={styles.summaryCol1}>Prime (élèves au-delà du seuil)</Text>
+              <Text style={styles.summaryCol2} />
+              <Text style={styles.summaryCol3} />
+              <Text style={styles.summaryCol4}>+ {formatMoney(teacher.primeTotal)}</Text>
+            </View>
+          )}
           <View style={styles.totalBox} wrap={false}>
             <Text style={styles.totalLabel}>{teacher.advancesTotal > 0 ? 'Salaire du mois' : 'Salaire total à verser'}</Text>
             <Text style={styles.totalValue}>{formatMoney(totalSalary)}</Text>

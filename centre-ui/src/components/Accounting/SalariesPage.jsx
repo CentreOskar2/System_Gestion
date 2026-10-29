@@ -12,7 +12,7 @@ import { useBranch } from '../../context/BranchContext'
 import { waPhoneNumber } from './delinquenciesApi'
 import { calendarMonthOptions, currentMonthKey, formatShortDate, monthLabelOf, schoolYearOptions } from './monthUtils'
 import { fetchTeacherSalaries } from './salariesApi'
-import { netToPay } from './salaryUtils'
+import { fixedSalaryOf, netToPay } from './salaryUtils'
 import './SalariesPage.css'
 
 // Total réellement facturé au groupe. `revenue` est la somme des prix payés par
@@ -40,12 +40,17 @@ function buildSalaryMessage(teacher, monthLabel) {
       if (group.students.length > 0) lines.push(`   الطلبة: ${group.students.join('، ')}`)
       lines.push(`   مجموع المجموعة: ${groupTotal.toLocaleString('fr-FR')} DH`)
       if (percentage && group.rate > 0) lines.push(`   النسبة (تأثير): ${group.rate}%`)
-      lines.push(`   المبلغ المستحق للمجموعة: ${net.toLocaleString('fr-FR')} DH`)
+      if (percentage) lines.push(`   المبلغ المستحق للمجموعة: ${net.toLocaleString('fr-FR')} DH`)
+      if (group.prime > 0) {
+        lines.push(`   المنحة (${group.primeStudents} تلميذ فوق ${group.primeThreshold}): ${group.prime.toLocaleString('fr-FR')} DH`)
+      }
     })
   } else {
     lines.push('لا توجد مجموعات معينة لهذا الأستاذ.')
   }
   lines.push('')
+  if (!percentage) lines.push(`الأجر الثابت: ${fixedSalaryOf(teacher).toLocaleString('fr-FR')} DH`)
+  if (teacher.primeTotal > 0) lines.push(`مجموع المنحة: ${teacher.primeTotal.toLocaleString('fr-FR')} DH`)
   lines.push(`*الأجر الإجمالي المستحق: ${teacher.amount.toLocaleString('fr-FR')} DH*`)
   if (teacher.advancesTotal > 0) {
     lines.push('')
@@ -77,9 +82,9 @@ function Journal({ teacher, monthLabel, close }) {
   const percentage = teacher.type === 'Pourcentage'
 
   const groupTotals = teacher.groups.map(groupRevenue)
-  const totalSalary = percentage
-    ? teacher.amount
-    : teacher.groups.reduce((sum, group) => sum + groupRevenue(group), 0)
+  // Le salaire calculé, prime comprise — comme le bulletin PDF. Pour un
+  // professeur au fixe, ce n'était pas son salaire mais le total des groupes.
+  const totalSalary = teacher.amount
 
   const downloadPdf = async () => {
     setIsExporting(true)
@@ -157,6 +162,15 @@ function Journal({ teacher, monthLabel, close }) {
                     <th colSpan={3}>Total encaissé du groupe</th>
                     <th>{groupTotals[index].toLocaleString('fr-FR')} DH</th>
                   </tr>
+                  {group.prime > 0 && (
+                    <tr className="journal-prime">
+                      <th colSpan={3}>
+                        Prime : {group.primeStudents} élève{group.primeStudents > 1 ? 's' : ''} payé{group.primeStudents > 1 ? 's' : ''} au-delà
+                        de {group.primeThreshold} × {group.primePerStudent.toLocaleString('fr-FR')} DH
+                      </th>
+                      <th>+ {group.prime.toLocaleString('fr-FR')} DH</th>
+                    </tr>
+                  )}
                 </tfoot>
               </table>
             </article>
@@ -173,14 +187,31 @@ function Journal({ teacher, monthLabel, close }) {
             <span>Taux</span>
             <span>Montant dû</span>
           </div>
-          {teacher.groups.map((group, index) => (
-            <div className="summary-row" key={group.id}>
-              <span>{group.name}</span>
-              <span>{groupTotals[index].toLocaleString('fr-FR')} DH</span>
-              <span>{percentage ? `${group.rate}%` : 'Fixe'}</span>
-              <span>{percentage ? `${Math.round(groupTotals[index] * group.rate / 100).toLocaleString('fr-FR')} DH` : `${groupTotals[index].toLocaleString('fr-FR')} DH`}</span>
+          {percentage ? (
+            teacher.groups.map((group, index) => (
+              <div className="summary-row" key={group.id}>
+                <span>{group.name}</span>
+                <span>{groupTotals[index].toLocaleString('fr-FR')} DH</span>
+                <span>{group.rate}%</span>
+                <span>{Math.round(groupTotals[index] * group.rate / 100).toLocaleString('fr-FR')} DH</span>
+              </div>
+            ))
+          ) : (
+            <div className="summary-row">
+              <span>Salaire fixe</span>
+              <span />
+              <span>Fixe</span>
+              <span>{fixedSalaryOf(teacher).toLocaleString('fr-FR')} DH</span>
             </div>
-          ))}
+          )}
+          {teacher.primeTotal > 0 && (
+            <div className="summary-row journal-prime">
+              <span>Prime (élèves au-delà du seuil)</span>
+              <span />
+              <span />
+              <span>+ {teacher.primeTotal.toLocaleString('fr-FR')} DH</span>
+            </div>
+          )}
           <div className="summary-total">
             <b>{teacher.advancesTotal > 0 ? 'Salaire du mois' : 'Salaire total à verser'}</b>
             <strong>{totalSalary.toLocaleString('fr-FR')} DH</strong>
@@ -295,7 +326,7 @@ export default function SalariesPage() {
 
       setValidated((items) => (items.includes(key) ? items : [...items, key]))
       openWhatsApp(teacher, monthLabel)
-      if (teacher.paymentType !== 'fixe') {
+      if (teacher.paymentType !== 'fixe' || teacher.primeTotal > 0) {
         setSelected(teacher)
       }
     } catch (err) {
@@ -454,7 +485,7 @@ export default function SalariesPage() {
                       </td>
                       <td>
                         <div className="salary-actions">
-                          {teacher.paymentType === 'pourcentage' && (
+                          {(teacher.paymentType === 'pourcentage' || teacher.primeTotal > 0) && (
                             <button className="journal-button" onClick={() => openJournal(teacher, false)}>
                               <Icon name="printer" /> Imprimer journal
                             </button>

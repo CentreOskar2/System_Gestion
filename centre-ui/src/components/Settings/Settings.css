@@ -1165,3 +1165,46 @@
     padding: 18px 14px;
   }
 }
+
+/* Prime des professeurs : cycles concernés et exemple de calcul. */
+.prime-cycles {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.prime-cycles > span {
+  color: #475569;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.prime-cycles > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.prime-cycles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.prime-cycles label.is-checked {
+  border-color: #315fec;
+  background: #f1f5ff;
+  color: #315fec;
+  font-weight: 600;
+}
+
+.prime-example {
+  margin: 12px 0 0;
+  color: #64748b;
+  font-size: 0.85rem;
+}
