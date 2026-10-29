@@ -1,3 +1,9 @@
+// Taux d'un professeur au pourcentage sur une formation (English, Français…).
+// Une formation n'a pas de cycle scolaire : son taux est rangé dans
+// cycle_rates, à côté des taux par cycle, sous cette clé. Un groupe de
+// formation porte la même clé comme cycleId (voir salariesApi).
+export const formationRateKey = (formationId) => `formation:${formationId}`
+
 export function calculateSalary(teacher, groups) {
   if (teacher.paymentType === 'fixe') {
     return Number(teacher.fixed_salary) || Number(teacher.remuneration_amount) || 0

@@ -3,7 +3,7 @@ import { fetchAllRows } from '../../utils/fetchAllRows'
 import { fetchFeesData, fetchTuitionCashPayments } from '../Accounting/feesApi'
 import { monthBalanceOf } from '../Accounting/tuitionCoverage'
 import { fetchFormationRevenue } from '../Formations/formationsApi'
-import { calculateSalary } from '../Accounting/salaryUtils'
+import { calculateSalary, formationRateKey } from '../Accounting/salaryUtils'
 import { academicMonths, academicYearStart, accountingDayBucket, formatShortDate, isEnrolledInMonth, schoolYearLabel } from '../Accounting/monthUtils'
 
 const PAID_STATUSES = ['paid', 'validé']
@@ -103,7 +103,7 @@ export async function buildGroupsReport({ branchId, branchName, monthKey, slug }
 // ---------------------------------------------------------------------------
 export async function buildTeachersReport({ branchId, branchName, monthKey, slug }) {
   const teachersQuery = supabase.from('teachers').select('*').eq('status', 'active').order('last_name')
-  let groupsQuery = supabase.from('groups').select('id, level_id, subject_id, branch_id')
+  let groupsQuery = supabase.from('groups').select('id, level_id, subject_id, branch_id, formation_level_id')
   // Un professeur n'appartient a aucune succursale : la liste reste globale,
   // seuls les groupes se filtrent.
   if (branchId) {
@@ -113,6 +113,7 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
   const [
     teachersRes, cyclesRes, levelsRes, branchesRes, subjectsRes, groupsRes,
     tgRes, tgnRes, gsRes, studentsRes, salaryRes, tariffsRes, paymentsRes, teacherBranchesRes,
+    formationLevelsRes, formationsRes, studentFormationsRes, formationPaymentsRes,
   ] = await Promise.all([
     teachersQuery,
     supabase.from('cycles').select('id, name, has_fixed_price, fixed_price'),
@@ -128,7 +129,24 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     supabase.from('tariffs').select('level_id, subject_id, price'),
     fetchAllRows(() => supabase.from('student_payments').select('student_id, status').eq('month', monthKey).order('student_id')),
     supabase.from('teacher_branches').select('teacher_id, branch_id'),
+    // Groupes de formation : prix du niveau de formation, taux propre à la
+    // formation, et élèves payés d'après les encaissements de formation.
+    supabase.from('formation_levels').select('id, formation_id, price'),
+    supabase.from('formations').select('id, name'),
+    fetchAllRows(() => supabase.from('student_formations').select('id, student_id, group_id').order('id')),
+    fetchAllRows(() => supabase.from('formation_payments').select('student_formation_id, status').eq('month', monthKey).order('id')),
   ])
+
+  const formationLevelById = Object.fromEntries((formationLevelsRes.data || []).map((row) => [row.id, row]))
+  const formationNameById = Object.fromEntries((formationsRes.data || []).map((row) => [row.id, row.name]))
+  const studentFormationById = Object.fromEntries((studentFormationsRes.data || []).map((row) => [row.id, row]))
+  const paidFormationKeys = new Set(
+    (formationPaymentsRes.data || [])
+      .filter((p) => PAID_STATUSES.includes(p.status || 'paid'))
+      .map((p) => studentFormationById[p.student_formation_id])
+      .filter(Boolean)
+      .map((row) => `${row.student_id}:${row.group_id}`)
+  )
 
   const cycleMap = Object.fromEntries((cyclesRes.data || []).map((c) => [c.id, c.name]))
   const levelById = Object.fromEntries((levelsRes.data || []).map((l) => [l.id, l]))
@@ -152,6 +170,7 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
   const priceForGroup = (groupId) => {
     const group = groupById[groupId]
     if (!group) return 0
+    if (group.formation_level_id) return Number(formationLevelById[group.formation_level_id]?.price || 0)
     const level = levelById[group.level_id]
     const cycle = cycleById[level?.cycle_id]
     if (cycle?.has_fixed_price) return level?.fixed_price != null ? Number(level.fixed_price) : 0
@@ -183,7 +202,10 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     const student = studentById[row.student_id]
     if (!student || student.status !== 'active') continue
     if (!isEnrolledInMonth({ registrationDate: student.registration_date, createdAt: student.created_at }, monthKey)) continue
-    if (!paidStudentIds.has(row.student_id)) continue
+    const paid = groupById[row.group_id]?.formation_level_id
+      ? paidFormationKeys.has(`${row.student_id}:${row.group_id}`)
+      : paidStudentIds.has(row.student_id)
+    if (!paid) continue
     if (!studentsByGroup[row.group_id]) studentsByGroup[row.group_id] = []
     studentsByGroup[row.group_id].push(row.student_id)
   }
@@ -193,8 +215,9 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
       .map((groupId) => {
         const group = groupById[groupId]
         if (!group) return null
+        const formationId = formationLevelById[group.formation_level_id]?.formation_id
         return {
-          cycleId: levelById[group.level_id]?.cycle_id,
+          cycleId: formationId ? formationRateKey(formationId) : levelById[group.level_id]?.cycle_id,
           price: priceForGroup(groupId),
           studentsCount: (studentsByGroup[groupId] || []).length,
         }
@@ -211,7 +234,12 @@ export async function buildTeachersReport({ branchId, branchName, monthKey, slug
     const branchNames = branchIds.map((id) => branchMap[id]).filter(Boolean).join(', ')
     const rateLabel = t.remuneration_type === 'fixe'
       ? `${Number(t.fixed_salary || t.remuneration_amount || 0).toLocaleString('fr-FR')} DH (fixe)`
-      : Object.entries(t.cycle_rates || {}).map(([cycleId, rate]) => `${cycleMap[cycleId] || '?'} : ${rate}%`).join(', ') || '—'
+      : Object.entries(t.cycle_rates || {})
+        .map(([cycleId, rate]) => {
+          const name = cycleMap[cycleId] || formationNameById[cycleId.replace(/^formation:/, '')] || '?'
+          return `${name} : ${rate}%`
+        })
+        .join(', ') || '—'
 
     return {
       Nom: t.last_name,

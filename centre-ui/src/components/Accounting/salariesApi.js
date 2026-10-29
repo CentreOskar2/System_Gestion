@@ -1,7 +1,7 @@
 import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
 import { isEnrolledInMonth } from './monthUtils'
-import { calculateSalary } from './salaryUtils'
+import { calculateSalary, formationRateKey } from './salaryUtils'
 import { fetchTeacherAdvances, indexAdvances } from './advancesApi'
 import { isBlockPayment } from './feesApi'
 
@@ -79,11 +79,19 @@ export async function fetchSalaryContext() {
   })
   const advancesIndex = indexAdvances(advances)
 
-  const formationLevelsRes = await supabase.from('formation_levels').select('id, price')
+  const [formationLevelsRes, formationsRes] = await Promise.all([
+    supabase.from('formation_levels').select('id, name, formation_id, price'),
+    supabase.from('formations').select('id, name'),
+  ])
   if (formationLevelsRes.error) console.error(formationLevelsRes.error)
+  if (formationsRes.error) console.error(formationsRes.error)
   const formationPriceByLevel = Object.fromEntries(
     (formationLevelsRes.data || []).map((row) => [row.id, Number(row.price || 0)])
   )
+  // Pour le bulletin (« English · Débutant ») et le taux, propre à chaque
+  // formation (voir formationRateKey).
+  const formationLevelById = Object.fromEntries((formationLevelsRes.data || []).map((row) => [row.id, row]))
+  const formationNameById = Object.fromEntries((formationsRes.data || []).map((row) => [row.id, row.name]))
 
   // Cycles au forfait : le groupe rapporte le prix du niveau par élève,
   // toutes matières comprises — il n'y a pas de tarif par matière à cumuler.
@@ -192,6 +200,8 @@ export async function fetchSalaryContext() {
     assignmentsByTeacher,
     advancesIndex,
     paymentsIndex,
+    formationLevelById,
+    formationNameById,
   }
 }
 
@@ -316,6 +326,8 @@ export function computeTeacherSalaries(context, month) {
     studentMap, studentRowById, isPackageGroup, priceForGroup, assignmentsByTeacher,
     advancesIndex = {},
     paymentsIndex = null,
+    formationLevelById = {},
+    formationNameById = {},
   } = context
 
   const validatedAmountByTeacher = validatedByMonth[String(month).slice(0, 7)] || {}
@@ -396,7 +408,11 @@ export function computeTeacherSalaries(context, month) {
       .map((assignment) => {
         const group = groupById[assignment.groupId]
         if (!group) return null
-        const cycleId = levelById[group.level_id]?.cycle_id
+        // Un groupe de formation n'a pas de cycle : son taux est celui de sa
+        // formation. Sans lui, le professeur y gagnait 0 %.
+        const formationLevel = group.formation_level_id ? formationLevelById[group.formation_level_id] : null
+        const formationName = formationLevel ? formationNameById[formationLevel.formation_id] || 'Formation' : ''
+        const cycleId = formationLevel ? formationRateKey(formationLevel.formation_id) : levelById[group.level_id]?.cycle_id
         const rate = t.remuneration_type === 'pourcentage' ? Number(t.cycle_rates?.[cycleId] ?? 0) : 0
         const roster = studentsByGroupSubject[assignment.key] || []
         const students = roster.map((entry) => entry.name)
@@ -408,10 +424,12 @@ export function computeTeacherSalaries(context, month) {
         return {
           id: assignment.key,
           name: group.name,
-          subject: isPackageGroup(group.id)
-            ? 'Toutes les matières'
-            : subjectMap[assignment.subjectId || group.subject_id] || '—',
-          level: levelMap[group.level_id] || '—',
+          subject: formationLevel
+            ? 'Formation'
+            : isPackageGroup(group.id)
+              ? 'Toutes les matières'
+              : subjectMap[assignment.subjectId || group.subject_id] || '—',
+          level: formationLevel ? `${formationName} · ${formationLevel.name}` : levelMap[group.level_id] || '—',
           branch: branchMap[group.branch_id] || '—',
           cycleId,
           rate,

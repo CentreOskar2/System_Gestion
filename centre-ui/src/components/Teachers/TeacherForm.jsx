@@ -4,6 +4,7 @@ import Icon from '../Icon'
 import { supabase } from '../../supabaseClient'
 import Toggle from './ui/Toggle'
 import { normalizePhoneInput, phoneValidationMessage } from '../../utils/validators'
+import { formationRateKey } from '../Accounting/salaryUtils'
 
 const toForm = (teacher) =>
   teacher
@@ -62,6 +63,10 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
   const [subjects, setSubjects] = useState([])
   const [availableGroups, setAvailableGroups] = useState([])
   const [groupsLoading, setGroupsLoading] = useState(false)
+  // Groupes de formation (English, Français…) : ni niveau scolaire ni matière,
+  // la liste « Groupes » ne peut donc pas les proposer. Ils ont leur section.
+  const [formationGroups, setFormationGroups] = useState([])
+  const [formationStatus, setFormationStatus] = useState('loading')
   const [loadingOptions, setLoadingOptions] = useState(true)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState(null)
@@ -90,6 +95,70 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
     load()
     return () => { cancelled = true }
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      const [groupsRes, levelsRes, formationsRes] = await Promise.all([
+        supabase.from('groups').select('id, name, formation_level_id').not('formation_level_id', 'is', null).eq('status', 'active').order('name'),
+        supabase.from('formation_levels').select('id, name, formation_id, position'),
+        supabase.from('formations').select('id, name').order('name'),
+      ])
+      if (cancelled) return
+      const failed = [groupsRes, levelsRes, formationsRes].find((res) => res.error)
+      if (failed) {
+        console.error(failed.error)
+        setFormationStatus('error')
+        return
+      }
+      const levelById = Object.fromEntries((levelsRes.data || []).map((level) => [level.id, level]))
+      const formationById = Object.fromEntries((formationsRes.data || []).map((formation) => [formation.id, formation]))
+      const groupIds = (groupsRes.data || []).map((group) => group.id)
+      const countsByGroup = {}
+      if (groupIds.length > 0) {
+        const { data: rows } = await supabase.from('group_students').select('group_id').in('group_id', groupIds)
+        for (const row of rows || []) countsByGroup[row.group_id] = (countsByGroup[row.group_id] || 0) + 1
+      }
+      if (cancelled) return
+      setFormationGroups(
+        (groupsRes.data || []).map((group) => {
+          const level = levelById[group.formation_level_id]
+          return {
+            ...group,
+            levelName: level?.name || '',
+            levelPosition: level?.position ?? 0,
+            formationId: level?.formation_id || '',
+            formationName: formationById[level?.formation_id]?.name || 'Formation',
+            studentsCount: countsByGroup[group.id] || 0,
+          }
+        })
+      )
+      setFormationStatus('ready')
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const formationGroupIds = useMemo(() => new Set(formationGroups.map((group) => group.id)), [formationGroups])
+  // Une carte par formation, ses groupes du niveau le plus simple au plus avancé.
+  const formationsWithGroups = useMemo(() => {
+    const byFormation = new Map()
+    for (const group of formationGroups) {
+      if (!byFormation.has(group.formationId)) {
+        byFormation.set(group.formationId, { id: group.formationId, name: group.formationName, groups: [] })
+      }
+      byFormation.get(group.formationId).groups.push(group)
+    }
+    const formations = [...byFormation.values()]
+    for (const formation of formations) {
+      formation.groups.sort((a, b) => a.levelPosition - b.levelPosition || a.name.localeCompare(b.name, 'fr'))
+    }
+    return formations.sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+  }, [formationGroups])
+  // Formations où le professeur a au moins un groupe : chacune a son taux.
+  const selectedFormations = formationsWithGroups.filter((formation) =>
+    formation.groups.some((group) => form.groups.includes(group.id))
+  )
 
   const set = (field, value) => setForm((current) => ({ ...current, [field]: value }))
 
@@ -248,7 +317,11 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
       // qui déduit les niveaux des groupes et non de la liste des niveaux.
       //
       // On aligne donc la sélection sur ce que l'écran propose réellement.
-      const allowed = new Set((data || []).map((group) => group.id))
+      // Les groupes de formation ont leur propre section : ils restent cochés.
+      // Tant qu'elle n'est pas chargée, on ne retire rien — sinon enregistrer
+      // le professeur lui retirait ses groupes de formation.
+      if (formationStatus !== 'ready') return
+      const allowed = new Set([...(data || []).map((group) => group.id), ...formationGroupIds])
       setForm((current) => {
         const kept = (current.groups || []).filter((id) => allowed.has(id))
         return kept.length === (current.groups || []).length ? current : { ...current, groups: kept }
@@ -256,7 +329,7 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
     }
     load()
     return () => { cancelled = true }
-  }, [canFetchGroups, form.levels, form.levelSubjects, packageLevelIds, levelsWithSubjects])
+  }, [canFetchGroups, form.levels, form.levelSubjects, packageLevelIds, levelsWithSubjects, formationStatus, formationGroupIds])
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -445,7 +518,41 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
               )}
             </fieldset>
 
-            {/* 5. Type de rémunération */}
+            {/* 5. Groupes de formation */}
+            <fieldset>
+              <legend>Groupes de formation</legend>
+              {formationStatus === 'loading' ? (
+                <p className="teacher-options-loading">Chargement des formations...</p>
+              ) : formationStatus === 'error' ? (
+                <p className="no-groups">Les groupes de formation n'ont pas pu être chargés.</p>
+              ) : formationsWithGroups.length === 0 ? (
+                <p className="no-groups">Aucun groupe de formation — vous pourrez en créer un depuis le module Groupes</p>
+              ) : (
+                formationsWithGroups.map((formation) => (
+                  <div className="teacher-level-group" key={formation.id}>
+                    <strong className="teacher-level-cycle">{formation.name}</strong>
+                    <div className="groups-grid">
+                      {formation.groups.map((group) => (
+                        <label className={form.groups.includes(group.id) ? 'is-checked' : ''} key={group.id}>
+                          <div className="group-info">
+                            <input type="checkbox" checked={form.groups.includes(group.id)} onChange={() => toggle('groups', group.id)} />
+                            <div>
+                              <strong>{group.name}</strong>
+                              <span>
+                                {group.levelName || 'Formation'}
+                                {group.studentsCount > 0 ? ` · ${group.studentsCount} élève${group.studentsCount > 1 ? 's' : ''}` : ''}
+                              </span>
+                            </div>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
+            </fieldset>
+
+            {/* 6. Type de rémunération */}
             <fieldset className="payment-type">
               <legend>Type de rémunération</legend>
               <div>
@@ -455,7 +562,8 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
             </fieldset>
 
             {form.remuneration_type === 'pourcentage' ? (
-              form.cycles.length > 1 ? (
+              <>
+              {form.cycles.length > 1 ? (
                 <fieldset className="rates">
                   <legend>Taux par cycle (%)</legend>
                   <div className="rates-grid">
@@ -489,9 +597,37 @@ export default function TeacherForm({ teacher, onClose, onSave }) {
                     required
                   />
                 </label>
-              ) : (
-                <p className="groups-placeholder">Sélectionnez au moins un cycle pour définir les taux.</p>
-              )
+              ) : selectedFormations.length === 0 ? (
+                <p className="groups-placeholder">Sélectionnez au moins un cycle ou un groupe de formation pour définir les taux.</p>
+              ) : null}
+              {/* Une formation n'a pas de cycle : son taux se saisit à part. */}
+              {selectedFormations.length > 0 && (
+                <fieldset className="rates">
+                  <legend>Taux par formation (%)</legend>
+                  <div className="rates-grid">
+                    {selectedFormations.map((formation) => {
+                      const key = formationRateKey(formation.id)
+                      return (
+                        <label key={formation.id}>
+                          <span>{formation.name}</span>
+                          <span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              value={form.cycle_rates?.[key] || ''}
+                              onChange={(e) => setRate(key, e.target.value)}
+                              required
+                            />
+                            %
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </fieldset>
+              )}
+              </>
             ) : (
               <label className="salary-field">
                 Montant mensuel (DH)
