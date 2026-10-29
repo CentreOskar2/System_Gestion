@@ -84,6 +84,22 @@ const styles = StyleSheet.create({
   summaryCol4: { width: '26%', textAlign: 'right', fontFamily: PDF_FONT_FAMILY, fontWeight: 700 },
 })
 
+// Un groupe d'un seul tenant passe à la page suivante s'il ne tient pas. Mais
+// un groupe plus haut qu'une page A4 (environ 40 élèves, une classe de 2e Bac)
+// ne tient nulle part : il débordait sous le bas de la page et les élèves
+// suivants disparaissaient, le bulletin reprenant au groupe d'après. Au-delà
+// de ce seuil, un groupe (ou un tableau) se poursuit donc sur la page
+// suivante, ligne par ligne.
+const UNBROKEN_ROWS_MAX = 25
+
+// Lignes du tableau d'un groupe : chaque élève avec son prix, sinon les noms au
+// tarif du groupe, sinon des lignes anonymes.
+function studentRowsOf(group) {
+  if (group.studentPrices?.length > 0) return group.studentPrices
+  if (group.students.length > 0) return group.students.map((name) => ({ name, price: group.price }))
+  return Array.from({ length: group.studentsCount }, (_, i) => ({ name: `Élève ${i + 1}`, price: group.price }))
+}
+
 export default function SalaryJournalPdf({ teacher, monthLabel }) {
   const percentage = teacher.type === 'Pourcentage'
   // Total réellement facturé au groupe. `revenue` tient compte des prix manuels
@@ -110,52 +126,50 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
         <Text style={pdfStyles.sectionTitle}>Détail des groupes et élèves</Text>
 
         {teacher.groups.length > 0 ? (
-          teacher.groups.map((group, index) => (
-            <View key={group.id} style={styles.groupBlock} wrap={false}>
-              <View style={styles.groupHeadRow}>
-                <Text style={styles.groupName}>{group.name}</Text>
-                {percentage && group.rate > 0 && <Text style={styles.groupRate}>Taux : {group.rate}%</Text>}
-              </View>
-              <Text style={styles.groupMeta}>
-                {group.subject} · {group.level} · {group.branch} · {group.studentsCount} élèves
-                {Number.isFinite(group.paidCount) ? ` · ${group.paidCount} payé${group.paidCount > 1 ? 's' : ''}` : ''}
-              </Text>
-              <View style={pdfStyles.tableHeadRow}>
-                <Text style={styles.studentCol}>Élève</Text>
-                <Text style={styles.dateCol}>Date d'inscription</Text>
-                <Text style={styles.statusCol}>Statut</Text>
-                <Text style={styles.priceCol}>Montant payé</Text>
-              </View>
-              {(group.studentPrices?.length > 0
-                ? group.studentPrices
-                : group.students.length > 0
-                  ? group.students.map((name) => ({ name, price: group.price }))
-                  : Array.from({ length: group.studentsCount }, (_, i) => ({
-                      name: `Élève ${i + 1}`,
-                      price: group.price,
-                    }))
-              ).map((entry, i) => (
-                <View style={pdfStyles.tableRow} key={`${entry.name}-${i}`}>
-                  <Text style={styles.studentCol}>{entry.name}</Text>
-                  <Text style={styles.dateCol}>{formatShortDate(entry.registrationDate)}</Text>
-                  <Text style={[styles.statusCol, entry.paid === false ? styles.statusUnpaid : styles.statusPaid]}>
-                    {entry.paid === false ? 'Non payé' : 'Payé'}
+          teacher.groups.map((group, index) => {
+            const rows = studentRowsOf(group)
+            return (
+              <View key={group.id} style={styles.groupBlock} wrap={rows.length > UNBROKEN_ROWS_MAX}>
+                {/* L'en-tête ne reste jamais seul en bas de page. */}
+                <View wrap={false} minPresenceAhead={40}>
+                  <View style={styles.groupHeadRow}>
+                    <Text style={styles.groupName}>{group.name}</Text>
+                    {percentage && group.rate > 0 && <Text style={styles.groupRate}>Taux : {group.rate}%</Text>}
+                  </View>
+                  <Text style={styles.groupMeta}>
+                    {group.subject} · {group.level} · {group.branch} · {group.studentsCount} élèves
+                    {Number.isFinite(group.paidCount) ? ` · ${group.paidCount} payé${group.paidCount > 1 ? 's' : ''}` : ''}
                   </Text>
-                  {/* Le prix payé par CET élève : une remise doit se lire ici. */}
-                  <Text style={styles.priceCol}>{formatMoney(entry.price)}</Text>
+                  <View style={pdfStyles.tableHeadRow}>
+                    <Text style={styles.studentCol}>Élève</Text>
+                    <Text style={styles.dateCol}>Date d'inscription</Text>
+                    <Text style={styles.statusCol}>Statut</Text>
+                    <Text style={styles.priceCol}>Montant payé</Text>
+                  </View>
                 </View>
-              ))}
-              <View style={styles.groupTotalRow}>
-                <Text style={styles.groupTotalLabel}>Total encaissé du groupe</Text>
-                <Text style={styles.groupTotalValue}>{formatMoney(groupTotals[index])}</Text>
+                {rows.map((entry, i) => (
+                  <View style={pdfStyles.tableRow} key={`${entry.name}-${i}`} wrap={false}>
+                    <Text style={styles.studentCol}>{entry.name}</Text>
+                    <Text style={styles.dateCol}>{formatShortDate(entry.registrationDate)}</Text>
+                    <Text style={[styles.statusCol, entry.paid === false ? styles.statusUnpaid : styles.statusPaid]}>
+                      {entry.paid === false ? 'Non payé' : 'Payé'}
+                    </Text>
+                    {/* Le prix payé par CET élève : une remise doit se lire ici. */}
+                    <Text style={styles.priceCol}>{formatMoney(entry.price)}</Text>
+                  </View>
+                ))}
+                <View style={styles.groupTotalRow} wrap={false}>
+                  <Text style={styles.groupTotalLabel}>Total encaissé du groupe</Text>
+                  <Text style={styles.groupTotalValue}>{formatMoney(groupTotals[index])}</Text>
+                </View>
               </View>
-            </View>
-          ))
+            )
+          })
         ) : (
           <Text style={styles.groupMeta}>Aucun groupe assigné à ce professeur pour cette période.</Text>
         )}
 
-        <View style={styles.summaryCard} wrap={false}>
+        <View style={styles.summaryCard} wrap={teacher.groups.length > UNBROKEN_ROWS_MAX}>
           <Text style={pdfStyles.sectionTitle}>Récapitulatif</Text>
           <View style={pdfStyles.tableHeadRow}>
             <Text style={styles.summaryCol1}>Groupe</Text>
@@ -164,7 +178,7 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
             <Text style={styles.summaryCol4}>Montant dû</Text>
           </View>
           {teacher.groups.map((group, index) => (
-            <View style={pdfStyles.tableRow} key={group.id}>
+            <View style={pdfStyles.tableRow} key={group.id} wrap={false}>
               <Text style={styles.summaryCol1}>{group.name}</Text>
               <Text style={styles.summaryCol2}>{formatMoney(groupTotals[index])}</Text>
               <Text style={styles.summaryCol3}>{percentage ? `${group.rate}%` : 'Fixe'}</Text>
@@ -175,13 +189,13 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
               </Text>
             </View>
           ))}
-          <View style={styles.totalBox}>
+          <View style={styles.totalBox} wrap={false}>
             <Text style={styles.totalLabel}>{teacher.advancesTotal > 0 ? 'Salaire du mois' : 'Salaire total à verser'}</Text>
             <Text style={styles.totalValue}>{formatMoney(totalSalary)}</Text>
           </View>
         </View>
         {teacher.advancesTotal > 0 && (
-          <View style={styles.advancesCard} wrap={false}>
+          <View style={styles.advancesCard} wrap={teacher.advances.length > UNBROKEN_ROWS_MAX}>
             <Text style={pdfStyles.sectionTitle}>Avances déjà versées</Text>
             <View style={pdfStyles.tableHeadRow}>
               <Text style={styles.advanceDate}>Date</Text>
@@ -189,13 +203,13 @@ export default function SalaryJournalPdf({ teacher, monthLabel }) {
               <Text style={styles.advanceAmount}>Montant</Text>
             </View>
             {teacher.advances.map((advance) => (
-              <View style={pdfStyles.tableRow} key={advance.id}>
+              <View style={pdfStyles.tableRow} key={advance.id} wrap={false}>
                 <Text style={styles.advanceDate}>{formatShortDate(advance.advance_date)}</Text>
                 <Text style={styles.advanceNote}>{advance.note || 'Avance sur salaire'}</Text>
                 <Text style={styles.advanceAmount}>− {formatMoney(advance.amount)}</Text>
               </View>
             ))}
-            <View style={styles.totalBox}>
+            <View style={styles.totalBox} wrap={false}>
               <Text style={styles.totalLabel}>Net à verser</Text>
               <Text style={styles.totalValue}>{formatMoney(totalSalary - teacher.advancesTotal)}</Text>
             </View>
