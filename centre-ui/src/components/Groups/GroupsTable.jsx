@@ -1,6 +1,7 @@
 import Icon from '../Icon'
 
-export default function GroupsTable({ groups, onView, onEdit, onToggleStatus }) {
+// onDelete absent : le compte n'a pas le droit de supprimer, le bouton n'apparaît pas.
+export default function GroupsTable({ groups, onView, onEdit, onToggleStatus, onDelete }) {
   return (
     <div className="groups-table-wrap">
       <table className="groups-table">
@@ -52,6 +53,11 @@ export default function GroupsTable({ groups, onView, onEdit, onToggleStatus }) 
                   >
                     <Icon name="power" />
                   </button>
+                  {onDelete && (
+                    <button className="group-delete" onClick={() => onDelete(group)} aria-label="Supprimer" title="Supprimer le groupe">
+                      <Icon name="delete" />
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>

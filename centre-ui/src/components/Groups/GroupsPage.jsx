@@ -8,7 +8,13 @@ import GroupModal from './modals/GroupModal'
 import GroupDetailsModal from './modals/GroupDetailsModal'
 import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
+import { useAuth } from '../../context/AuthContext'
+import { invalidateFeesCache } from '../Accounting/feesApi'
 import './Groups.css'
+
+// Supprimer un groupe est réservé à l'administration ; les secrétaires peuvent
+// toujours le désactiver.
+const DELETE_ROLES = ['super_admin', 'admin', 'director']
 
 function Toast({ notice }) {
   if (!notice) return null
@@ -22,6 +28,8 @@ function Toast({ notice }) {
 
 export default function GroupsPage() {
   const location = useLocation()
+  const { role } = useAuth()
+  const canDelete = DELETE_ROLES.includes(role)
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedGroup, setSelectedGroup] = useState(undefined) // undefined: modal closed, null: new group, object: edit group
@@ -162,6 +170,51 @@ export default function GroupsPage() {
     }
   }
 
+  // Un groupe qui a encore des élèves ne se supprime pas : leurs matières,
+  // leurs formations et le salaire de leurs professeurs y sont rattachés. On le
+  // vide d'abord (ou on le désactive). Vide, il ne perd que ses affectations de
+  // professeurs ; le pointage passé garde ses lignes, sans groupe.
+  async function handleDelete(group) {
+    setNotice(null)
+    const reads = await Promise.all([
+      supabase.from('group_students').select('student_id').eq('group_id', group.id),
+      supabase.from('student_group_subjects').select('student_id').eq('group_id', group.id),
+      supabase.from('student_subscriptions').select('student_id').eq('group_id', group.id),
+      supabase.from('student_formations').select('student_id').eq('group_id', group.id),
+    ])
+    const failed = reads.find((res) => res.error)
+    if (failed) {
+      setNotice({ type: 'error', text: `Vérification impossible : ${failed.error.message}` })
+      return
+    }
+    const studentIds = new Set(reads.flatMap((res) => (res.data || []).map((row) => row.student_id)))
+    if (studentIds.size > 0) {
+      setNotice({
+        type: 'error',
+        text: `« ${group.name} » a encore ${studentIds.size} élève${studentIds.size > 1 ? 's' : ''} : retirez-les du groupe avant de le supprimer, ou désactivez-le.`,
+      })
+      return
+    }
+    if (!window.confirm(`Supprimer définitivement le groupe « ${group.name} » ? Ses professeurs n'y seront plus affectés.`)) return
+
+    for (const table of ['teacher_group_subjects', 'teacher_groups']) {
+      const { error } = await supabase.from(table).delete().eq('group_id', group.id)
+      if (error) {
+        setNotice({ type: 'error', text: `Suppression impossible : ${error.message}` })
+        return
+      }
+    }
+    const { error } = await supabase.from('groups').delete().eq('id', group.id)
+    if (error) {
+      setNotice({ type: 'error', text: `Suppression impossible : ${error.message}` })
+      return
+    }
+    await fetchAll()
+    // Les affectations de professeurs ont changé : les salaires se recalculent.
+    invalidateFeesCache()
+    setNotice({ type: 'success', text: `Groupe « ${group.name} » supprimé` })
+  }
+
   return (
     <div className="groups-page">
       <Header />
@@ -185,6 +238,7 @@ export default function GroupsPage() {
             onView={setViewingGroup}
             onEdit={setSelectedGroup}
             onToggleStatus={handleToggleStatus}
+            onDelete={canDelete ? handleDelete : undefined}
           />
         )}
       </main>

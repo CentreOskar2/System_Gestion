@@ -600,3 +600,6 @@
     grid-column: auto;
   }
 }
+
+/* Supprimer un groupe (administration seulement). */
+.group-actions button.group-delete{color:#f02e3f}
