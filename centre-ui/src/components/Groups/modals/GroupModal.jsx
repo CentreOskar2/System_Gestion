@@ -18,6 +18,12 @@ const toForm = (group) =>
         formation_id: '',
         formation_level_id: group.formation_level_id || '',
         branch_id: group.branch_id || '',
+        // Absents de la fenêtre, mais renvoyés tels quels à l'enregistrement :
+        // sans eux, modifier un groupe effaçait sa matière, son professeur et
+        // sa capacité.
+        subject_id: group.subject_id || '',
+        teacher_id: group.teacher_id || '',
+        capacity: group.capacity ?? '',
       }
     : {
         name: '',
