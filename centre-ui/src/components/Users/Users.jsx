@@ -6,7 +6,7 @@ import './Users.css'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 
-const allPermissions = ['Dashboard', 'Étudiants', 'Groupes', 'Professeurs', 'Frais de scolarité', 'Retards & Impayés', 'Salaires Profs', 'Charges', 'Bénéfice net', 'Paramètres', 'Administration (Utilisateurs & Succursales)']
+const allPermissions = ['Dashboard', 'Étudiants', 'Groupes', 'Professeurs', 'Frais de scolarité', 'Retards & Impayés', 'Salaires Profs', 'Charges', 'Avances des profs', 'Bénéfice net', 'Paramètres', 'Administration (Utilisateurs & Succursales)']
 
 const permColumn = {
   'Dashboard': 'dashboard',
@@ -17,9 +17,22 @@ const permColumn = {
   'Retards & Impayés': 'late_payments',
   'Salaires Profs': 'teacher_salaries',
   'Charges': 'expenses',
+  'Avances des profs': 'teacher_advances',
   'Bénéfice net': 'net_profit',
   'Paramètres': 'settings',
   'Administration (Utilisateurs & Succursales)': 'administration',
+}
+
+// Permissions ajoutées après la fonction serveur create-user : elle les
+// refuserait. Elles s'enregistrent donc juste après la création du compte.
+const LATER_PERMISSIONS = ['teacher_advances']
+
+// Colonne ajoutée par la migration 044 : tant qu'elle n'a pas été exécutée,
+// l'enregistrement des permissions échoue sur elle.
+function permissionErrorMessage(error) {
+  return /teacher_advances/.test(error?.message || '')
+    ? "La permission « Avances des profs » n'existe pas encore dans la base : exécutez supabase/migrations/044_permission_avances_profs.sql dans l'éditeur SQL de Supabase."
+    : error?.message || 'Impossible d’enregistrer les permissions'
 }
 
 const Pencil = () => <svg viewBox="0 0 24 24"><path d="m4 16.8-.7 3.9 3.9-.7L18.5 8.7 15.3 5.5 4 16.8Z" /><path d="m13.8 7 3.2 3.2" /></svg>
@@ -29,7 +42,8 @@ const Close = () => <svg viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18" /></
 function Toggle({ checked, onChange }) { return <label className="user-switch"><input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} /><i /></label> }
 
 function UserModal({ user, branchList, onClose, onSave }) {
-  const blank = { firstName: '', lastName: '', email: '', password: '', role: 'secretary', assignedIds: [], permissions: [...allPermissions], active: true }
+  // Les avances des profs touchent à la paie : jamais cochées d'office.
+  const blank = { firstName: '', lastName: '', email: '', password: '', role: 'secretary', assignedIds: [], permissions: allPermissions.filter((label) => label !== 'Avances des profs'), active: true }
   const [form, setForm] = useState(user ? {
     firstName: user.firstName,
     lastName: user.lastName,
@@ -67,7 +81,7 @@ function UserModal({ user, branchList, onClose, onSave }) {
       <label>Mot de passe {edit && <em>(vide = conserver)</em>}<input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} required={!edit} /></label>
       <label>Rôle *<select value={form.role} onChange={(e) => set('role', e.target.value)}><option value="secretary">Secrétaire</option><option value="super_admin">Super Admin</option></select></label>
       {form.role !== 'super_admin' && <><fieldset className="user-branches"><legend>Succursale(s) assignée(s) *</legend>{branchList.map((b) => <label key={b.id}><input type="checkbox" checked={form.assignedIds.includes(b.id)} onChange={() => toggleArray('assignedIds', b.id)} />{b.name}</label>)}</fieldset>
-      <fieldset className="user-permissions"><legend>Permissions d'accès <small><button type="button" onClick={() => set('permissions', allPermissions)}>Tout</button> · <button type="button" onClick={() => set('permissions', [])}>Aucune</button></small></legend><b>GÉNÉRAL</b><div>{allPermissions.slice(0, 4).map((item) => <label key={item}><input type="checkbox" checked={form.permissions.includes(item)} onChange={() => toggleArray('permissions', item)} />{item}</label>)}</div><b>COMPTABILITÉ</b><div>{allPermissions.slice(4, 9).map((item) => <label key={item}><input type="checkbox" checked={form.permissions.includes(item)} onChange={() => toggleArray('permissions', item)} />{item}</label>)}</div><b>ADMINISTRATION</b><div>{allPermissions.slice(9).map((item) => <label key={item}><input type="checkbox" checked={form.permissions.includes(item)} onChange={() => toggleArray('permissions', item)} />{item}</label>)}</div></fieldset></>}
+      <fieldset className="user-permissions"><legend>Permissions d'accès <small><button type="button" onClick={() => set('permissions', allPermissions)}>Tout</button> · <button type="button" onClick={() => set('permissions', [])}>Aucune</button></small></legend><b>GÉNÉRAL</b><div>{allPermissions.slice(0, 4).map((item) => <label key={item}><input type="checkbox" checked={form.permissions.includes(item)} onChange={() => toggleArray('permissions', item)} />{item}</label>)}</div><b>COMPTABILITÉ</b><div>{allPermissions.slice(4, 10).map((item) => <label key={item}><input type="checkbox" checked={form.permissions.includes(item)} onChange={() => toggleArray('permissions', item)} />{item}</label>)}</div><b>ADMINISTRATION</b><div>{allPermissions.slice(10).map((item) => <label key={item}><input type="checkbox" checked={form.permissions.includes(item)} onChange={() => toggleArray('permissions', item)} />{item}</label>)}</div></fieldset></>}
       <div className="user-status"><div><strong>Statut</strong><p>Un compte inactif ne peut pas se connecter.</p></div><span>{form.active ? 'Actif' : 'Inactif'}</span><Toggle checked={form.active} onChange={(active) => set('active', active)} /></div>
       {error && <div className="user-error" style={{ color: '#e74c3c', background: '#fdf0ef', padding: '0.75rem', borderRadius: '6px', fontSize: '0.85rem', marginBottom: '0.75rem' }}>{error}</div>}
       <footer><button type="button" className="user-cancel" onClick={onClose}>Annuler</button><button className="user-save" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></footer>
@@ -209,7 +223,7 @@ export default function Users() {
         permRow[permColumn[label]] = form.permissions.includes(label)
       }
       const { error: permError } = await supabase.from('user_permissions').upsert(permRow)
-      if (permError) throw new Error(permError.message)
+      if (permError) throw new Error(permissionErrorMessage(permError))
 
       // Changer un mot de passe existant nécessite la clé service (l'API
       // d'administration Supabase, pas une simple mise à jour de table) —
@@ -248,7 +262,7 @@ export default function Users() {
         last_name: form.lastName,
         role: form.role,
         branch_ids: form.assignedIds,
-        permissions: form.permissions.map((label) => permColumn[label])
+        permissions: form.permissions.map((label) => permColumn[label]).filter((column) => !LATER_PERMISSIONS.includes(column))
       })
     })
     if (!res.ok) {
@@ -256,7 +270,17 @@ export default function Users() {
       try { const err = await res.json(); msg = err.error || msg } catch { /* invalid response body */ }
       throw new Error(msg)
     }
+    const created = await res.json().catch(() => null)
     setOpen(false)
+    // Le compte existe déjà : une erreur ici ne doit pas faire recréer le compte
+    // en réenregistrant la fenêtre, d'où une alerte plutôt qu'une exception.
+    if (created?.id) {
+      const laterRow = Object.fromEntries(
+        LATER_PERMISSIONS.map((column) => [column, form.permissions.some((label) => permColumn[label] === column)])
+      )
+      const { error: laterError } = await supabase.from('user_permissions').update(laterRow).eq('user_id', created.id)
+      if (laterError) window.alert(`Compte créé, mais ${permissionErrorMessage(laterError)}`)
+    }
     await fetchAll()
   }
 

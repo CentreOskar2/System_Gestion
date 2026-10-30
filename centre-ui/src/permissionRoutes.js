@@ -9,6 +9,8 @@ export const PERMISSION_ROUTES = [
   { perm: 'late_payments', path: '/accounting/delinquencies' },
   { perm: 'teacher_salaries', path: '/accounting/salaries' },
   { perm: 'expenses', path: '/accounting/expenses' },
+  // Onglet de la page Charges, ouvert aussi sans la permission « Charges ».
+  { perm: 'teacher_advances', path: '/accounting/expenses?onglet=avances' },
   { perm: 'net_profit', path: '/accounting/profit' },
   { perm: 'settings', path: '/settings' },
   { perm: 'reports', path: '/reports' },

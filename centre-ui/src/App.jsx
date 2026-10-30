@@ -38,7 +38,7 @@ const sidebarSections = [
         label: 'Comptabilité',
         icon: 'calculator',
         path: '/accounting',
-        requiredPerm: ['tuition', 'late_payments', 'teacher_salaries', 'expenses', 'net_profit'],
+        requiredPerm: ['tuition', 'late_payments', 'teacher_salaries', 'expenses', 'teacher_advances', 'net_profit'],
         children: [
           { label: 'Frais de scolarité', path: '/accounting/fees', requiredPerm: 'tuition' },
           { label: "Frais d'inscription", path: '/accounting/registration-fees', requiredPerm: 'tuition' },
@@ -47,7 +47,9 @@ const sidebarSections = [
           { label: 'Frais de formation', path: '/accounting/formations', requiredPerm: 'tuition' },
           { label: 'Retards & Impayés', path: '/accounting/delinquencies', requiredPerm: 'late_payments' },
           { label: 'Salaires Profs', path: '/accounting/salaries', requiredPerm: 'teacher_salaries' },
-          { label: 'Charges', path: '/accounting/expenses', requiredPerm: 'expenses' },
+          // Avances des profs est un onglet de Charges : la page s'ouvre avec
+          // l'une ou l'autre permission, et n'affiche que les onglets permis.
+          { label: 'Charges', path: '/accounting/expenses', requiredPerm: ['expenses', 'teacher_advances'] },
           { label: 'Bénéfice net', path: '/accounting/profit', requiredPerm: 'net_profit' },
         ],
       },
@@ -134,7 +136,7 @@ function App() {
                 <Route path="/accounting/formations" element={<ProtectedRoute requiredPerm="tuition"><FormationFeesPage /></ProtectedRoute>} />
                 <Route path="/accounting/delinquencies" element={<ProtectedRoute requiredPerm="late_payments"><DelinquenciesPage /></ProtectedRoute>} />
                 <Route path="/accounting/salaries" element={<ProtectedRoute requiredPerm="teacher_salaries"><SalariesPage /></ProtectedRoute>} />
-                <Route path="/accounting/expenses" element={<ProtectedRoute requiredPerm="expenses"><ExpensesPage /></ProtectedRoute>} />
+                <Route path="/accounting/expenses" element={<ProtectedRoute requiredPerm={['expenses', 'teacher_advances']}><ExpensesPage /></ProtectedRoute>} />
                 <Route path="/accounting/profit" element={<ProtectedRoute requiredPerm="net_profit"><NetProfitPage /></ProtectedRoute>} />
                 <Route path="/reports" element={<ProtectedRoute requiredPerm="reports"><ReportsPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute requiredPerm="settings"><Settings /></ProtectedRoute>} />

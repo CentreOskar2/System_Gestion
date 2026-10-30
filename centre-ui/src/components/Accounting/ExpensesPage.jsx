@@ -21,12 +21,13 @@ const TYPE_LABELS = { Auto: 'Auto', Manuel: 'Manuel', recurring_fixed: 'Fixe ré
 // centre sans jamais voir ce que gagnent les professeurs, fixe ou pourcentage.
 const SALARY_ROLES = ['super_admin', 'admin', 'director']
 
-// Les trois pages de la section Charges. Avances et Salaires touchent à la
-// paie : réservées à la direction, comme la page Salaires Profs.
+// Les trois pages de la section Charges. Achats : la permission « Charges ».
+// Avances : la direction, ou le compte à qui l'administrateur a donné
+// « Avances des profs » (Utilisateurs). Salaires : la direction seule.
 const TABS = [
   { key: 'achats', label: 'Achats' },
-  { key: 'avances', label: 'Avances des profs', salaryOnly: true },
-  { key: 'salaires', label: 'Salaires', salaryOnly: true },
+  { key: 'avances', label: 'Avances des profs' },
+  { key: 'salaires', label: 'Salaires' },
 ]
 
 // Onglet Avances : les avances et la liste des professeurs actifs (pour le
@@ -57,20 +58,28 @@ function defaultFilters() {
 
 export default function ExpensesPage() {
   const { selectedBranch } = useBranch()
-  const { role } = useAuth()
+  const { role, permissions } = useAuth()
   const canSeeSalaries = SALARY_ROLES.includes(role)
+  const canSeeAdvances = canSeeSalaries || permissions.includes('teacher_advances')
+  const canSeePurchases = permissions.includes('expenses')
   // L'onglet vit dans l'URL (?onglet=avances) : un rechargement ou un lien
   // ramène sur la même page.
   const [searchParams, setSearchParams] = useSearchParams()
-  const visibleTabs = canSeeSalaries ? TABS : TABS.filter((t) => !t.salaryOnly)
-  const tab = visibleTabs.some((t) => t.key === searchParams.get('onglet')) ? searchParams.get('onglet') : 'achats'
-  const setTab = (key) => setSearchParams(key === 'achats' ? {} : { onglet: key }, { replace: true })
+  const allowedTabKeys = [canSeePurchases && 'achats', canSeeAdvances && 'avances', canSeeSalaries && 'salaires']
+  const visibleTabs = TABS.filter((t) => allowedTabKeys.includes(t.key))
+  // Sans la permission « Charges », la page s'ouvre sur les avances.
+  const defaultTab = visibleTabs[0]?.key || 'achats'
+  const tab = visibleTabs.some((t) => t.key === searchParams.get('onglet')) ? searchParams.get('onglet') : defaultTab
+  const setTab = (key) => setSearchParams(key === defaultTab ? {} : { onglet: key }, { replace: true })
   // Dans « Achats » : les charges saisies, ou les modèles de charges fixes.
   const [achatsView, setAchatsView] = useState('charges')
   const [expenses, setExpenses] = useState([])
   const [advances, setAdvances] = useState([])
   const [advancesMissing, setAdvancesMissing] = useState(false)
   const [teachers, setTeachers] = useState([])
+  // Salaires déjà validés (« professeur:mois ») : signalés dans l'onglet
+  // Avances, sans leur montant — visible donc aussi hors de la direction.
+  const [validatedSalaryKeys, setValidatedSalaryKeys] = useState(() => new Set())
   const [recurringCharges, setRecurringCharges] = useState([])
   const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
@@ -148,16 +157,23 @@ export default function ExpensesPage() {
       isSalary: Boolean(e.teacher_id),
     }))
 
-    // Salaires du mois consulté qui restent à valider — le fixe comme le
-    // pourcentage. Le pourcentage est recalculé à chaque ouverture de la page :
-    // une inscription ou une désactivation en fin de mois le fait bouger.
-    let pending = []
-    if (canSeeSalaries) {
+    setValidatedSalaryKeys(
+      new Set(persisted.filter((e) => e.isSalary).map((e) => `${e.teacher_id}:${String(e.month).slice(0, 10)}`))
+    )
+
+    if (canSeeAdvances) {
       const advancesData = await fetchAdvancesData()
       setAdvances(advancesData.advances)
       setAdvancesMissing(advancesData.missingTable)
       setTeachers(advancesData.teachers)
       if (advancesData.error) setError(`Impossible de charger les avances : ${advancesData.error}`)
+    }
+
+    // Salaires du mois consulté qui restent à valider — le fixe comme le
+    // pourcentage. Le pourcentage est recalculé à chaque ouverture de la page :
+    // une inscription ou une désactivation en fin de mois le fait bouger.
+    let pending = []
+    if (canSeeSalaries) {
       try {
         const { teachers } = await fetchTeacherSalaries({ month: salaryMonth })
         const alreadyValidated = new Set(
@@ -185,7 +201,7 @@ export default function ExpensesPage() {
 
     setExpenses(canSeeSalaries ? [...pending, ...persisted] : persisted.filter((item) => !item.isSalary))
     setLoading(false)
-  }, [branchFilter, canSeeSalaries, salaryMonth])
+  }, [branchFilter, canSeeSalaries, canSeeAdvances, salaryMonth])
 
   useEffect(() => {
     let cancelled = false
@@ -225,12 +241,6 @@ export default function ExpensesPage() {
   const advancesIndex = useMemo(() => indexAdvances(advances), [advances])
   const advancesFor = (teacherId, month) =>
     (advancesIndex[teacherId]?.[String(month || '').slice(0, 7)] || []).reduce((sum, a) => sum + a.amount, 0)
-  // Salaires déjà validés (« professeur:mois ») : signalés dans l'onglet Avances.
-  const validatedSalaryKeys = useMemo(
-    () => new Set(expenses.filter((e) => e.isSalary && !e.pending).map((e) => `${e.teacher_id}:${String(e.month).slice(0, 10)}`)),
-    [expenses]
-  )
-
   const sumOf = (items) => items.reduce((sum, item) => sum + item.amount, 0)
   const stats = {
     achats: [
