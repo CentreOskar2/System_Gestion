@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
-import { CalendarPlus, Check, Pencil, Printer, Search, TrendingUp, Users, Wallet } from 'lucide-react'
+import { Banknote, CalendarPlus, Check, Pencil, Printer, Search, TrendingUp, Users, Wallet } from 'lucide-react'
 import { supabase } from '../../supabaseClient'
 import { useAuth } from '../../context/AuthContext'
 import { useBranch } from '../../context/BranchContext'
@@ -689,6 +689,24 @@ export default function FeesPage() {
       ),
     [students, statsMonthKey]
   )
+  // received : mensualités reçues pendant le mois consulté (date de
+  // réception), avances sur les mois suivants et rattrapages compris.
+  // forMonth : tout ce qui a été payé POUR ce mois, quel que soit le jour du
+  // versement (une avance reçue le mois d'avant y compte) ; il peut donc
+  // dépasser received. Sans les frais d'inscription, qui ne règlent aucun mois.
+  const monthCash = useMemo(() => {
+    const monthPrefix = statsMonthKey.slice(0, 7)
+    let received = 0
+    let forMonth = 0
+    for (const payment of cashPayments) {
+      if (!visibleStudentIds.has(payment.student_id)) continue
+      if (payment.status !== 'paid' && payment.status !== 'validé') continue
+      const amount = toNumber(payment.amount)
+      if (normalizeDateKey(payment.paid_at || payment.month).slice(0, 7) === monthPrefix) received += amount
+      if (payment.month === statsMonthKey) forMonth += amount
+    }
+    return { received, forMonth }
+  }, [cashPayments, visibleStudentIds, statsMonthKey])
   const stats = useMemo(() => {
     const totalCollected = currentDayPayments.reduce((sum, payment) => sum + toNumber(payment.amount), 0)
     const monthlyDue = selectedMonthBillableStudents.reduce((sum, student) => sum + toNumber(student.du_mois), 0)
@@ -1682,6 +1700,14 @@ export default function FeesPage() {
             <strong>{stats.totalCollected.toLocaleString('fr-FR')} DH</strong>
             <i className="fee-stat-icon fee-stat-icon--green"><TrendingUp size={20} /></i>
           </article>
+          {isCenterWide && (
+            <article>
+              <span>Encaissé — {schoolMonths[statsMonthIndex]?.label}</span>
+              <strong>{monthCash.received.toLocaleString('fr-FR')} DH</strong>
+              <small className="fee-stat-sub">Payé pour ce mois : {monthCash.forMonth.toLocaleString('fr-FR')} DH</small>
+              <i className="fee-stat-icon fee-stat-icon--green"><Banknote size={20} /></i>
+            </article>
+          )}
           <article>
             <span>{isCenterWide ? 'Élèves encaissés' : 'Mes élèves encaissés'} — {schoolMonths[statsMonthIndex]?.label}</span>
             <strong>{stats.billed}</strong>

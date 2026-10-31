@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import Header from '../shared/Header'
-import { Search, TrendingUp, Users, Wallet } from 'lucide-react'
+import { Banknote, Search, TrendingUp, Users, Wallet } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { useBranch } from '../../context/BranchContext'
 import { fetchFormationFeesData, recordFormationPayment, cancelFormationPayment } from '../Formations/formationsApi'
@@ -168,15 +168,26 @@ export default function FormationFeesPage() {
     // Un élève inscrit à deux formations ne compte qu'une fois.
     const monthPrefix = currentDayKey.slice(0, 7)
     const studentIds = new Set()
+    // monthReceived : formations reçues ce mois-ci (date de réception), avances
+    // et rattrapages compris. monthForMonth : tout ce qui a été payé POUR ce
+    // mois, quel que soit le jour du versement ; il peut dépasser monthReceived.
+    // Sans les frais d'inscription, qui ne règlent aucun mois.
+    let monthReceived = 0
+    let monthForMonth = 0
     for (const payment of scopedPayments) {
-      if (accountingDayBucket(payment.paid_at).slice(0, 7) === monthPrefix) studentIds.add(payment.student_id)
+      const receivedThisMonth = accountingDayBucket(payment.paid_at).slice(0, 7) === monthPrefix
+      if (receivedThisMonth) studentIds.add(payment.student_id)
+      if (String(payment.id).startsWith('registration-')) continue
+      const amount = toNumber(payment.amount)
+      if (receivedThisMonth) monthReceived += amount
+      if (normalizeMonthKey(payment.month) === `${monthPrefix}-01`) monthForMonth += amount
     }
 
     const dueTotal = rows
       .filter((row) => row.active)
       .reduce((sum, row) => sum + toNumber(row.monthlyPrice), 0)
 
-    return { totalCollected, billed: studentIds.size, dueTotal }
+    return { totalCollected, billed: studentIds.size, dueTotal, monthReceived, monthForMonth }
   }, [scopedPayments, rows, currentDayKey])
 
   const shown = useMemo(
@@ -461,6 +472,14 @@ export default function FormationFeesPage() {
             <strong>{stats.totalCollected.toLocaleString('fr-FR')} DH</strong>
             <i className="fee-stat-icon fee-stat-icon--green"><TrendingUp size={20} /></i>
           </article>
+          {isCenterWide && (
+            <article>
+              <span>Encaissé ce mois</span>
+              <strong>{stats.monthReceived.toLocaleString('fr-FR')} DH</strong>
+              <small className="fee-stat-sub">Payé pour ce mois : {stats.monthForMonth.toLocaleString('fr-FR')} DH</small>
+              <i className="fee-stat-icon fee-stat-icon--green"><Banknote size={20} /></i>
+            </article>
+          )}
           <article>
             <span>{isCenterWide ? 'Élèves encaissés ce mois' : 'Mes élèves encaissés ce mois'}</span>
             <strong>{stats.billed}</strong>

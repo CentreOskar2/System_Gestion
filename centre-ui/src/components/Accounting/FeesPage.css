@@ -2,6 +2,15 @@
 
 
 
+/* Ligne secondaire sous le montant d'une carte (part du mois dans l'encaissé). */
+.fee-stats .fee-stat-sub {
+  display: block;
+  margin-top: 6px;
+  color: #647088;
+  font-size: .9rem;
+  font-weight: 650;
+}
+
 .fees-error {
   margin: 18px 0 0;
   padding: 12px 16px;
