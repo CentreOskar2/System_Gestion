@@ -46,3 +46,16 @@
 .removed-payment-choice button{padding:8px 12px;border:1px solid #dce3ed;border-radius:9px;background:#fff;color:#34425b;font-weight:650;cursor:pointer}
 .removed-payment-choice button.active{border-color:#315fec;background:#eef3ff;color:#264fc9}
 .removed-payment-choice button.danger.active{border-color:#d64545;background:#fdecec;color:#b42323}
+
+/* Groupe enregistré sur l'élève hors de la liste du niveau (étape 3). */
+.enrollment-groups article.stray {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.enrollment-stray-note {
+  display: block;
+  margin-top: 4px;
+  color: #b45309;
+  font-weight: 600;
+}

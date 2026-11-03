@@ -32,6 +32,27 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
 
   const selection = form.groupSelections || []
 
+  // Groupes enregistrés sur l'élève mais absents de la liste du niveau : d'un
+  // autre niveau (anciennes données) ou désactivés. Invisibles, ils étaient
+  // réenregistrés à chaque modification, et l'élève restait sur leurs fiches
+  // d'absence. On les montre, signalés, pour pouvoir les décocher.
+  const shownIds = new Set(groups.map((group) => group.id))
+  const currentLevelId = catalog.levelByName?.[form.level]?.id
+  const strayGroups = selection
+    .filter((sel) => !shownIds.has(sel.groupId))
+    .map((sel) => {
+      const group = catalog.groupsById?.[sel.groupId]
+      const levelName = (catalog.levels || []).find((level) => level.id === group?.level_id)?.name
+      const otherLevel = !group || group.level_id !== currentLevelId
+      return {
+        id: sel.groupId,
+        name: group?.name || sel.groupName,
+        capacity: null,
+        student_count: 0,
+        stray: otherLevel ? `Groupe d'un autre niveau${levelName ? ` (${levelName})` : ''}` : 'Groupe désactivé',
+      }
+    })
+
   if (formationOnly) {
     return (
       <FormationPicker
@@ -83,12 +104,12 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
       )}
 
       <div className="enrollment-groups">
-        {groups.map((group) => {
+        {[...groups, ...strayGroups].map((group) => {
           const sel = selection.find((s) => s.groupId === group.id)
           const selected = Boolean(sel)
           const free = group.capacity != null ? Math.max(0, group.capacity - (group.student_count || 0)) : null
           return (
-            <article key={group.id} className={selected ? 'checked' : ''}>
+            <article key={group.id} className={`${selected ? 'checked' : ''}${group.stray ? ' stray' : ''}`}>
               <label className="subject-toggle">
                 <input
                   type={isPackage ? 'radio' : 'checkbox'}
@@ -102,6 +123,7 @@ export default function Step3SubjectsGroups({ form, set, catalog, toggleGroup, t
                     {group.capacity != null ? `${free} place${free !== 1 ? 's' : ''} libre${free !== 1 ? 's' : ''}` : 'Groupe'}
                     {(group.student_count || 0) > 0 ? ` · ${group.student_count} élève${group.student_count > 1 ? 's' : ''}` : ''}
                   </small>
+                  {group.stray && <small className="enrollment-stray-note">⚠ {group.stray}</small>}
                 </span>
               </label>
               {selected && !isPackage && (

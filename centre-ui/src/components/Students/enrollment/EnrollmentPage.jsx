@@ -26,6 +26,9 @@ import '../Enrollment.css'
 
 const STEPS = ['Détails personnels', 'Classification', 'Matières & groupes', 'Facturation']
 
+// Champs dont le changement rend caduque la sélection de groupes (voir setFormField).
+const GROUP_SCOPE_FIELDS = ['cycle', 'level', 'formationOnly']
+
 const createInitialForm = (student) => {
   if (!student) {
     return {
@@ -195,7 +198,21 @@ export default function EnrollmentPage({ close, finish, student, mode = 'create'
     }
   }, [student])
 
-  const setFormField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }))
+  // Les groupes appartiennent à un niveau : changer de cycle, de niveau ou
+  // passer en formation seule vide la sélection, quelle que soit l'étape.
+  // Avant, seule l'étape 3 le faisait : changé à l'étape 2, l'ancien niveau
+  // gardait ses groupes, invisibles à l'étape 3 mais réenregistrés avec les
+  // nouveaux — l'élève apparaissait alors sur leurs fiches d'absence.
+  const setFormField = (key, value) =>
+    setForm((prev) => {
+      const next = { ...prev, [key]: value }
+      if (GROUP_SCOPE_FIELDS.includes(key) && prev[key] !== value) {
+        next.groupSelections = []
+        next.chosen = []
+        next.subjectDetails = {}
+      }
+      return next
+    })
 
   const setPhoneField = (field, value) => setForm((prev) => ({ ...prev, [field]: normalizePhoneInput(value) }))
 
