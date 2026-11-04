@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Icon from '../../Icon'
 import { supabase } from '../../../supabaseClient'
 import { attendanceItems } from '../data/mockStudents'
-import { whatsappLink } from '../../Accounting/delinquenciesApi'
+import { reserveWhatsAppWindow, whatsappLink } from '../../Accounting/delinquenciesApi'
 import { today } from '../utils/studentHelpers'
 
 const formatDate = (value) => {
@@ -184,17 +184,25 @@ export default function AttendanceModal({ student, close }) {
       created_at: new Date().toISOString(),
     }))
 
+    const message = buildWhatsAppMessage(student, date, selectedGroupLabel, selected.map(lineOf))
+    const link = whatsappLink(student.phone, message)
+    // Avant l'enregistrement : ouverte après, la fenêtre est bloquée (voir reserveWhatsAppWindow).
+    const whatsapp = link ? reserveWhatsAppWindow() : null
+
     setSaving(true)
     try {
       const { error: insertError } = await supabase
         .from('student_events')
         .upsert(rows, { onConflict: 'student_id,event_date,event_type,group_id' })
       if (insertError) throw new Error(insertError.message)
-      const message = buildWhatsAppMessage(student, date, selectedGroupLabel, selected.map(lineOf))
-      const link = whatsappLink(student.phone, message)
-      if (link) window.open(link, '_blank', 'noopener,noreferrer')
+      if (whatsapp?.blocked) {
+        setError("Pointage enregistré, mais le navigateur a bloqué WhatsApp : autorisez les fenêtres pop-up pour ce site.")
+        return
+      }
+      whatsapp?.open(link)
       close()
     } catch (err) {
+      whatsapp?.cancel()
       console.error(err)
       setError(err.message)
     } finally {

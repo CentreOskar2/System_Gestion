@@ -236,6 +236,30 @@ export function whatsappLink(phone, message) {
   return `https://wa.me/${number}?text=${encodeURIComponent(message)}`
 }
 
+// WhatsApp ouvert après un enregistrement. Ouverte après un `await`, la
+// fenêtre était bloquée par le navigateur (toujours sur iPhone, sur Chrome dès
+// que la connexion est lente) : rien ne s'ouvrait, alors que le rappel était
+// déjà noté « envoyé ». La fenêtre est donc réservée dans le geste du clic,
+// puis dirigée vers WhatsApp une fois l'enregistrement fait.
+export function reserveWhatsAppWindow() {
+  const popup = window.open('', '_blank')
+  if (popup) popup.opener = null
+  return {
+    // Bloquée même dans le geste du clic : fenêtres pop-up interdites pour ce site.
+    blocked: !popup,
+    open(link) {
+      if (popup && !popup.closed && link) popup.location.href = link
+      else popup?.close()
+    },
+    cancel() {
+      popup?.close()
+    },
+  }
+}
+
+export const WHATSAPP_BLOCKED_MESSAGE =
+  "Le navigateur a bloqué l'ouverture de WhatsApp : autorisez les fenêtres pop-up pour ce site, puis réessayez."
+
 export async function logPaymentReminder(studentId, { months, amount, message, channel = 'whatsapp', status = 'sent', sentBy }) {
   const { data, error } = await supabase.from('payment_reminders').insert({
     student_id: studentId,

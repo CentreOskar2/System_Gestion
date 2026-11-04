@@ -9,7 +9,7 @@ import { downloadPdfDocument } from '../pdf/downloadPdf'
 import SalaryJournalPdf from '../pdf/SalaryJournalPdf'
 import { supabase } from '../../supabaseClient'
 import { useBranch } from '../../context/BranchContext'
-import { waPhoneNumber } from './delinquenciesApi'
+import { reserveWhatsAppWindow, waPhoneNumber, WHATSAPP_BLOCKED_MESSAGE } from './delinquenciesApi'
 import { calendarMonthOptions, currentMonthKey, formatShortDate, monthLabelOf, schoolYearOptions } from './monthUtils'
 import { fetchTeacherSalaries } from './salariesApi'
 import { fixedSalaryOf, netToPay } from './salaryUtils'
@@ -67,14 +67,11 @@ function buildSalaryMessage(teacher, monthLabel) {
   return lines.join('\n')
 }
 
-function openWhatsApp(teacher, monthLabel) {
+// Lien WhatsApp du bulletin, vide sans numéro.
+function salaryWhatsAppLink(teacher, monthLabel) {
   const number = waPhoneNumber(teacher.phone)
-  if (!number) {
-    alert('Aucun numéro de téléphone disponible pour ce professeur')
-    return
-  }
-  const message = buildSalaryMessage(teacher, monthLabel)
-  window.open(`https://wa.me/${number}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer')
+  if (!number) return ''
+  return `https://wa.me/${number}?text=${encodeURIComponent(buildSalaryMessage(teacher, monthLabel))}`
 }
 
 function Journal({ teacher, monthLabel, close }) {
@@ -295,6 +292,9 @@ export default function SalariesPage() {
     setPendingSalaries((items) => [...items, teacher.id])
     setNotice(null)
     const monthLabel = monthLabelOf(month)
+    const link = salaryWhatsAppLink(teacher, monthLabel)
+    // Avant l'enregistrement : ouverte après, la fenêtre est bloquée (voir reserveWhatsAppWindow).
+    const whatsapp = link ? reserveWhatsAppWindow() : null
     let insertedExpenseId
     try {
       const expenseRes = await supabase
@@ -325,11 +325,14 @@ export default function SalariesPage() {
       }
 
       setValidated((items) => (items.includes(key) ? items : [...items, key]))
-      openWhatsApp(teacher, monthLabel)
+      if (!link) alert('Aucun numéro de téléphone disponible pour ce professeur')
+      else if (whatsapp.blocked) setNotice(`Salaire validé. ${WHATSAPP_BLOCKED_MESSAGE}`)
+      else whatsapp.open(link)
       if (teacher.paymentType !== 'fixe' || teacher.primeTotal > 0) {
         setSelected(teacher)
       }
     } catch (err) {
+      whatsapp?.cancel()
       console.error(err)
       setNotice(err.message || "Erreur lors de l'enregistrement du salaire")
     } finally {

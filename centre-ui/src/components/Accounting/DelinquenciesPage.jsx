@@ -10,6 +10,8 @@ import {
   buildReminderMessage,
   fetchDelinquenciesData,
   logPaymentReminder,
+  reserveWhatsAppWindow,
+  WHATSAPP_BLOCKED_MESSAGE,
   whatsappLink,
 } from './delinquenciesApi'
 import { subscribeFeesCache } from './feesApi'
@@ -85,14 +87,26 @@ export default function DelinquenciesPage() {
 
   const handleSend = async () => {
     if (!modal || saving) return
+    const link = whatsappLink(modal.phone, message)
+    if (!link) {
+      setModalError('Numéro de téléphone invalide.')
+      return
+    }
+    // Avant tout `await` (voir reserveWhatsAppWindow). Bloquée, rien n'est
+    // noté : le rappel n'est « envoyé » que si WhatsApp s'ouvre vraiment.
+    const whatsapp = reserveWhatsAppWindow()
+    if (whatsapp.blocked) {
+      setModalError(WHATSAPP_BLOCKED_MESSAGE)
+      return
+    }
     setSaving(true)
     setModalError('')
     try {
       await logPaymentReminder(modal.id, { months: modal.months, amount: modal.debt, message, sentBy: user?.id })
-      const link = whatsappLink(modal.phone, message)
-      if (link) window.open(link, '_blank', 'noopener,noreferrer')
+      whatsapp.open(link)
       finishReminder(modal.id)
     } catch (err) {
+      whatsapp.cancel()
       console.error(err)
       setModalError(err.message)
     } finally {
