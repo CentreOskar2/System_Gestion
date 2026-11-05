@@ -16,6 +16,31 @@ export default function StudentsTable({
     if (cycle?.has_fixed_price) return 'Toutes'
     return student.chosen?.length ? student.chosen.join(', ') : '—'
   }
+  // Parcours scolaire, puis les formations suivies en dessous : un élève peut
+  // suivre un cycle et une formation, ou une formation seule.
+  const trackCell = (student) => {
+    const track = [student.cycle, student.level].filter(Boolean).join(' · ')
+    const formations = student.formations || []
+    if (!track && formations.length === 0) return '—'
+    return (
+      <>
+        {track && <b>{track}</b>}
+        {formations.length > 0 && (
+          <div className="student-formation-tags">
+            {formations.map((formation) => {
+              const groupName = catalog?.groupsById?.[formation.groupId]?.name
+              return (
+                <span key={formation.formationLevelId} className="student-formation-tag">
+                  {[formation.formationName, formation.levelName].filter(Boolean).join(' · ') || 'Formation'}
+                  {groupName && <small>· {groupName}</small>}
+                </span>
+              )
+            })}
+          </div>
+        )}
+      </>
+    )
+  }
   return (
     <div className="students-table-wrapper">
       <table className="students-table">
@@ -54,9 +79,7 @@ export default function StudentsTable({
                 </div>
               </td>
               <td>{student.code}</td>
-              <td>
-                <b>{[student.cycle, student.level].filter(Boolean).join(' · ')}</b>
-              </td>
+              <td>{trackCell(student)}</td>
               <td>{subjectLabel(student)}</td>
               <td>
                 <span className={`payment-status ${student.payment?.toLowerCase()}`}>

@@ -755,7 +755,7 @@ export async function fetchStudents(branchId = null) {
   const { data: studentFormations, error: formationsError } = await fetchAllRows(() =>
     supabase
       .from('student_formations')
-      .select('student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, status, formation_levels(name, price, formations(name))')
+      .select('student_id, formation_level_id, group_id, teacher_id, pricing_type, monthly_price, status, formation_levels(name, price, formation_id, formations(name))')
       .order('id')
   )
   if (formationsError) console.error(formationsError)
@@ -768,6 +768,9 @@ export async function fetchStudents(branchId = null) {
     if (!formationsByStudent[row.student_id]) formationsByStudent[row.student_id] = []
     formationsByStudent[row.student_id].push({
       formationLevelId: row.formation_level_id,
+      // Sert au filtre « Formations » de la liste des élèves ; ignoré à
+      // l'enregistrement (syncStudentFormations ne lit que le niveau).
+      formationId: row.formation_levels?.formation_id || '',
       formationName: row.formation_levels?.formations?.name || '',
       levelName: row.formation_levels?.name || '',
       standardPrice: Number(row.formation_levels?.price || 0),

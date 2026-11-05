@@ -14,6 +14,15 @@ export default function StudentsFilters({
   groups,
   activeGroup,
   onGroupChange,
+  // Onglet Formations : la formation et son niveau remplacent le niveau
+  // scolaire et la matière.
+  formationMode = false,
+  formations = [],
+  activeFormation = '',
+  onFormationChange,
+  formationLevels = [],
+  activeFormationLevel = '',
+  onFormationLevelChange,
   studentsCount,
   searchQuery,
   onSearchChange,
@@ -25,6 +34,14 @@ export default function StudentsFilters({
   const subjectOptions = [
     { value: 'Tous', label: 'Toutes les matières' },
     ...subjects.map((subject) => ({ value: subject, label: subject })),
+  ]
+  const formationOptions = [
+    { value: '', label: 'Toutes les formations' },
+    ...formations.map((formation) => ({ value: formation.id, label: formation.name })),
+  ]
+  const formationLevelOptions = [
+    { value: '', label: 'Tous les niveaux' },
+    ...formationLevels.map((level) => ({ value: level.id, label: level.name })),
   ]
   const groupOptions = [
     { value: '', label: 'Tous les groupes' },
@@ -40,7 +57,7 @@ export default function StudentsFilters({
             className={activeCycle === item.name ? 'active' : ''}
             onClick={() => onCycleChange(item.name)}
           >
-            <span>{item.name.toUpperCase()}</span>
+            <span>{(item.label || item.name).toUpperCase()}</span>
             <b>{item.count}</b>
           </button>
         ))}
@@ -56,24 +73,49 @@ export default function StudentsFilters({
             placeholder="Rechercher par nom, matricule, tél..."
           />
         </label>
-        <div className="filter-select">
-          <Icon name="layers" />
-          <FilterSelect
-            ariaLabel="Filtrer par niveau"
-            value={activeLevel}
-            options={levelOptions}
-            onChange={onLevelChange}
-          />
-        </div>
-        <div className="filter-select">
-          <Icon name="cap" />
-          <FilterSelect
-            ariaLabel="Filtrer par matière"
-            value={activeSubject}
-            options={subjectOptions}
-            onChange={onSubjectChange}
-          />
-        </div>
+        {formationMode ? (
+          <>
+            <div className="filter-select">
+              <Icon name="cap" />
+              <FilterSelect
+                ariaLabel="Filtrer par formation"
+                value={activeFormation}
+                options={formationOptions}
+                onChange={onFormationChange}
+              />
+            </div>
+            <div className="filter-select">
+              <Icon name="layers" />
+              <FilterSelect
+                ariaLabel="Filtrer par niveau de formation"
+                value={activeFormationLevel}
+                options={formationLevelOptions}
+                onChange={onFormationLevelChange}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="filter-select">
+              <Icon name="layers" />
+              <FilterSelect
+                ariaLabel="Filtrer par niveau"
+                value={activeLevel}
+                options={levelOptions}
+                onChange={onLevelChange}
+              />
+            </div>
+            <div className="filter-select">
+              <Icon name="cap" />
+              <FilterSelect
+                ariaLabel="Filtrer par matière"
+                value={activeSubject}
+                options={subjectOptions}
+                onChange={onSubjectChange}
+              />
+            </div>
+          </>
+        )}
         <div className="filter-select">
           <Icon name="users" />
           <FilterSelect ariaLabel="Filtrer par groupe" value={activeGroup} options={groupOptions} onChange={onGroupChange} />

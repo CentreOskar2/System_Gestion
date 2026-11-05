@@ -9,6 +9,7 @@ import { downloadPdfDocument } from '../../pdf/downloadPdf'
 import StudentSheetPdf from '../../pdf/StudentSheetPdf'
 import { waPhoneNumber } from '../../Accounting/delinquenciesApi'
 import AddGradeModal from './AddGradeModal'
+import { formationRowPrice } from '../../Formations/formationsApi'
 
 const formatAmount = (value) => `${Number(value || 0).toLocaleString('fr-FR')} DH`
 
@@ -55,7 +56,7 @@ function cashTotalsOf({ monthPayments, subjectRows, registrationPayments, format
   return { tuition, registration, formations, total: tuition + registration + formations }
 }
 
-export default function StudentSheetModal({ student, close }) {
+export default function StudentSheetModal({ student, close, catalog = null }) {
   const [subscriptions, setSubscriptions] = useState(null)
   const [payments, setPayments] = useState(null)
   const [cashTotals, setCashTotals] = useState(null)
@@ -253,7 +254,7 @@ export default function StudentSheetModal({ student, close }) {
             )}
             <h2>{student.name}</h2>
             <small>{student.code}</small>
-            <b>{student.level}</b>
+            <b>{student.level || (student.formations?.length ? 'Formation' : '')}</b>
           </div>
           <p>♟ &nbsp; Inscrit le {student.registrationDate || '—'}</p>
           <p>⏱ &nbsp; Paiement : {paymentDayOf(student) ? `le ${paymentDayOf(student)} de chaque mois` : '—'}</p>
@@ -370,31 +371,48 @@ export default function StudentSheetModal({ student, close }) {
               </div>
             )}
           </section>
-          <section className="enrolled-subjects">
-            <h3>{student.isPackage ? 'Scolarité' : 'Matières inscrites'}</h3>
-            <div>
-              {student.isPackage ? (
-                // Au forfait l'élève n'a pas de ligne par matière : il suit tout le niveau.
-                <article>
-                  <b>Forfait {student.level} — toutes matières</b>
-                  <small>Groupe : {student.groupSelections?.[0]?.groupName || 'Non assigné'}</small>
-                  <span>{formatAmount(student.du_mois)}</span>
-                </article>
-              ) : subscriptions === null ? (
-                <p className="sheet-empty">Chargement des matières...</p>
-              ) : subscriptions.length === 0 ? (
-                <p className="sheet-empty">Aucune matière inscrite.</p>
-              ) : (
-                subscriptions.map((sub, index) => (
-                  <article key={sub.subject_id || index}>
-                    <b>{sub.subjects?.name || 'Matière inconnue'}</b>
-                    <small>Groupe : {sub.groups?.name || 'Non assigné'}</small>
-                    <span>{formatAmount(sub.monthly_price)}</span>
+          {/* Élève « formation seule » : pas de matière, la section serait vide. */}
+          {!(student.formationOnly && student.formations?.length) && (
+            <section className="enrolled-subjects">
+              <h3>{student.isPackage ? 'Scolarité' : 'Matières inscrites'}</h3>
+              <div>
+                {student.isPackage ? (
+                  // Au forfait l'élève n'a pas de ligne par matière : il suit tout le niveau.
+                  <article>
+                    <b>Forfait {student.level} — toutes matières</b>
+                    <small>Groupe : {student.groupSelections?.[0]?.groupName || 'Non assigné'}</small>
+                    <span>{formatAmount(student.du_mois)}</span>
                   </article>
-                ))
-              )}
-            </div>
-          </section>
+                ) : subscriptions === null ? (
+                  <p className="sheet-empty">Chargement des matières...</p>
+                ) : subscriptions.length === 0 ? (
+                  <p className="sheet-empty">Aucune matière inscrite.</p>
+                ) : (
+                  subscriptions.map((sub, index) => (
+                    <article key={sub.subject_id || index}>
+                      <b>{sub.subjects?.name || 'Matière inconnue'}</b>
+                      <small>Groupe : {sub.groups?.name || 'Non assigné'}</small>
+                      <span>{formatAmount(sub.monthly_price)}</span>
+                    </article>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
+          {student.formations?.length > 0 && (
+            <section className="enrolled-subjects enrolled-formations">
+              <h3>Formations inscrites</h3>
+              <div>
+                {student.formations.map((formation) => (
+                  <article key={formation.formationLevelId}>
+                    <b>{[formation.formationName, formation.levelName].filter(Boolean).join(' · ') || 'Formation'}</b>
+                    <small>Groupe : {catalog?.groupsById?.[formation.groupId]?.name || 'Non assigné'}</small>
+                    <span>{formatAmount(formationRowPrice(formation))}</span>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
         </main>
       </section>
 

@@ -10,6 +10,7 @@ import StudentSheetModal from './modals/StudentSheetModal'
 import DeleteStudentDialog from './modals/DeleteStudentDialog'
 import EnrollmentPage from './enrollment/EnrollmentPage'
 import { fetchCatalog, fetchStudents, fetchUserBranchIds, setStudentStatus } from './enrollment/enrollmentApi'
+import { fetchFormationCatalog, formationLevelLabel } from '../Formations/formationsApi'
 import { useBranch } from '../../context/BranchContext'
 import { useAuth } from '../../context/AuthContext'
 
@@ -18,6 +19,10 @@ import './Students.css'
 // Rôles qui gèrent tout le centre : ils peuvent supprimer n'importe quel élève.
 // Les autres (secrétaires) seulement ceux de leurs succursales assignées.
 const CENTER_WIDE_ROLES = ['super_admin', 'admin', 'director']
+
+// Onglet « Formations », placé après les cycles. Valeur réservée : un cycle
+// qui s'appellerait « Formations » ne doit pas se confondre avec lui.
+const FORMATIONS_TAB = '__formations__'
 
 export default function StudentsPage() {
   const location = useLocation()
@@ -35,6 +40,11 @@ export default function StudentsPage() {
   const [activeLevel, setActiveLevel] = useState('Tous')
   const [activeSubject, setActiveSubject] = useState('Tous')
   const [activeGroup, setActiveGroup] = useState('')
+  // Filtres propres à l'onglet Formations ('' = toutes).
+  const [formationCatalog, setFormationCatalog] = useState(null)
+  const [activeFormation, setActiveFormation] = useState('')
+  const [activeFormationLevel, setActiveFormationLevel] = useState('')
+  const isFormationTab = activeCycle === FORMATIONS_TAB
   const [attendanceStudent, setAttendanceStudent] = useState(null)
   // La fiche d'absence a sa propre adresse : ?absence=form (choix du professeur,
   // niveau, matière, groupe) puis ?absence=list (la liste générée). Ainsi le
@@ -67,6 +77,8 @@ export default function StudentsPage() {
       setActiveLevel('Tous')
       setActiveSubject('Tous')
       setActiveGroup('')
+      setActiveFormation('')
+      setActiveFormationLevel('')
     }
     setPendingFocusId(navFocusId || null)
   }
@@ -104,26 +116,57 @@ export default function StudentsPage() {
     }
   }, [selectedBranch])
 
+  // Catalogue des formations (formations, niveaux) pour les filtres de
+  // l'onglet Formations. Il ne dépend pas de la succursale. En cas d'échec la
+  // page reste utilisable : l'onglet s'affiche quand même si des élèves suivent
+  // une formation, seulement sans le choix de la formation ni du niveau.
+  useEffect(() => {
+    let active = true
+    fetchFormationCatalog()
+      .then((data) => {
+        if (active) setFormationCatalog(data)
+      })
+      .catch((err) => console.error(err))
+    return () => {
+      active = false
+    }
+  }, [])
+
   // Élèves retenus par le cycle, le niveau et la matière — mais pas encore par
   // le groupe ni par la recherche. C'est ce périmètre qui alimente la liste des
   // groupes proposés : filtrer aussi sur le groupe la réduirait au seul groupe
   // choisi, et filtrer sur la recherche la ferait fondre à chaque frappe.
+  //
+  // Dans l'onglet Formations, ce périmètre devient : les élèves qui suivent au
+  // moins une formation (arrêtées exclues, voir fetchStudents), puis la
+  // formation et le niveau de formation choisis.
   const scopedStudents = useMemo(
     () =>
-      items.filter(
-        (student) =>
+      items.filter((student) => {
+        if (isFormationTab) {
+          const formations = student.formations || []
+          return (
+            formations.length > 0 &&
+            (!activeFormation || formations.some((f) => f.formationId === activeFormation)) &&
+            (!activeFormationLevel || formations.some((f) => f.formationLevelId === activeFormationLevel))
+          )
+        }
+        return (
           (activeCycle === 'Tous' || student.cycle === activeCycle) &&
           (activeLevel === 'Tous' || student.level === activeLevel) &&
           (activeSubject === 'Tous' || student.chosen?.includes(activeSubject))
-      ),
-    [items, activeCycle, activeLevel, activeSubject]
+        )
+      }),
+    [items, isFormationTab, activeFormation, activeFormationLevel, activeCycle, activeLevel, activeSubject]
   )
 
   const shownStudents = useMemo(
     () =>
       scopedStudents.filter(
         (student) =>
-          (!activeGroup || student.groupIds?.includes(activeGroup)) &&
+          (!activeGroup ||
+            student.groupIds?.includes(activeGroup) ||
+            student.formations?.some((formation) => formation.groupId === activeGroup)) &&
           `${student.name} ${student.code} ${student.phone}`
             .toLowerCase()
             .includes(query.toLowerCase())
@@ -140,6 +183,28 @@ export default function StudentsPage() {
   // élèves : un élève de 2 BAC inscrit dans un groupe de 3 AC ne doit pas faire
   // remonter ce groupe ici.
   const groups = useMemo(() => {
+    if (isFormationTab) {
+      // Onglet Formations : les groupes de formation, restreints au niveau ou
+      // à la formation choisis. Sans niveau choisi, plusieurs formations
+      // peuvent avoir leur « Groupe 1 » : le niveau est ajouté au libellé.
+      const formationLevelsById = formationCatalog?.levelsById || {}
+      return (catalog?.groups || [])
+        .filter((group) => {
+          if (!group.formation_level_id) return false
+          if (activeFormationLevel) return group.formation_level_id === activeFormationLevel
+          if (activeFormation) return formationLevelsById[group.formation_level_id]?.formation_id === activeFormation
+          return true
+        })
+        .map((group) => {
+          const parts = [group.name]
+          const level = formationLevelsById[group.formation_level_id]
+          if (!activeFormationLevel && level) parts.push(activeFormation ? level.name : formationLevelLabel(level))
+          if (group.status && group.status !== 'active') parts.push('inactif')
+          return { id: group.id, name: parts.join(' · ') }
+        })
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+    }
+
     const levelsById = Object.fromEntries((catalog?.levels || []).map((level) => [level.id, level]))
     const selectedLevelId = activeLevel !== 'Tous' ? catalog?.levelByName?.[activeLevel]?.id : null
     const selectedCycleId = activeCycle !== 'Tous' ? catalog?.cycleByName?.[activeCycle]?.id : null
@@ -171,7 +236,7 @@ export default function StudentsPage() {
         return { id: group.id, name: parts.join(' · ') }
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
-  }, [catalog, activeLevel, activeCycle])
+  }, [catalog, activeLevel, activeCycle, isFormationTab, formationCatalog, activeFormation, activeFormationLevel])
 
   // Changer de niveau peut faire disparaître le groupe sélectionné. Sans cela il
   // resterait actif mais introuvable dans le menu, et viderait le tableau sans
@@ -187,8 +252,38 @@ export default function StudentsPage() {
       name: cycle.name,
       count: items.filter((student) => student.cycle === cycle.name).length,
     }))
-    return [...all, ...cycles]
-  }, [catalog, items])
+    // Les élèves inscrits à au moins une formation, qu'ils suivent aussi un
+    // cycle ou non. L'onglet n'apparaît que si le centre a des formations.
+    const formationCount = items.filter((student) => student.formations?.length > 0).length
+    const formationTab =
+      formationCount > 0 || formationCatalog?.formations?.length > 0
+        ? [{ name: FORMATIONS_TAB, label: 'Formations', count: formationCount }]
+        : []
+    return [...all, ...cycles, ...formationTab]
+  }, [catalog, items, formationCatalog])
+
+  const formations = useMemo(
+    () =>
+      (formationCatalog?.formations || []).map((formation) => ({
+        id: formation.id,
+        name: formation.status === 'inactive' ? `${formation.name} · inactive` : formation.name,
+      })),
+    [formationCatalog]
+  )
+
+  // Niveaux de la formation choisie ; sans formation choisie, tous les niveaux,
+  // préfixés du nom de leur formation pour rester reconnaissables.
+  const formationLevels = useMemo(() => {
+    if (activeFormation) {
+      return (formationCatalog?.levelsByFormation?.[activeFormation] || []).map((level) => ({
+        id: level.id,
+        name: level.name,
+      }))
+    }
+    return (formationCatalog?.levels || [])
+      .map((level) => ({ id: level.id, name: formationLevelLabel(level) }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+  }, [formationCatalog, activeFormation])
 
   const subjects = useMemo(() => (catalog?.subjects || []).map((subject) => subject.name), [catalog])
 
@@ -244,6 +339,15 @@ export default function StudentsPage() {
     setActiveLevel('Tous')
     setActiveSubject('Tous')
     setActiveGroup('')
+    setActiveFormation('')
+    setActiveFormationLevel('')
+  }
+
+  // Changer de formation vide le niveau ; le groupe, lui, est remis à zéro par
+  // l'ajustement plus haut s'il n'appartient plus à la sélection.
+  const handleFormationChange = (formationId) => {
+    setActiveFormation(formationId)
+    setActiveFormationLevel('')
   }
 
   const handleFinishEnrollment = async () => {
@@ -362,6 +466,13 @@ export default function StudentsPage() {
           groups={groups}
           activeGroup={activeGroup}
           onGroupChange={setActiveGroup}
+          formationMode={isFormationTab}
+          formations={formations}
+          activeFormation={activeFormation}
+          onFormationChange={handleFormationChange}
+          formationLevels={formationLevels}
+          activeFormationLevel={activeFormationLevel}
+          onFormationLevelChange={setActiveFormationLevel}
           studentsCount={shownStudents.length}
           searchQuery={query}
           onSearchChange={setQuery}
@@ -397,6 +508,7 @@ export default function StudentsPage() {
       {openSheetStudent && (
         <StudentSheetModal
           student={openSheetStudent}
+          catalog={catalog}
           close={closeSheet}
         />
       )}
