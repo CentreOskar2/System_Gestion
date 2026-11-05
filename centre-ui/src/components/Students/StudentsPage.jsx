@@ -24,6 +24,10 @@ const CENTER_WIDE_ROLES = ['super_admin', 'admin', 'director']
 // qui s'appellerait « Formations » ne doit pas se confondre avec lui.
 const FORMATIONS_TAB = '__formations__'
 
+// Choix « Toutes les formations » de la case Formation, hors de l'onglet :
+// l'élève suit au moins une formation, peu importe laquelle.
+const ANY_FORMATION = '__any__'
+
 export default function StudentsPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -40,7 +44,8 @@ export default function StudentsPage() {
   const [activeLevel, setActiveLevel] = useState('Tous')
   const [activeSubject, setActiveSubject] = useState('Tous')
   const [activeGroup, setActiveGroup] = useState('')
-  // Filtres propres à l'onglet Formations ('' = toutes).
+  // Case Formation ('' = pas de filtre) et, dans l'onglet Formations, niveau
+  // de formation.
   const [formationCatalog, setFormationCatalog] = useState(null)
   const [activeFormation, setActiveFormation] = useState('')
   const [activeFormationLevel, setActiveFormationLevel] = useState('')
@@ -116,10 +121,11 @@ export default function StudentsPage() {
     }
   }, [selectedBranch])
 
-  // Catalogue des formations (formations, niveaux) pour les filtres de
-  // l'onglet Formations. Il ne dépend pas de la succursale. En cas d'échec la
-  // page reste utilisable : l'onglet s'affiche quand même si des élèves suivent
-  // une formation, seulement sans le choix de la formation ni du niveau.
+  // Catalogue des formations (formations, niveaux) pour la case Formation,
+  // l'onglet Formations et le libellé des groupes de formation. Il ne dépend
+  // pas de la succursale. En cas d'échec la page reste utilisable : l'onglet
+  // s'affiche quand même si des élèves suivent une formation, seulement sans
+  // le choix de la formation ni du niveau.
   useEffect(() => {
     let active = true
     fetchFormationCatalog()
@@ -139,22 +145,29 @@ export default function StudentsPage() {
   //
   // Dans l'onglet Formations, ce périmètre devient : les élèves qui suivent au
   // moins une formation (arrêtées exclues, voir fetchStudents), puis la
-  // formation et le niveau de formation choisis.
+  // formation et le niveau de formation choisis. Ailleurs, la case Formation
+  // s'ajoute au cycle, au niveau et à la matière.
   const scopedStudents = useMemo(
     () =>
       items.filter((student) => {
+        const formations = student.formations || []
+        const matchesFormation =
+          !activeFormation ||
+          (activeFormation === ANY_FORMATION
+            ? formations.length > 0
+            : formations.some((f) => f.formationId === activeFormation))
         if (isFormationTab) {
-          const formations = student.formations || []
           return (
             formations.length > 0 &&
-            (!activeFormation || formations.some((f) => f.formationId === activeFormation)) &&
+            matchesFormation &&
             (!activeFormationLevel || formations.some((f) => f.formationLevelId === activeFormationLevel))
           )
         }
         return (
           (activeCycle === 'Tous' || student.cycle === activeCycle) &&
           (activeLevel === 'Tous' || student.level === activeLevel) &&
-          (activeSubject === 'Tous' || student.chosen?.includes(activeSubject))
+          (activeSubject === 'Tous' || student.chosen?.includes(activeSubject)) &&
+          matchesFormation
         )
       }),
     [items, isFormationTab, activeFormation, activeFormationLevel, activeCycle, activeLevel, activeSubject]
@@ -183,26 +196,47 @@ export default function StudentsPage() {
   // élèves : un élève de 2 BAC inscrit dans un groupe de 3 AC ne doit pas faire
   // remonter ce groupe ici.
   const groups = useMemo(() => {
-    if (isFormationTab) {
-      // Onglet Formations : les groupes de formation, restreints au niveau ou
-      // à la formation choisis. Sans niveau choisi, plusieurs formations
-      // peuvent avoir leur « Groupe 1 » : le niveau est ajouté au libellé.
-      const formationLevelsById = formationCatalog?.levelsById || {}
-      return (catalog?.groups || [])
-        .filter((group) => {
-          if (!group.formation_level_id) return false
-          if (activeFormationLevel) return group.formation_level_id === activeFormationLevel
-          if (activeFormation) return formationLevelsById[group.formation_level_id]?.formation_id === activeFormation
-          return true
-        })
+    const formationLevelsById = formationCatalog?.levelsById || {}
+    const formationIdOf = (group) => formationLevelsById[group.formation_level_id]?.formation_id
+    // Groupes de formation retenus par `keep`. Plusieurs formations peuvent
+    // avoir leur « Groupe 1 » : le libellé porte la formation et le niveau,
+    // sauf ce que les filtres déjà choisis rendent évident.
+    const formationGroups = (keep, { showFormation = true, showLevel = true } = {}) =>
+      (catalog?.groups || [])
+        .filter((group) => group.formation_level_id && keep(group))
         .map((group) => {
-          const parts = [group.name]
           const level = formationLevelsById[group.formation_level_id]
-          if (!activeFormationLevel && level) parts.push(activeFormation ? level.name : formationLevelLabel(level))
+          const parts = [group.name]
+          if (showLevel) parts.push(level ? (showFormation ? formationLevelLabel(level) : level.name) : 'Formation')
           if (group.status && group.status !== 'active') parts.push('inactif')
           return { id: group.id, name: parts.join(' · ') }
         })
         .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+
+    if (isFormationTab) {
+      // Onglet Formations : seulement les groupes de formation, restreints au
+      // niveau ou à la formation choisis.
+      return formationGroups(
+        (group) =>
+          activeFormationLevel
+            ? group.formation_level_id === activeFormationLevel
+            : !activeFormation || formationIdOf(group) === activeFormation,
+        { showFormation: !activeFormation, showLevel: !activeFormationLevel }
+      )
+    }
+
+    // Hors de l'onglet, les groupes de formation suivent les groupes scolaires
+    // dans le même menu. N'ayant ni cycle, ni niveau, ni matière, ils ne sont
+    // proposés que si aucun de ces filtres n'est choisi — ou si une formation
+    // l'est, auquel cas seuls ses groupes apparaissent.
+    let trainingGroups = []
+    if (activeFormation && activeFormation !== ANY_FORMATION) {
+      trainingGroups = formationGroups((group) => formationIdOf(group) === activeFormation, { showFormation: false })
+    } else if (
+      activeFormation === ANY_FORMATION ||
+      (activeCycle === 'Tous' && activeLevel === 'Tous' && activeSubject === 'Tous')
+    ) {
+      trainingGroups = formationGroups(() => true)
     }
 
     const levelsById = Object.fromEntries((catalog?.levels || []).map((level) => [level.id, level]))
@@ -210,8 +244,7 @@ export default function StudentsPage() {
     const selectedCycleId = activeCycle !== 'Tous' ? catalog?.cycleByName?.[activeCycle]?.id : null
 
     const list = (catalog?.groups || []).filter((group) => {
-      // Les groupes de formation ont leur propre écran : ils n'ont pas de
-      // niveau scolaire et n'ont rien à faire dans ce filtre.
+      // Les groupes de formation sont ajoutés à part (trainingGroups).
       if (group.formation_level_id) return false
       if (selectedLevelId) return group.level_id === selectedLevelId
       if (selectedCycleId) return levelsById[group.level_id]?.cycle_id === selectedCycleId
@@ -224,7 +257,7 @@ export default function StudentsPage() {
     const timesUsed = new Map()
     for (const group of list) timesUsed.set(group.name, (timesUsed.get(group.name) || 0) + 1)
 
-    return list
+    const schoolGroups = list
       .map((group) => {
         const parts = [group.name]
         if (timesUsed.get(group.name) > 1) {
@@ -236,7 +269,9 @@ export default function StudentsPage() {
         return { id: group.id, name: parts.join(' · ') }
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
-  }, [catalog, activeLevel, activeCycle, isFormationTab, formationCatalog, activeFormation, activeFormationLevel])
+
+    return [...schoolGroups, ...trainingGroups]
+  }, [catalog, activeLevel, activeCycle, activeSubject, isFormationTab, formationCatalog, activeFormation, activeFormationLevel])
 
   // Changer de niveau peut faire disparaître le groupe sélectionné. Sans cela il
   // resterait actif mais introuvable dans le menu, et viderait le tableau sans
@@ -467,6 +502,7 @@ export default function StudentsPage() {
           activeGroup={activeGroup}
           onGroupChange={setActiveGroup}
           formationMode={isFormationTab}
+          anyFormationValue={ANY_FORMATION}
           formations={formations}
           activeFormation={activeFormation}
           onFormationChange={handleFormationChange}

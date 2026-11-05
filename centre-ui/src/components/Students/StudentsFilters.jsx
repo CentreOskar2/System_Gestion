@@ -15,8 +15,10 @@ export default function StudentsFilters({
   activeGroup,
   onGroupChange,
   // Onglet Formations : la formation et son niveau remplacent le niveau
-  // scolaire et la matière.
+  // scolaire et la matière. Ailleurs, une case Formation s'ajoute aux filtres,
+  // avec un choix `anyFormationValue` pour « au moins une formation ».
   formationMode = false,
+  anyFormationValue = '__any__',
   formations = [],
   activeFormation = '',
   onFormationChange,
@@ -36,9 +38,25 @@ export default function StudentsFilters({
     ...subjects.map((subject) => ({ value: subject, label: subject })),
   ]
   const formationOptions = [
-    { value: '', label: 'Toutes les formations' },
+    ...(formationMode
+      ? [{ value: '', label: 'Toutes les formations' }]
+      : [
+          { value: '', label: 'Avec ou sans formation' },
+          { value: anyFormationValue, label: 'Toutes les formations' },
+        ]),
     ...formations.map((formation) => ({ value: formation.id, label: formation.name })),
   ]
+  const formationFilter = (
+    <div className="filter-select">
+      <Icon name="clipboard" />
+      <FilterSelect
+        ariaLabel="Filtrer par formation"
+        value={activeFormation}
+        options={formationOptions}
+        onChange={onFormationChange}
+      />
+    </div>
+  )
   const formationLevelOptions = [
     { value: '', label: 'Tous les niveaux' },
     ...formationLevels.map((level) => ({ value: level.id, label: level.name })),
@@ -75,15 +93,7 @@ export default function StudentsFilters({
         </label>
         {formationMode ? (
           <>
-            <div className="filter-select">
-              <Icon name="cap" />
-              <FilterSelect
-                ariaLabel="Filtrer par formation"
-                value={activeFormation}
-                options={formationOptions}
-                onChange={onFormationChange}
-              />
-            </div>
+            {formationFilter}
             <div className="filter-select">
               <Icon name="layers" />
               <FilterSelect
@@ -114,6 +124,7 @@ export default function StudentsFilters({
                 onChange={onSubjectChange}
               />
             </div>
+            {formations.length > 0 && formationFilter}
           </>
         )}
         <div className="filter-select">
