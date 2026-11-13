@@ -126,6 +126,19 @@
   color: #2563eb;
 }
 
+/* Nombre d'élèves désactivés, sous le total de la carte. */
+.cycle-tabs .cycle-tab-inactive {
+  display: block;
+  margin-top: 6px;
+  color: #9ca3af;
+  font-size: 0.8125rem; /* 13px */
+  font-weight: 600;
+}
+
+.cycle-tabs .cycle-tab-inactive.has-inactive {
+  color: #dc2626;
+}
+
 .students-filters {
   display: grid;
   grid-template-columns: 1.7fr repeat(3, minmax(190px, 1fr));

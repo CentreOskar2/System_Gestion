@@ -77,6 +77,9 @@ export default function StudentsFilters({
           >
             <span>{(item.label || item.name).toUpperCase()}</span>
             <b>{item.count}</b>
+            <small className={`cycle-tab-inactive ${item.inactiveCount > 0 ? 'has-inactive' : ''}`}>
+              {item.inactiveCount || 0} désactivé{item.inactiveCount > 1 ? 's' : ''}
+            </small>
           </button>
         ))}
       </div>

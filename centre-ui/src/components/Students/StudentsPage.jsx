@@ -281,18 +281,24 @@ export default function StudentsPage() {
     setActiveGroup('')
   }
 
+  // Chaque carte compte tous ses élèves, actifs et désactivés ; le nombre de
+  // désactivés est rappelé en dessous.
   const cycleTabs = useMemo(() => {
-    const all = [{ name: 'Tous', count: items.length }]
+    const counts = (list) => ({
+      count: list.length,
+      inactiveCount: list.filter((student) => !student.active).length,
+    })
+    const all = [{ name: 'Tous', ...counts(items) }]
     const cycles = (catalog?.cycles || []).map((cycle) => ({
       name: cycle.name,
-      count: items.filter((student) => student.cycle === cycle.name).length,
+      ...counts(items.filter((student) => student.cycle === cycle.name)),
     }))
     // Les élèves inscrits à au moins une formation, qu'ils suivent aussi un
     // cycle ou non. L'onglet n'apparaît que si le centre a des formations.
-    const formationCount = items.filter((student) => student.formations?.length > 0).length
+    const formationStudents = items.filter((student) => student.formations?.length > 0)
     const formationTab =
-      formationCount > 0 || formationCatalog?.formations?.length > 0
-        ? [{ name: FORMATIONS_TAB, label: 'Formations', count: formationCount }]
+      formationStudents.length > 0 || formationCatalog?.formations?.length > 0
+        ? [{ name: FORMATIONS_TAB, label: 'Formations', ...counts(formationStudents) }]
         : []
     return [...all, ...cycles, ...formationTab]
   }, [catalog, items, formationCatalog])

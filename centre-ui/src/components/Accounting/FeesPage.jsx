@@ -757,13 +757,16 @@ export default function FeesPage() {
   // décocher, réduire ni changer le prix de ce qui y est déjà payé.
   const monthClosedFor = (index) => !isCenterWide && isMonthClosed(monthDate(index, Number(schoolYearStart)))
 
-  // Une matière couverte par un paiement en bloc reste figée tant que le mois
-  // n'est pas détaillé par matière (voir detailBlockMonth).
+  // Matières figées dans la modale. Tant que le mois est ouvert, rien ne l'est :
+  // une matière payée en bloc se modifie comme les autres (le bloc est alors
+  // détaillé par matière à la validation, voir handleValidate). Mois terminé
+  // (hors rôle « centre ») : le bloc reste tel quel, et ce qui est déjà payé
+  // matière par matière ne peut plus que recevoir un ajout.
   const lockedPaidSubjects = (student, index) => {
+    if (!monthClosedFor(index)) return {}
     const { rows, blockCovered } = monthCoverage(student, index)
     const locked = {}
     for (const name of blockCovered) locked[name] = 'block'
-    if (!monthClosedFor(index)) return locked
     for (const name of student.chosen) {
       const subjectId = student.subjectDetails?.[name]?.subject_id
       if (!locked[name] && rows.some((r) => r.subject_id === subjectId)) locked[name] = 'closed'
@@ -923,7 +926,7 @@ export default function FeesPage() {
   // seul le prix change — remonter le prix d'un mois sous-payé (375 DH reçus
   // sur 400) fait apparaître le reste dû au lieu d'encaisser une somme fictive.
   const setSubjectDue = (name, value) => {
-    const alreadyPaid = selectedCoverage?.bySubject[name]?.paidAmount || 0
+    const alreadyPaid = selectedAlreadyPaid(name)
     if (alreadyPaid === 0 && selectedSubjectPaid(name) === selectedSubjectAmount(name)) {
       setPaidTotals((prev) => ({ ...prev, [name]: value }))
     }
@@ -948,6 +951,11 @@ export default function FeesPage() {
     : null
   const selectedDue = selectedCoverage?.due || []
   const selectedLocked = selected ? lockedPaidSubjects(selected.student, selected.index) : {}
+  // Part du paiement en bloc reçue par chaque matière qu'il couvre.
+  const selectedBlockShares = selected ? monthBlockShares(selected.student, selected.index, selectedCoverage) : {}
+  // Déjà encaissé pour une matière ce mois-ci : ses versements, ou sa part du bloc.
+  const selectedAlreadyPaid = (name) =>
+    selectedBlockShares[name] ?? selectedCoverage?.bySubject[name]?.paidAmount ?? 0
   // Forfait déjà réglé : corrigeable et annulable par tous tant que le mois
   // n'est pas terminé ; ensuite, par un rôle « centre » seulement.
   const selectedBlockPayment = selected ? monthPaymentOf(selected.student, selected.index) : null
@@ -994,13 +1002,19 @@ export default function FeesPage() {
 
   // Reçu d'un mois réglé matière par matière, entièrement ou en partie (avance) :
   // ce qui a été payé par matière, et ce qui reste dû sur le mois.
-  const subjectsReceiptFor = (student, index, subjectRows = paymentSubjectsByStudent[student.id] || [], extraLines = []) => {
+  const subjectsReceiptFor = (
+    student,
+    index,
+    subjectRows = paymentSubjectsByStudent[student.id] || [],
+    extraLines = [],
+    payments = paymentsByStudent[student.id] || []
+  ) => {
     const monthKey = monthDate(index, Number(schoolYearStart))
     const balance = monthBalanceOf({
       student,
       catalog,
       monthKey,
-      payments: paymentsByStudent[student.id] || [],
+      payments,
       subjectRows,
     })
     const shares = blockSharesOf({ student, catalog, coverage: balance })
@@ -1053,73 +1067,55 @@ export default function FeesPage() {
     setBlockAmount(String(monthBlockAmount(student, index)))
   }
 
-  // Dernier versement d'une matière dans la modale (celui qu'une correction modifie).
+  // Dernier versement d'une matière dans la modale (celui qu'une correction
+  // modifie). Matière payée en bloc : le paiement en bloc lui-même.
   const latestPaymentOf = (name) =>
-    [...(selectedCoverage?.bySubject[name]?.rows || [])].sort((a, b) => new Date(b.paid_at || 0) - new Date(a.paid_at || 0))[0] || null
+    [...(selectedCoverage?.bySubject[name]?.rows || [])].sort((a, b) => new Date(b.paid_at || 0) - new Date(a.paid_at || 0))[0] ||
+    (selectedCoverage?.blockCovered.includes(name) ? selectedCoverage.block : null)
   const setIncreaseMode = (name, mode) => setIncreaseModes((prev) => ({ ...prev, [name]: mode }))
 
-  // Un mois payé en bloc ne se modifie pas matière par matière : on le détaille
-  // d'abord. Chaque matière reçoit sa part du bloc (blockSharesOf), à la date
-  // et au nom du paiement d'origine — la caisse ne change pas. Son prix pour ce
-  // mois est cette part (au plus son prix habituel) : le mois reste réglé comme
-  // avant, et chaque matière devient modifiable.
-  const detailBlockMonth = async () => {
-    if (!selected || saving) return
-    const { student, index } = selected
-    if (monthClosedFor(index)) return
+  // Un paiement en bloc ne dit pas ce que chaque matière a reçu. Pour en
+  // modifier une, on le détaille : chaque matière couverte reçoit une ligne de
+  // sa part du bloc (blockSharesOf), à la date et au nom du paiement d'origine
+  // — la caisse ne change pas. Ces lignes ne sont pas encore enregistrées :
+  // elles portent un id provisoire (`block:<matière>`), et la validation les
+  // insère avec les modifications saisies (voir resolveBlockDetail).
+  const blockDetailRows = (student, index, coverage) => {
     const month = monthDate(index, Number(schoolYearStart))
-    const coverage = monthCoverage(student, index)
-    if (!coverage.block || coverage.blockCovered.length === 0) return
-    setSaving(true)
-    setError('')
-    try {
-      const shares = monthBlockShares(student, index, coverage)
-      const inserts = coverage.blockCovered
-        .map((name) => {
-          const subjectId = student.subjectDetails?.[name]?.subject_id
-          if (!subjectId) return null
-          const share = shares[name] ?? 0
-          return {
-            student_id: student.id,
-            subject_id: subjectId,
-            month,
-            amount: share,
-            due_amount: Math.min(share, priceFor(catalog, student, name)),
-            paid_at: coverage.block.paid_at,
-            paid_by: coverage.block.paid_by || null,
-          }
-        })
-        .filter(Boolean)
-      await writeSubjectPaymentChanges({ inserts })
-      let data = await load()
-      const fresh = data?.students.find((item) => item.id === student.id)
-      if (fresh) {
-        // L'ancienne ligne du bloc devient le résumé « mois complet » si le
-        // mois est réglé, et disparaît sinon (voir syncMonthSummaries).
-        const rows = data.paymentSubjectsByStudent[fresh.id] || []
-        await syncMonthSummaries({
-          student: fresh,
-          catalog: data.catalog,
-          monthKeys: [month],
-          payments: data.paymentsByStudent[fresh.id] || [],
-          subjectRows: rows,
-          previousRows: rows,
-          userId: user?.id || null,
-        })
-        data = await load()
-      }
-      invalidateFeesCache()
-      const reloaded = data?.students.find((item) => item.id === student.id)
-      if (reloaded) {
-        showPaymentForm(reloaded, index, data.paymentsByStudent[reloaded.id] || [], data.paymentSubjectsByStudent[reloaded.id] || [])
-      } else {
-        setSelected(null)
-      }
-    } catch (err) {
-      console.error(err)
-      setError(err.message)
-    } finally {
-      setSaving(false)
+    const shares = monthBlockShares(student, index, coverage)
+    return coverage.blockCovered
+      .map((name) => {
+        const subjectId = student.subjectDetails?.[name]?.subject_id
+        if (!subjectId) return null
+        const share = shares[name] ?? 0
+        return {
+          id: `block:${name}`,
+          student_id: student.id,
+          subject_id: subjectId,
+          month,
+          amount: share,
+          // Le prix du mois affiché dans la modale pour une matière en bloc.
+          due_amount: share,
+          paid_at: coverage.block.paid_at,
+          paid_by: coverage.block.paid_by || null,
+        }
+      })
+      .filter(Boolean)
+  }
+
+  // Changements calculés sur des lignes de détail provisoires : celles-ci
+  // deviennent des insertions (avec leurs modifications), ou disparaissent si
+  // la matière a été décochée. Les autres changements restent tels quels.
+  const resolveBlockDetail = (detailRows, changes) => {
+    const provisional = new Set(detailRows.map((row) => row.id))
+    const updatesById = new Map(changes.updates.map((update) => [update.id, update.changes]))
+    const detailInserts = detailRows
+      .filter((row) => !changes.deletes.includes(row.id))
+      .map(({ id, ...row }) => ({ ...row, ...(updatesById.get(id) || {}) }))
+    return {
+      inserts: [...detailInserts, ...changes.inserts],
+      updates: changes.updates.filter((update) => !provisional.has(update.id)),
+      deletes: changes.deletes.filter((id) => !provisional.has(id)),
     }
   }
 
@@ -1172,7 +1168,30 @@ export default function FeesPage() {
       //     surplus en avance sur les mois suivants ;
       //   - moins : correction, en retirant les versements les plus récents ;
       //   - décochée : tous ses versements du mois sont annulés.
-      const coverage = monthCoverage(student, index)
+      const studentPayments = paymentsByStudent[student.id] || []
+      const savedRows = paymentSubjectsByStudent[student.id] || []
+      const closed = monthClosedFor(index)
+      let coverage = monthCoverage(student, index)
+      let subjectRows = savedRows
+      let detailRows = []
+      // Mois payé en bloc dont une matière a été modifiée (décochée, prix ou
+      // payé changé) : le bloc est détaillé par matière, puis la modification
+      // s'applique à ces lignes comme à n'importe quel versement. Sans
+      // modification, le bloc reste tel quel.
+      const shares = monthBlockShares(student, index, coverage)
+      const blockEdited =
+        !closed &&
+        coverage.blockCovered.some(
+          (name) =>
+            !paidSelection.includes(name) ||
+            selectedSubjectAmount(name) !== shares[name] ||
+            selectedSubjectPaid(name) !== shares[name]
+        )
+      if (blockEdited) {
+        detailRows = blockDetailRows(student, index, coverage)
+        subjectRows = [...savedRows, ...detailRows]
+        coverage = monthCoverageOf({ student, monthKey: month, payments: studentPayments, subjectRows })
+      }
       const { blockCovered, due } = coverage
       const locked = lockedPaidSubjects(student, index)
       // Une matière retirée de l'élève entre-temps n'est plus proposée ; une
@@ -1182,17 +1201,15 @@ export default function FeesPage() {
       ]
       const nowIso = new Date().toISOString()
       const userId = user?.id || null
-      const subjectRows = paymentSubjectsByStudent[student.id] || []
       const changes = { inserts: [], updates: [], deletes: [] }
       const touchedMonths = new Set([month])
       const advanceLines = []
       const pastDays = []
       const monthLabel = schoolMonths[index]?.label || ''
-      const closed = monthClosedFor(index)
 
       for (const name of due) {
-        // Couverte par un paiement en bloc : déjà comptée, en entier, le jour
-        // où le bloc a été reçu.
+        // Couverte par un paiement en bloc resté tel quel : déjà comptée, en
+        // entier, le jour où le bloc a été reçu.
         if (blockCovered.includes(name)) continue
         const subjectId = student.subjectDetails?.[name]?.subject_id
         if (!subjectId) continue
@@ -1242,7 +1259,7 @@ export default function FeesPage() {
           if (surplus > 0) {
             const { parts, rest } = allocateAcrossMonths(
               surplus,
-              laterSubjectSlots({ student, catalog, name, afterMonthKey: month, payments: paymentsByStudent[student.id] || [], subjectRows })
+              laterSubjectSlots({ student, catalog, name, afterMonthKey: month, payments: studentPayments, subjectRows })
             )
             if (rest > 0) throw new Error(`Le montant payé pour ${name} dépasse ce qui reste à payer jusqu'en août.`)
             for (const part of parts) {
@@ -1289,16 +1306,20 @@ export default function FeesPage() {
         if (!ok) return
       }
 
-      await writeSubjectPaymentChanges(changes)
+      // Bloc détaillé : ses lignes provisoires sont insérées avec leurs modifications.
+      await writeSubjectPaymentChanges(blockEdited ? resolveBlockDetail(detailRows, changes) : changes)
       // student_payments (le résumé "mois complet") suit, pour ce mois et ceux
       // qui ont reçu une avance : présent seulement si TOUTES les matières du
       // mois sont soldées — c'est ce que lisent le Dashboard et les Rapports.
+      // Un bloc détaillé n'est plus un paiement en bloc (previousRows contient
+      // son détail) : il devient le résumé si le mois reste réglé, et disparaît
+      // sinon.
       const nextRows = applySubjectPaymentChanges(subjectRows, changes)
       await syncMonthSummaries({
         student,
         catalog,
         monthKeys: [...touchedMonths],
-        payments: paymentsByStudent[student.id] || [],
+        payments: studentPayments,
         subjectRows: nextRows,
         previousRows: subjectRows,
         userId,
@@ -1307,8 +1328,12 @@ export default function FeesPage() {
       invalidateFeesCache()
       await load()
       // Reçu dès qu'une somme a été reçue : mois soldé, ou avance (le reçu
-      // indique alors ce qui reste dû sur le mois).
-      const nextReceipt = subjectsReceiptFor(student, index, nextRows, advanceLines)
+      // indique alors ce qui reste dû sur le mois). Le bloc détaillé ne compte
+      // plus comme paiement du mois : le reçu suit les seules lignes.
+      const receiptPayments = blockEdited
+        ? studentPayments.filter((payment) => normalizeMonthKey(payment.month) !== month)
+        : studentPayments
+      const nextReceipt = subjectsReceiptFor(student, index, nextRows, advanceLines, receiptPayments)
       if (changes.inserts.some((row) => row.amount > 0) || nextReceipt.remaining === 0) setReceipt(nextReceipt)
       setSelected(null)
     } catch (err) {
@@ -1860,8 +1885,11 @@ export default function FeesPage() {
                     const usualPrice = priceFor(catalog, selected.student, name)
                     const amount = selectedSubjectAmount(name)
                     const lock = selectedLocked[name]
+                    // isBlock : payée en bloc ET figée (mois terminé) ;
+                    // blockPaid : payée en bloc, modifiable ou non.
                     const isBlock = lock === 'block'
-                    const already = selectedCoverage.bySubject[name]?.paidAmount || 0
+                    const blockPaid = selectedCoverage.blockCovered.includes(name)
+                    const already = selectedAlreadyPaid(name)
                     const paidTotal = checked ? selectedSubjectPaid(name) : 0
                     const paymentsLabel = selectedPaymentsLabel(name)
                     // Ce qui partira en avance sur les mois suivants à la validation.
@@ -1884,7 +1912,7 @@ export default function FeesPage() {
                           {amount !== usualPrice && (
                             <small className="payment-usual-price">Prix habituel : {usualPrice.toLocaleString('fr-FR')} DH</small>
                           )}
-                          {isBlock && selectedCoverage.block?.paid_at && (
+                          {blockPaid && selectedCoverage.block?.paid_at && (
                             <small className="payment-paid-on">
                               Réglé avec le mois en bloc le {formatFrenchDate(normalizeDateKey(selectedCoverage.block.paid_at))}
                             </small>
@@ -1992,8 +2020,8 @@ export default function FeesPage() {
                   {(() => {
                     // Somme réellement reçue à la validation (avances comprises).
                     const collectedNow = selectedDue
-                      .filter((name) => paidSelection.includes(name) && !selectedCoverage.blockCovered.includes(name) && increaseModes[name] !== 'correction')
-                      .reduce((sum, name) => sum + Math.max(0, selectedSubjectPaid(name) - (selectedCoverage.bySubject[name]?.paidAmount || 0)), 0)
+                      .filter((name) => paidSelection.includes(name) && selectedLocked[name] !== 'block' && increaseModes[name] !== 'correction')
+                      .reduce((sum, name) => sum + Math.max(0, selectedSubjectPaid(name) - selectedAlreadyPaid(name)), 0)
                     return collectedNow > 0 ? <small>À encaisser maintenant : {collectedNow.toLocaleString('fr-FR')} DH</small> : null
                   })()}
                 </div>
@@ -2005,14 +2033,12 @@ export default function FeesPage() {
                     {selectedCoverage.blockCovered.length > 1 && ` pour ${selectedCoverage.blockCovered.join(', ')}`}
                     <div className="payment-block-detail">
                       {monthClosedFor(selected.index) ? (
-                        <small>Mois terminé : seul un administrateur peut le détailler par matière.</small>
+                        <small>Mois terminé : seul un administrateur peut modifier ce paiement.</small>
                       ) : (
-                        <>
-                          <button type="button" disabled={saving} onClick={detailBlockMonth}>
-                            Détailler par matière
-                          </button>
-                          <small>Pour modifier une matière. Les montants et la date du paiement ne changent pas.</small>
-                        </>
+                        <small>
+                          Chaque matière se modifie directement ci-dessus. Le bloc n'est détaillé par matière que
+                          si l'une d'elles change ; les autres gardent leur montant et la date du paiement.
+                        </small>
                       )}
                     </div>
                   </div>

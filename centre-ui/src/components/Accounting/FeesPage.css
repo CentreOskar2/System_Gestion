@@ -1149,7 +1149,6 @@
 }
 
 .payment-increase-mode button,
-.payment-block-detail button,
 .edit-removed-payments button {
   padding: 5px 10px;
   border: 1px solid #c9d5ea;
@@ -1174,7 +1173,7 @@
   color: #b42323;
 }
 
-/* Mois payé en bloc : le détailler par matière pour le modifier. */
+/* Mois payé en bloc : ses matières se modifient directement. */
 .payment-block-detail {
   display: flex;
   flex-wrap: wrap;
@@ -1183,11 +1182,6 @@
   gap: 8px;
   margin-top: 8px;
   font-weight: 500;
-}
-
-.payment-block-detail button {
-  border-color: #315fec;
-  color: #315fec;
 }
 
 .payment-block-detail small {
