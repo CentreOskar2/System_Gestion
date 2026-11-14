@@ -64,6 +64,9 @@ const styles = StyleSheet.create({
   },
   detailItem: {
     marginRight: 24,
+    // Liste groupée : le nom des groupes peut être long, il passe à la ligne
+    // au lieu de sortir de la page.
+    flexShrink: 1,
   },
   detailLabel: {
     fontSize: 7,
@@ -133,7 +136,7 @@ export default function AbsenceSheetPdf({ meta, students }) {
             </View>
           </View>
           <View style={styles.titleBlock}>
-            <Text style={styles.titleMain}>Fiche d'absence</Text>
+            <Text style={styles.titleMain}>{meta.grouped ? "Fiche d'absence groupée" : "Fiche d'absence"}</Text>
             <Text style={styles.titleSub}>Année scolaire {ACADEMIC_YEAR}</Text>
           </View>
         </View>
@@ -152,7 +155,7 @@ export default function AbsenceSheetPdf({ meta, students }) {
             <Text style={styles.detailValue}>{meta.level || '—'}</Text>
           </View>
           <View style={styles.detailItem}>
-            <Text style={styles.detailLabel}>GROUPE</Text>
+            <Text style={styles.detailLabel}>{meta.grouped ? 'GROUPES' : 'GROUPE'}</Text>
             <Text style={styles.detailValue}>{meta.group || '—'}</Text>
           </View>
         </View>

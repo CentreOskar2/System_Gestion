@@ -23,6 +23,31 @@ function formatEntryDate(value) {
   return year && month && day ? `${day}/${month}/${year}` : ''
 }
 
+// ['a', 'b', 'c'] -> 'a, b et c'
+function frenchList(items) {
+  if (items.length <= 1) return items[0] || ''
+  return `${items.slice(0, -1).join(', ')} et ${items[items.length - 1]}`
+}
+
+const byNaturalName = (a, b) => a.localeCompare(b, 'fr', { numeric: true })
+
+// Nom d'une liste groupée. Des groupes qui ne diffèrent que par leur numéro
+// final sont réunis : « Groupe 1 », « Groupe 2 », « Groupe 3 » -> « Groupe 1,
+// 2 et 3 » ; « 1 BAC SVT 1 », « 1 BAC SVT 2 » -> « 1 BAC SVT 1 et 2 ».
+// Sinon, les noms complets : « Groupe A et Groupe B ».
+function groupsLabel(names) {
+  const sorted = names.map((name) => String(name || '').trim()).filter(Boolean).sort(byNaturalName)
+  const parts = sorted.map((name) => name.match(/^(.*?)(\d+)$/))
+  const prefix = parts[0]?.[1]
+  if (sorted.length > 1 && parts.every((part) => part && part[1] === prefix)) {
+    return `${prefix}${frenchList(parts.map((part) => part[2]))}`
+  }
+  return frenchList(sorted)
+}
+
+const LIST_SINGLE = 'single'
+const LIST_GROUPED = 'grouped'
+
 function AbsenceSheet({ meta, students, onBack, close }) {
   const [isExporting, setIsExporting] = useState(false)
   const downloadPdf = async () => {
@@ -30,7 +55,7 @@ function AbsenceSheet({ meta, students, onBack, close }) {
     try {
       await downloadPdfDocument(
         <AbsenceSheetPdf meta={meta} students={students} />,
-        `fiche-absence-${safeFilename(meta.teacher)}-${safeFilename(meta.subject)}-${safeFilename(meta.group)}.pdf`
+        `fiche-absence-${meta.grouped ? 'groupee-' : ''}${safeFilename(meta.teacher)}-${safeFilename(meta.subject)}-${safeFilename(meta.group)}.pdf`
       )
     } finally {
       setIsExporting(false)
@@ -57,7 +82,7 @@ function AbsenceSheet({ meta, students, onBack, close }) {
             </div>
           </div>
           <div>
-            <strong>Fiche d'absence</strong>
+            <strong>{meta.grouped ? 'Fiche d\'absence groupée' : 'Fiche d\'absence'}</strong>
             <span>Année scolaire {ACADEMIC_YEAR}</span>
           </div>
         </header>
@@ -65,7 +90,7 @@ function AbsenceSheet({ meta, students, onBack, close }) {
           <div><small>PROFESSEUR</small><b>{meta.teacher || '—'}</b></div>
           <div><small>MATIÈRE</small><b>{meta.subject || '—'}</b></div>
           <div><small>NIVEAU</small><b>{meta.level || '—'}</b></div>
-          <div><small>GROUPE</small><b>{meta.group || '—'}</b></div>
+          <div><small>{meta.grouped ? 'GROUPES' : 'GROUPE'}</small><b>{meta.group || '—'}</b></div>
         </section>
         <table className="absence-table">
           <thead>
@@ -121,10 +146,18 @@ export default function AbsenceSheetModal({ view = 'form', onShowList, onBackToF
   const [teacherAssignments, setTeacherAssignments] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  // Erreur de génération : affichée sous le formulaire, qui reste modifiable.
+  const [generateError, setGenerateError] = useState('')
   const [teacherId, setTeacherId] = useState('')
   const [subjectId, setSubjectId] = useState('')
   const [levelId, setLevelId] = useState('')
   const [groupId, setGroupId] = useState('')
+  // Liste simple : un groupe. Liste groupée : plusieurs groupes réunis dans une
+  // même séance (ex. SVT de 1re Bac, quelques élèves par groupe), sur une
+  // seule fiche.
+  const [listMode, setListMode] = useState(LIST_SINGLE)
+  const [groupIds, setGroupIds] = useState([])
+  const grouped = listMode === LIST_GROUPED
   const [generating, setGenerating] = useState(false)
   const [sheet, setSheet] = useState(null)
 
@@ -202,17 +235,35 @@ export default function AbsenceSheetModal({ view = 'form', onShowList, onBackToF
     return () => { cancelled = true }
   }, [])
 
-  const matchingGroups = useMemo(
+  // Groupes retenus par le professeur, la matière et le niveau : ce sont ceux
+  // qu'on peut cocher dans une liste groupée.
+  const candidateGroups = useMemo(
     () =>
-      groups.filter(
-        (group) =>
-          (!teacherId || group.teacherIds.includes(teacherId)) &&
-          (!subjectId || group.subjectIds.includes(subjectId)) &&
-          (!levelId || group.levelId === levelId) &&
-          (!groupId || group.id === groupId)
-      ),
-    [groups, teacherId, subjectId, levelId, groupId]
+      groups
+        .filter(
+          (group) =>
+            (!teacherId || group.teacherIds.includes(teacherId)) &&
+            (!subjectId || group.subjectIds.includes(subjectId)) &&
+            (!levelId || group.levelId === levelId)
+        )
+        .sort((a, b) => byNaturalName(a.name, b.name)),
+    [groups, teacherId, subjectId, levelId]
   )
+  // Groupes cochés encore proposés : changer de professeur ou de matière
+  // décoche ceux qui ne correspondent plus.
+  const checkedGroupIds = useMemo(
+    () => groupIds.filter((id) => candidateGroups.some((group) => group.id === id)),
+    [groupIds, candidateGroups]
+  )
+  const checkedGroups = useMemo(
+    () => candidateGroups.filter((group) => checkedGroupIds.includes(group.id)),
+    [candidateGroups, checkedGroupIds]
+  )
+  // Ce qui restreint les autres listes : le groupe choisi, ou les groupes cochés.
+  const matchingGroups = useMemo(() => {
+    if (grouped) return checkedGroups.length > 0 ? checkedGroups : candidateGroups
+    return candidateGroups.filter((group) => !groupId || group.id === groupId)
+  }, [grouped, checkedGroups, candidateGroups, groupId])
   const teacherOptions = useMemo(
     () => teachers.filter((teacher) => matchingGroups.some((group) => group.teacherIds.includes(teacher.id))),
     [teachers, matchingGroups]
@@ -242,56 +293,94 @@ export default function AbsenceSheetModal({ view = 'form', onShowList, onBackToF
   const changeGroup = (value) => {
     setGroupId(value)
   }
+  const toggleGroup = (id) => {
+    setGroupIds((list) => (list.includes(id) ? list.filter((item) => item !== id) : [...checkedGroupIds, id]))
+  }
+  // Passer en liste groupée garde le groupe déjà choisi, coché.
+  const changeListMode = (mode) => {
+    if (mode === LIST_GROUPED && !grouped && groupId && groupIds.length === 0) setGroupIds([groupId])
+    setListMode(mode)
+    setGenerateError('')
+  }
 
   const handleGenerate = async () => {
-    if (!groupId || generating) return
+    if (generating) return
+    if (grouped ? checkedGroups.length === 0 : !groupId) return
     setGenerating(true)
-    setLoadError('')
+    setGenerateError('')
     try {
-      const group = groups.find((g) => g.id === groupId)
+      const chosenGroups = grouped ? checkedGroups : groups.filter((g) => g.id === groupId)
       // Au forfait, le groupe couvre toutes les matières : il n'y en a aucune
       // à choisir, et l'effectif se lit directement sur le groupe.
-      const packageGroup = Boolean(group?.isPackage)
+      const packageOnly = chosenGroups.every((group) => group.isPackage)
 
-      if (!teacherId || !levelId || (!packageGroup && !subjectId)) {
+      if (grouped) {
+        // Le niveau n'est pas exigé : des groupes de niveaux voisins peuvent
+        // être réunis, et la fiche affiche alors leurs niveaux.
+        if (!teacherId || (!packageOnly && !subjectId)) {
+          throw new Error(
+            packageOnly
+              ? 'Choisissez le professeur avant de générer la fiche.'
+              : 'Choisissez le professeur et la matière avant de générer la fiche.'
+          )
+        }
+        if (chosenGroups.length < 2) {
+          throw new Error('Cochez au moins deux groupes pour une liste groupée (sinon, choisissez « Liste simple »).')
+        }
+      } else if (!teacherId || !levelId || (!packageOnly && !subjectId)) {
         throw new Error(
-          packageGroup
+          packageOnly
             ? 'Choisissez le professeur et le niveau avant de générer la fiche.'
             : 'Choisissez le professeur, la matière et le niveau avant de générer la fiche.'
         )
       }
 
-      if (!packageGroup) {
-        const matchingAssignment = teacherAssignments.find(
-          (row) =>
-            String(row.group_id) === String(groupId) &&
-            String(row.teacher_id) === String(teacherId) &&
-            String(row.subject_id) === String(subjectId)
-        )
+      const packageGroupIds = chosenGroups.filter((group) => group.isPackage).map((group) => group.id)
+      const subjectGroups = chosenGroups.filter((group) => !group.isPackage)
 
-        if (!matchingAssignment) {
-          throw new Error('La combinaison professeur / matière / groupe sélectionnée ne correspond à aucune inscription enregistrée.')
-        }
+      // Chaque groupe doit être enseigné par ce professeur dans cette matière.
+      const unassigned = subjectGroups.filter(
+        (group) =>
+          !teacherAssignments.some(
+            (row) =>
+              String(row.group_id) === String(group.id) &&
+              String(row.teacher_id) === String(teacherId) &&
+              String(row.subject_id) === String(subjectId)
+          )
+      )
+      if (unassigned.length > 0) {
+        throw new Error(
+          grouped
+            ? `Ce professeur n'enseigne pas cette matière dans : ${frenchList(unassigned.map((group) => group.name))}. Décochez ${unassigned.length > 1 ? 'ces groupes' : 'ce groupe'} ou vérifiez l'affectation.`
+            : 'La combinaison professeur / matière / groupe sélectionnée ne correspond à aucune inscription enregistrée.'
+        )
       }
 
-      const rosterQuery = packageGroup
-        ? supabase
-            .from('group_students')
-            .select('student_id, students(first_name, last_name, registration_date, created_at, status)')
-            .eq('group_id', groupId)
-        : supabase
+      const studentFields = 'students(first_name, last_name, registration_date, created_at, status)'
+      const queries = []
+      if (packageGroupIds.length > 0) {
+        queries.push(
+          supabase.from('group_students').select(`student_id, ${studentFields}`).in('group_id', packageGroupIds)
+        )
+      }
+      if (subjectGroups.length > 0) {
+        queries.push(
+          supabase
             .from('student_group_subjects')
-            .select('student_id, subject_id, students(first_name, last_name, registration_date, created_at, status)')
-            .eq('group_id', groupId)
+            .select(`student_id, subject_id, ${studentFields}`)
+            .in('group_id', subjectGroups.map((group) => group.id))
             .eq('subject_id', subjectId)
+        )
+      }
+      const results = await Promise.all(queries)
+      const failed = results.find((result) => result.error)
+      if (failed) throw new Error(failed.error.message)
+      const rows = results.flatMap((result) => result.data || [])
 
-      const { data: rows, error } = await rosterQuery
-
-      if (error) throw new Error(error.message)
-
+      // Un élève inscrit dans deux des groupes réunis n'apparaît qu'une fois.
       const seen = new Set()
       const roster = []
-      for (const row of rows || []) {
+      for (const row of rows) {
         if (!row.students || seen.has(row.student_id)) continue
         // Un élève désactivé reste dans le groupe (on ne le désinscrit pas),
         // mais il n'est plus facturé ni convoqué en classe : il n'a donc rien
@@ -308,21 +397,28 @@ export default function AbsenceSheetModal({ view = 'form', onShowList, onBackToF
       }
       roster.sort((a, b) => a.name.localeCompare(b.name))
 
+      const levelNames = [
+        ...new Set(chosenGroups.map((group) => levels.find((l) => l.id === group.levelId)?.name).filter(Boolean)),
+      ].sort(byNaturalName)
+
       setSheet({
         meta: {
+          grouped,
           teacher: teachers.find((t) => t.id === teacherId)?.name || '—',
-          subject: packageGroup
+          subject: packageOnly
             ? 'Toutes les matières'
             : subjects.find((s) => s.id === subjectId)?.name || '—',
-          level: levels.find((l) => l.id === levelId)?.name || '—',
-          group: group?.name || '—',
+          level: grouped
+            ? frenchList(levelNames) || '—'
+            : levels.find((l) => l.id === levelId)?.name || '—',
+          group: grouped ? groupsLabel(chosenGroups.map((group) => group.name)) : chosenGroups[0]?.name || '—',
         },
         students: roster,
       })
       onShowList?.()
     } catch (err) {
       console.error(err)
-      setLoadError(err.message)
+      setGenerateError(err.message)
     } finally {
       setGenerating(false)
     }
@@ -336,20 +432,52 @@ export default function AbsenceSheetModal({ view = 'form', onShowList, onBackToF
 
   const selectedGroup = groups.find((group) => group.id === groupId) || null
   // Un groupe au forfait n'a pas de matière : ne pas l'exiger pour générer.
-  const ready = Boolean(groupId && teacherId && levelId && (selectedGroup?.isPackage || subjectId))
+  const packageOnly = grouped
+    ? checkedGroups.length > 0 && checkedGroups.every((group) => group.isPackage)
+    : Boolean(selectedGroup?.isPackage)
+  const ready = grouped
+    ? Boolean(teacherId && checkedGroups.length >= 2 && (packageOnly || subjectId))
+    : Boolean(groupId && teacherId && levelId && (packageOnly || subjectId))
+  const levelNameOf = (id) => levels.find((level) => level.id === id)?.name || ''
 
   return (
     <div className="student-overlay" onMouseDown={close}>
       <section className="absence-modal" onMouseDown={(event) => event.stopPropagation()}>
         <button className="student-close" onClick={close}><Icon name="close" /></button>
         <h2>Fiche d'absence vierge</h2>
-        <p>Sélectionnez les paramètres pour générer la fiche imprimable.</p>
+        <p>
+          {grouped
+            ? 'Choisissez le professeur et la matière, puis cochez les groupes réunis dans la même séance : leurs élèves seront sur une seule fiche.'
+            : 'Sélectionnez les paramètres pour générer la fiche imprimable.'}
+        </p>
         {loading ? (
           <p className="absence-loading" style={{ marginTop: 20, color: '#647088' }}>Chargement des données…</p>
         ) : loadError ? (
           <p className="absence-error" style={{ marginTop: 20, color: '#c0392b' }}>{loadError}</p>
         ) : (
           <>
+            <div className="absence-list-mode" role="radiogroup" aria-label="Type de liste">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!grouped}
+                className={!grouped ? 'active' : ''}
+                onClick={() => changeListMode(LIST_SINGLE)}
+              >
+                <b>Liste simple</b>
+                <small>Un seul groupe</small>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={grouped}
+                className={grouped ? 'active' : ''}
+                onClick={() => changeListMode(LIST_GROUPED)}
+              >
+                <b>Liste groupée</b>
+                <small>Plusieurs groupes sur une même fiche</small>
+              </button>
+            </div>
             <label>Professeur
               <select value={teacherId} onChange={(event) => changeTeacher(event.target.value)}>
                 <option value="">— Tous —</option>
@@ -360,24 +488,58 @@ export default function AbsenceSheetModal({ view = 'form', onShowList, onBackToF
               <select
                 value={subjectId}
                 onChange={(event) => changeSubject(event.target.value)}
-                disabled={subjectOptions.length === 0 || Boolean(selectedGroup?.isPackage)}
+                disabled={subjectOptions.length === 0 || packageOnly}
               >
-                <option value="">{selectedGroup?.isPackage ? 'Toutes les matières' : '—'}</option>
+                <option value="">{packageOnly ? 'Toutes les matières' : '—'}</option>
                 {subjectOptions.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </label>
-            <label>Niveau
+            <label>{grouped ? 'Niveau (facultatif)' : 'Niveau'}
               <select value={levelId} onChange={(event) => changeLevel(event.target.value)} disabled={levelOptions.length === 0}>
-                <option value="">—</option>
+                <option value="">{grouped ? '— Tous —' : '—'}</option>
                 {levelOptions.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
             </label>
-            <label>Groupe
-              <select value={groupId} onChange={(event) => changeGroup(event.target.value)} disabled={groupOptions.length === 0}>
-                <option value="">—</option>
-                {groupOptions.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </label>
+            {grouped ? (
+              <fieldset className="absence-groups">
+                <legend>
+                  Groupes à réunir
+                  <small>{checkedGroups.length} coché{checkedGroups.length > 1 ? 's' : ''}</small>
+                </legend>
+                {candidateGroups.length === 0 ? (
+                  <p className="absence-groups-empty">Aucun groupe ne correspond au professeur, à la matière et au niveau choisis.</p>
+                ) : (
+                  <div className="absence-groups-list">
+                    {candidateGroups.map((group) => {
+                      const checked = checkedGroupIds.includes(group.id)
+                      return (
+                        <label key={group.id} className={checked ? 'checked' : ''}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleGroup(group.id)} />
+                          <span>
+                            {group.name}
+                            {/* Sans niveau choisi, plusieurs niveaux ont leur « Groupe 1 ». */}
+                            {!levelId && levelNameOf(group.levelId) && <small>{levelNameOf(group.levelId)}</small>}
+                          </span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+                {checkedGroups.length >= 2 && (
+                  <p className="absence-groups-preview">
+                    Fiche : <b>{groupsLabel(checkedGroups.map((group) => group.name))}</b>
+                  </p>
+                )}
+              </fieldset>
+            ) : (
+              <label>Groupe
+                <select value={groupId} onChange={(event) => changeGroup(event.target.value)} disabled={groupOptions.length === 0}>
+                  <option value="">—</option>
+                  {groupOptions.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </label>
+            )}
+            {generateError && <p className="absence-generate-error">{generateError}</p>}
             <footer>
               <button onClick={close}>Annuler</button>
               <button disabled={!ready || generating} onClick={handleGenerate}>
