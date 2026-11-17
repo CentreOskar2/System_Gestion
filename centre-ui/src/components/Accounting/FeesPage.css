@@ -1003,6 +1003,15 @@
   font-size: 0.75rem;
 }
 
+/* Matière retirée à l'élève depuis : elle reste sur les mois d'avant. */
+.payment-ended-subject {
+  display: block;
+  margin-top: 2px;
+  color: #b45309;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .payment-amount-field {
   display: inline-flex;
   align-items: center;

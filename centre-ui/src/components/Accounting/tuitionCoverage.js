@@ -25,7 +25,39 @@ export function localMonthKey(value) {
 // en bloc) se règle d'un seul bloc. Les autres sont "segmentés" : chaque
 // matière choisie se règle à part.
 export function isSegmentedPayment(catalog, student) {
-  return Boolean(catalog) && !isPackageLevel(catalog, student.level) && student.chosen.length > 0
+  return (
+    Boolean(catalog) &&
+    !isPackageLevel(catalog, student.level) &&
+    (student.chosen.length > 0 || (student.endedSubjects || []).length > 0)
+  )
+}
+
+// Matières d'un mois : celles que l'élève suit aujourd'hui (student.chosen),
+// plus celles qu'il a quittées depuis (student.endedSubjects, voir
+// fetchFeesData) :
+//   - sur les mois d'avant leur retrait (et depuis leur début), elles
+//     comptent comme les autres — dues, payées ou non : l'Anglais retiré en
+//     novembre reste sur septembre et octobre ;
+//   - ensuite, seulement si des versements y sont restés (retrait en gardant
+//     les paiements, ou retrait d'avant l'historique) : elles valent alors
+//     ce qui a été payé, rien de plus n'est dû (`paidOnly`).
+// `periods` : la période de retrait qui couvre ce mois, par matière.
+export function monthSubjectsOf(student, monthKey, rows = []) {
+  const names = [...student.chosen]
+  const periods = new Map()
+  for (const ended of student.endedSubjects || []) {
+    if (periods.has(ended.name) || !ended.endedAt) continue
+    const startMonth = ended.startedAt ? localMonthKey(ended.startedAt) : ''
+    if ((!startMonth || startMonth <= monthKey) && monthKey < localMonthKey(ended.endedAt)) periods.set(ended.name, ended)
+  }
+  for (const name of periods.keys()) if (!names.includes(name)) names.push(name)
+  const paidOnly = new Set()
+  for (const ended of student.endedSubjects || []) {
+    if (names.includes(ended.name) || !rows.some((row) => row.subject_id === ended.subject_id)) continue
+    names.push(ended.name)
+    paidOnly.add(ended.name)
+  }
+  return { names, periods, paidOnly }
 }
 
 // Versements d'une matière sur un mois. Une matière peut se régler en
@@ -51,6 +83,8 @@ export function subjectMonthStatus(rows = []) {
 }
 
 // Situation d'un mois, matière par matière :
+//   - subjects : matières de l'élève CE mois-là (monthSubjectsOf) : une
+//               matière retirée depuis y figure encore ;
 //   - due     : matières à régler ce mois-ci. Une matière ajoutée en cours
 //               d'année (startedAt) n'est due qu'à partir de son mois d'ajout ;
 //   - rawPaid : matières soldées par leurs lignes de student_payment_subjects ;
@@ -74,26 +108,38 @@ export function monthCoverageOf({ student, monthKey, payments = [], subjectRows 
   const rows = subjectRows.filter((r) => r.month === monthKey && receivedBy(r.paid_at))
   const block = isBlockPayment(payment, rows) ? payment : null
   const rowSubjectIds = new Set(rows.map((r) => r.subject_id))
-  const subjectIdOf = (name) => student.subjectDetails?.[name]?.subject_id
-  const startedAtOf = (name) => student.subjectDetails?.[name]?.startedAt || null
+  const { names: subjects, periods, paidOnly } = monthSubjectsOf(student, monthKey, rows)
+  const subjectIdOf = (name) => periods.get(name)?.subject_id || student.subjectDetails?.[name]?.subject_id
+  // Une matière quittée puis reprise : sur les mois de sa première période,
+  // c'est le début de cette période qui compte.
+  const startedAtOf = (name) =>
+    (periods.has(name) ? periods.get(name).startedAt : student.subjectDetails?.[name]?.startedAt) || null
+  // Matière quittée : un paiement en bloc ne la couvre que s'il a été reçu
+  // avant son retrait.
+  const endedAtOf = (name) => (student.chosen.includes(name) ? null : periods.get(name)?.endedAt || null)
   const bySubject = Object.fromEntries(
-    student.chosen.map((name) => [name, subjectMonthStatus(rows.filter((r) => r.subject_id === subjectIdOf(name)))])
+    subjects.map((name) => {
+      const status = subjectMonthStatus(rows.filter((r) => r.subject_id === subjectIdOf(name)))
+      return [name, paidOnly.has(name) ? { ...status, dueAmount: status.paidAmount, remaining: 0, settled: true, partial: false } : status]
+    })
   )
-  const rawPaid = student.chosen.filter((name) => bySubject[name].settled)
-  const partial = student.chosen.filter((name) => bySubject[name].partial)
+  const rawPaid = subjects.filter((name) => bySubject[name].settled)
+  const partial = subjects.filter((name) => bySubject[name].partial)
   const blockCovered = block
-    ? student.chosen.filter((name) => {
+    ? subjects.filter((name) => {
         if (rowSubjectIds.has(subjectIdOf(name))) return false
         const startedAt = startedAtOf(name)
+        const endedAt = endedAtOf(name)
+        if (endedAt && block.paid_at && new Date(block.paid_at) >= new Date(endedAt)) return false
         return !startedAt || !block.paid_at || new Date(startedAt) <= new Date(block.paid_at)
       })
     : []
-  const paid = student.chosen.filter((name) => rawPaid.includes(name) || blockCovered.includes(name))
-  const due = student.chosen.filter((name) => {
+  const paid = subjects.filter((name) => rawPaid.includes(name) || blockCovered.includes(name))
+  const due = subjects.filter((name) => {
     const startedAt = startedAtOf(name)
     return !startedAt || localMonthKey(startedAt) <= monthKey || paid.includes(name) || partial.includes(name)
   })
-  return { monthKey, payment, block, rows, rawPaid, partial, blockCovered, paid, due, bySubject }
+  return { monthKey, payment, block, rows, subjects, periods, rawPaid, partial, blockCovered, paid, due, bySubject }
 }
 
 // Ce que chaque matière a réellement reçu d'un paiement en bloc : le montant
@@ -143,7 +189,7 @@ export function monthBalanceOf({ student, catalog, monthKey, payments = [], subj
         amount: status.partial ? status.remaining : priceFor(catalog, student, name),
         paidAmount: status.paidAmount,
         partial: status.partial,
-        startedAt: student.subjectDetails?.[name]?.startedAt || null,
+        startedAt: coverage.periods?.get(name)?.startedAt ?? student.subjectDetails?.[name]?.startedAt ?? null,
       }
     })
   const settled = coverage.due.length > 0 ? unpaid.length === 0 : Boolean(coverage.payment)

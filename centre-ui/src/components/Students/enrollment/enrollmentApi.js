@@ -352,10 +352,90 @@ function withStartDates(newSubs, existing, startedAt) {
   }))
 }
 
+// Historique des matières retirées (migration 045). Tant que la migration
+// n'est pas appliquée, la table n'existe pas : on enregistre les matières
+// sans historique plutôt que de bloquer la modification.
+const SUBSCRIPTION_ENDS = 'student_subscription_ends'
+// Table absente uniquement (42P01 côté Postgres, PGRST205 côté PostgREST) :
+// une colonne inconnue ou un refus d'accès restent de vraies erreurs.
+export function isMissingTableError(error) {
+  if (!error) return false
+  return error.code === '42P01' || error.code === 'PGRST205' || /relation .* does not exist/i.test(error.message || '')
+}
+
+// Mois (heure locale) d'un horodatage, 'AAAA-MM'.
+function localMonthOf(value) {
+  const date = value ? new Date(value) : new Date()
+  if (Number.isNaN(date.getTime())) return ''
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+}
+
+const SUBSCRIPTION_HISTORY_FIELDS = 'id, group_id, subject_id, teacher_id, pricing_type, monthly_price, started_at'
+
+// Matières retirées par cet enregistrement : gardées dans l'historique avec
+// leur prix et leur date de début, pour que les mois d'avant le retrait les
+// affichent encore (page Frais de scolarité). `changedAt` : moment du
+// retrait — la matière n'est plus due à partir de ce mois-là.
+//
+// Une matière remise au plus tard le mois de son retrait (retrait par erreur)
+// reprend sa date de début d'origine, et ce retrait est effacé : rien n'a
+// changé pour elle. `newSubs` est complété en place (started_at).
+// Renvoie la fonction qui efface ces retraits, à appeler une fois les
+// matières enregistrées.
+async function recordRemovedSubjects(studentId, existing, newSubs, changedAt) {
+  const keptIds = new Set(newSubs.map((sub) => sub.subject_id))
+  const existingIds = new Set((existing || []).map((row) => row.subject_id))
+  const removed = (existing || []).filter((row) => row.subject_id && !keptIds.has(row.subject_id))
+  const added = newSubs.filter((sub) => sub.subject_id && !existingIds.has(sub.subject_id))
+  const noop = async () => {}
+
+  let undoneIds = []
+  if (added.length > 0) {
+    const { data: ends, error } = await supabase
+      .from(SUBSCRIPTION_ENDS)
+      .select('id, subject_id, started_at, ended_at')
+      .eq('student_id', studentId)
+      .in('subject_id', added.map((sub) => sub.subject_id))
+    if (error && !isMissingTableError(error)) throw new Error(error.message)
+    for (const sub of added) {
+      const startMonth = sub.started_at ? localMonthOf(sub.started_at) : ''
+      const end = (ends || [])
+        .filter((row) => row.subject_id === sub.subject_id && (!startMonth || startMonth <= localMonthOf(row.ended_at)))
+        .sort((a, b) => new Date(b.ended_at) - new Date(a.ended_at))[0]
+      if (!end) continue
+      sub.started_at = end.started_at ?? null
+      undoneIds.push(end.id)
+    }
+  }
+
+  if (removed.length > 0) {
+    const endedAt = changedAt || new Date().toISOString()
+    const { error } = await supabase.from(SUBSCRIPTION_ENDS).insert(
+      removed.map((row) => ({
+        student_id: studentId,
+        subject_id: row.subject_id,
+        started_at: row.started_at ?? null,
+        ended_at: endedAt,
+        pricing_type: row.pricing_type || 'standard',
+        monthly_price: row.monthly_price ?? null,
+        group_id: row.group_id || null,
+        teacher_id: row.teacher_id || null,
+      }))
+    )
+    if (error && !isMissingTableError(error)) throw new Error(error.message)
+  }
+
+  if (undoneIds.length === 0) return noop
+  return async () => {
+    const { error } = await supabase.from(SUBSCRIPTION_ENDS).delete().in('id', undoneIds)
+    if (error && !isMissingTableError(error)) throw new Error(error.message)
+  }
+}
+
 export async function syncSubscriptions(studentId, form, catalog, { startedAt } = {}) {
   const { data: existing, error: fetchError } = await supabase
     .from('student_subscriptions')
-    .select('id, group_id, subject_id, started_at')
+    .select(SUBSCRIPTION_HISTORY_FIELDS)
     .eq('student_id', studentId)
   if (fetchError) throw new Error(fetchError.message)
 
@@ -364,6 +444,9 @@ export async function syncSubscriptions(studentId, form, catalog, { startedAt } 
     existing,
     startedAt
   )
+  // Une matière retirée depuis la modale d'un mois l'est à partir de ce
+  // mois-là, comme une matière ajoutée y commence (startedAt).
+  const clearUndoneEnds = await recordRemovedSubjects(studentId, existing, newSubs, startedAt)
   const newGroupIds = newSubs.map((sub) => sub.group_id).filter(Boolean)
 
   const oldGroupIds = (existing || []).map((row) => row.group_id).filter(Boolean)
@@ -394,6 +477,7 @@ export async function syncSubscriptions(studentId, form, catalog, { startedAt } 
     const { error } = await supabase.from('student_subscriptions').insert(newSubs)
     if (error) throw new Error(error.message)
   }
+  await clearUndoneEnds()
 
   await syncGroupSubjectRows(
     studentId,
@@ -444,9 +528,16 @@ export async function syncGroupSelections(studentId, form, catalog) {
 
   const { data: existingSubs, error: subsError } = await supabase
     .from('student_subscriptions')
-    .select('subject_id, started_at')
+    .select(SUBSCRIPTION_HISTORY_FIELDS)
     .eq('student_id', studentId)
   if (subsError) throw new Error(subsError.message)
+
+  const newSubs = withStartDates(
+    form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) })),
+    existingSubs
+  )
+  // Retrait depuis la fiche de l'élève : à partir de maintenant.
+  const clearUndoneEnds = await recordRemovedSubjects(studentId, existingSubs, newSubs, new Date().toISOString())
 
   const { error: delError } = await supabase
     .from('student_subscriptions')
@@ -454,14 +545,11 @@ export async function syncGroupSelections(studentId, form, catalog) {
     .eq('student_id', studentId)
   if (delError) throw new Error(delError.message)
 
-  const newSubs = withStartDates(
-    form.chosen.map((name) => ({ student_id: studentId, ...subjectDetailsFor(form, catalog, name) })),
-    existingSubs
-  )
   if (newSubs.length > 0) {
     const { error } = await supabase.from('student_subscriptions').insert(newSubs)
     if (error) throw new Error(error.message)
   }
+  await clearUndoneEnds()
 }
 
 async function resolveCycleId(form, catalog) {

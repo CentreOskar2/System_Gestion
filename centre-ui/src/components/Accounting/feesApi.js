@@ -1,6 +1,6 @@
 import { supabase } from '../../supabaseClient'
 import { fetchAllRows } from '../../utils/fetchAllRows'
-import { fetchCatalog, isPackageLevel } from '../Students/enrollment/enrollmentApi'
+import { fetchCatalog, isMissingTableError, isPackageLevel } from '../Students/enrollment/enrollmentApi'
 import { academicYearStart, normalizeMonthKey } from './monthUtils'
 
 export { academicYearStart }
@@ -178,7 +178,7 @@ export async function fetchFeesData(branchId = null) {
   }
 
   // Tables qui dépassent 1000 lignes : lues par pages (voir fetchAllRows).
-  const [studentsRes, subsRes, paymentsRes, paymentSubjectsRes] = await Promise.all([
+  const [studentsRes, subsRes, paymentsRes, paymentSubjectsRes, endsRes] = await Promise.all([
     fetchAllRows(studentsQuery),
     fetchAllRows(() =>
       supabase
@@ -199,9 +199,17 @@ export async function fetchFeesData(branchId = null) {
         .select('id, student_id, subject_id, month, amount, due_amount, paid_at, paid_by')
         .order('id')
     ),
+    // Matières retirées (migration 045). Table absente tant que la migration
+    // n'est pas appliquée : la page fonctionne alors comme avant.
+    fetchAllRows(() =>
+      supabase
+        .from('student_subscription_ends')
+        .select('id, student_id, subject_id, started_at, ended_at, pricing_type, monthly_price, group_id, subjects(name), groups(name)')
+        .order('id')
+    ).then((res) => (res.error && isMissingTableError(res.error) ? { data: [], error: null } : res)),
   ])
 
-  const firstError = [studentsRes, subsRes, paymentsRes, paymentSubjectsRes].find((r) => r.error)
+  const firstError = [studentsRes, subsRes, paymentsRes, paymentSubjectsRes, endsRes].find((r) => r.error)
   if (firstError) throw new Error(firstError.error.message)
 
   const subsByStudent = {}
@@ -209,6 +217,21 @@ export async function fetchFeesData(branchId = null) {
     if (!subsByStudent[sub.student_id]) subsByStudent[sub.student_id] = []
     subsByStudent[sub.student_id].push(sub)
   }
+
+  // Matières retirées, la plus récemment retirée d'abord.
+  const endsByStudent = {}
+  for (const end of [...(endsRes.data || [])].sort((a, b) => new Date(b.ended_at) - new Date(a.ended_at))) {
+    if (!endsByStudent[end.student_id]) endsByStudent[end.student_id] = []
+    endsByStudent[end.student_id].push(end)
+  }
+  // Matières qui ont des versements, par élève : une matière retirée avant
+  // l'historique n'a plus que ses versements pour rappeler qu'elle a été suivie.
+  const paidSubjectIdsByStudent = {}
+  for (const row of paymentSubjectsRes.data || []) {
+    if (!paidSubjectIdsByStudent[row.student_id]) paidSubjectIdsByStudent[row.student_id] = new Set()
+    paidSubjectIdsByStudent[row.student_id].add(row.subject_id)
+  }
+  const subjectNameById = Object.fromEntries((catalog.subjects || []).map((subject) => [subject.id, subject.name]))
 
   const students = (studentsRes.data || []).map((s) => {
     const list = subsByStudent[s.id] || []
@@ -234,6 +257,48 @@ export async function fetchFeesData(branchId = null) {
         startedAt: x.started_at || null,
       }
     }
+    // Matières quittées depuis (voir monthCoverageOf) : elles restent sur les
+    // mois d'avant leur retrait. Leur détail (prix, groupe) complète
+    // subjectDetails pour calculer ces mois-là, sans en faire des matières
+    // actuelles : `chosen` ne contient que celles suivies aujourd'hui.
+    const currentIds = new Set(list.map((x) => x.subject_id))
+    const endedSubjects = []
+    for (const end of endsByStudent[s.id] || []) {
+      const name = end.subjects?.name || subjectNameById[end.subject_id]
+      if (!name) continue
+      const manual = end.pricing_type === 'manual' && end.monthly_price != null
+      endedSubjects.push({
+        name,
+        subject_id: end.subject_id,
+        startedAt: end.started_at || null,
+        endedAt: end.ended_at,
+        priceType: manual ? 'manual' : 'standard',
+        manualPrice: manual ? Number(end.monthly_price) : undefined,
+        group_id: end.group_id || '',
+        group: end.groups?.name || '',
+      })
+    }
+    for (const subjectId of paidSubjectIdsByStudent[s.id] || []) {
+      if (currentIds.has(subjectId) || endedSubjects.some((ended) => ended.subject_id === subjectId)) continue
+      const name = subjectNameById[subjectId]
+      if (!name) continue
+      // endedAt inconnu : la matière ne compte que là où elle a des versements.
+      endedSubjects.push({ name, subject_id: subjectId, startedAt: null, endedAt: null, priceType: 'standard', group_id: '', group: '' })
+    }
+    for (const ended of endedSubjects) {
+      if (subjectDetails[ended.name]) continue
+      subjectDetails[ended.name] = {
+        subject_id: ended.subject_id,
+        teacher: '',
+        group_id: ended.group_id,
+        group: ended.group,
+        priceType: ended.priceType,
+        manualPrice: ended.manualPrice,
+        startedAt: ended.startedAt,
+        endedAt: ended.endedAt,
+      }
+    }
+
     const stored = Number(s.du_mois)
     return {
       id: s.id,
@@ -255,6 +320,7 @@ export async function fetchFeesData(branchId = null) {
       filiere: s.study_branches?.name || '',
       chosen,
       subjectDetails,
+      endedSubjects,
       du_mois: Number.isFinite(stored) && stored > 0 ? stored : derived,
     }
   })
