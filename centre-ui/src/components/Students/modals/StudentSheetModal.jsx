@@ -10,6 +10,7 @@ import StudentSheetPdf from '../../pdf/StudentSheetPdf'
 import { waPhoneNumber } from '../../Accounting/delinquenciesApi'
 import AddGradeModal from './AddGradeModal'
 import { formationRowPrice } from '../../Formations/formationsApi'
+import { eventPlaceLabel, fetchStudentEvents } from '../attendanceApi'
 
 const formatAmount = (value) => `${Number(value || 0).toLocaleString('fr-FR')} DH`
 
@@ -63,6 +64,8 @@ export default function StudentSheetModal({ student, close, catalog = null }) {
   const [grades, setGrades] = useState(null)
   const [gradeModalOpen, setGradeModalOpen] = useState(false)
   const [selectedMonth, setSelectedMonth] = useState('all')
+  // Matière / groupe du suivi ('all' : tous).
+  const [selectedPlace, setSelectedPlace] = useState('all')
   const [events, setEvents] = useState(null)
   const [exporting, setExporting] = useState(false)
 
@@ -123,38 +126,32 @@ export default function StudentSheetModal({ student, close, catalog = null }) {
   useEffect(() => {
     let cancelled = false
     async function loadEvents() {
-      let query = supabase
-        .from('student_events')
-        .select('event_type, detail, event_date')
-        .eq('student_id', student.id)
-        .order('event_date', { ascending: true })
-      if (selectedMonth !== 'all') {
-        query = query.like('event_date', `${selectedMonth.slice(0, 7)}-%`)
-      }
       try {
-        const { data } = await query
-        if (cancelled) return
-        setEvents(data || [])
+        const data = await fetchStudentEvents(student.id, selectedMonth !== 'all' ? selectedMonth.slice(0, 7) : null)
+        if (!cancelled) setEvents(data)
       } catch (err) {
-        if (cancelled) {
-          console.error(err)
-          setEvents([])
-        }
+        console.error(err)
+        if (!cancelled) setEvents([])
       }
     }
     loadEvents()
     return () => { cancelled = true }
   }, [student.id, selectedMonth])
 
+  // Matières / groupes des pointages, pour vérifier une matière à la fois.
+  const eventPlaces = [...new Set((events || []).map(eventPlaceLabel))].sort((a, b) => a.localeCompare(b, 'fr'))
+  const placeFilter = eventPlaces.includes(selectedPlace) ? selectedPlace : 'all'
+  const shownEvents = (events || []).filter((event) => placeFilter === 'all' || eventPlaceLabel(event) === placeFilter)
+
   const eventCounts = Object.fromEntries(EVENT_META.map((meta) => [meta.id, 0]))
-  for (const event of events || []) {
+  for (const event of shownEvents) {
     if (eventCounts[event.event_type] !== undefined) eventCounts[event.event_type] += 1
   }
-  const totalRetardMinutes = (events || []).reduce(
+  const totalRetardMinutes = shownEvents.reduce(
     (sum, event) => (event.event_type === 'retard' ? sum + (Number(event.detail) || 0) : sum),
     0
   )
-  const logEvents = [...(events || [])].sort((a, b) =>
+  const logEvents = [...shownEvents].sort((a, b) =>
     String(a.event_date || '').localeCompare(String(b.event_date || ''))
   )
 
@@ -167,9 +164,10 @@ export default function StudentSheetModal({ student, close, catalog = null }) {
   const totalPaid = cashTotals?.total || 0
 
   const periodLabel =
-    selectedMonth === 'all'
+    (selectedMonth === 'all'
       ? 'Bilan annuel'
-      : MONTHS.find((month) => month.key === selectedMonth)?.label || selectedMonth
+      : MONTHS.find((month) => month.key === selectedMonth)?.label || selectedMonth) +
+    (placeFilter !== 'all' ? ` — ${placeFilter}` : '')
 
   const stopPropagation = (e) => e.stopPropagation()
 
@@ -183,7 +181,7 @@ export default function StudentSheetModal({ student, close, catalog = null }) {
         count: eventCounts[meta.id],
         note: meta.id === 'retard' && totalRetardMinutes > 0 ? `${totalRetardMinutes} min` : undefined,
       }))
-      const pdfLogEvents = logEvents.map((event) => ({ ...event, label: labelOf(event.event_type) }))
+      const pdfLogEvents = logEvents.map((event) => ({ ...event, label: labelOf(event.event_type), place: eventPlaceLabel(event) }))
       // Au forfait, la fiche présente une ligne unique au lieu du détail par matière.
       const pdfSubscriptions = student.isPackage
         ? [{
@@ -302,6 +300,18 @@ export default function StudentSheetModal({ student, close, catalog = null }) {
                     <option key={month.key} value={month.key}>{month.label}</option>
                   ))}
                 </select>
+                {eventPlaces.length > 1 && (
+                  <select
+                    aria-label="Filtrer le suivi par matière"
+                    value={placeFilter}
+                    onChange={(event) => setSelectedPlace(event.target.value)}
+                  >
+                    <option value="all">Toutes les matières</option>
+                    {eventPlaces.map((place) => (
+                      <option key={place} value={place}>{place}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             </header>
             <div className="monthly-stats">
@@ -325,12 +335,13 @@ export default function StudentSheetModal({ student, close, catalog = null }) {
               <div className="sheet-events-log">
                 <table>
                   <thead>
-                    <tr><th>Date</th><th>Événement</th><th>Note / Détail</th></tr>
+                    <tr><th>Date</th><th>Matière / Groupe</th><th>Événement</th><th>Note / Détail</th></tr>
                   </thead>
                   <tbody>
                     {logEvents.map((event, index) => (
                       <tr key={`${event.event_date}-${event.event_type}-${index}`}>
                         <td>{formatDate(event.event_date)}</td>
+                        <td>{eventPlaceLabel(event)}</td>
                         <td>{labelOf(event.event_type)}</td>
                         <td>{event.detail || '—'}</td>
                       </tr>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Icon from '../../Icon'
 import { supabase } from '../../../supabaseClient'
 import { attendanceItems } from '../data/mockStudents'
+import { saveAttendanceEvents } from '../attendanceApi'
 import { reserveWhatsAppWindow, whatsappLink } from '../../Accounting/delinquenciesApi'
 import { today } from '../utils/studentHelpers'
 
@@ -65,7 +66,14 @@ export default function AttendanceModal({ student, close }) {
           const label = `${subjectName} — ${groupName}`
           const optionId = `${groupId}::${subjectId}`
           if (!subjectGroups.has(optionId)) {
-            subjectGroups.set(optionId, { id: optionId, groupId: String(groupId), label, subjectName, groupName })
+            subjectGroups.set(optionId, {
+              id: optionId,
+              groupId: String(groupId),
+              subjectId: String(subjectId),
+              label,
+              subjectName,
+              groupName,
+            })
           }
         }
 
@@ -85,6 +93,7 @@ export default function AttendanceModal({ student, close }) {
               subjectGroups.set(optionId, {
                 id: optionId,
                 groupId: String(row.group_id),
+                subjectId: null,
                 label: groupName,
                 subjectName: '',
                 groupName,
@@ -93,10 +102,13 @@ export default function AttendanceModal({ student, close }) {
           }
         }
 
-        const nextOptions = [...subjectGroups.values()]
+        const nextOptions = [...subjectGroups.values()].sort((a, b) => a.label.localeCompare(b.label, 'fr'))
         if (!active) return
         setGroupOptions(nextOptions)
-        setSelectedGroupId((previous) => previous || nextOptions[0]?.id || '')
+        // Choisie d'office seulement s'il n'y en a qu'une : avec plusieurs
+        // matières, la première de la liste recevait le pointage sans qu'on
+        // l'ait choisie.
+        setSelectedGroupId((previous) => previous || (nextOptions.length === 1 ? nextOptions[0].id : ''))
       } catch (err) {
         console.error(err)
         if (active) {
@@ -136,19 +148,17 @@ export default function AttendanceModal({ student, close }) {
     })
   }
 
+  // Le texte est gardé tel que tapé : le nettoyer à chaque frappe effaçait
+  // l'espace qu'on venait de taper, et empêchait d'écrire plus d'un mot. Il
+  // n'est nettoyé qu'à l'enregistrement (detailOf).
   const setDetail = (id, value) => {
-    setDetails((map) => {
-      const next = { ...map }
-      const clean = String(value ?? '').trim()
-      if (!clean) delete next[id]
-      else next[id] = clean
-      return next
-    })
+    setDetails((map) => ({ ...map, [id]: String(value ?? '') }))
   }
+  const detailOf = (id) => String(details[id] ?? '').trim()
 
   const lineOf = (id) => {
     const text = ARABIC_LABELS[id] || id
-    const detail = details[id]
+    const detail = detailOf(id)
     if (id === 'retard' && detail) return `تأخير: ${detail} دقائق`
     if (id === 'retard') return 'تأخير'
     if (detail) return `${text} (${detail})`
@@ -174,16 +184,6 @@ export default function AttendanceModal({ student, close }) {
       return
     }
 
-    const rows = selected.map((id) => ({
-      student_id: student.id,
-      // groups.id est un uuid : le convertir en nombre donnerait NaN.
-      group_id: selectedGroup.groupId,
-      event_date: date,
-      event_type: id,
-      detail: id === 'retard' ? details[id] || null : details[id] || null,
-      created_at: new Date().toISOString(),
-    }))
-
     const message = buildWhatsAppMessage(student, date, selectedGroupLabel, selected.map(lineOf))
     const link = whatsappLink(student.phone, message)
     // Avant l'enregistrement : ouverte après, la fenêtre est bloquée (voir reserveWhatsAppWindow).
@@ -191,10 +191,15 @@ export default function AttendanceModal({ student, close }) {
 
     setSaving(true)
     try {
-      const { error: insertError } = await supabase
-        .from('student_events')
-        .upsert(rows, { onConflict: 'student_id,event_date,event_type,group_id' })
-      if (insertError) throw new Error(insertError.message)
+      // Le groupe ET la matière choisis : un même groupe porte souvent
+      // plusieurs matières (ex. Maths et PC), qui ont chacune leur pointage.
+      await saveAttendanceEvents({
+        studentId: student.id,
+        groupId: selectedGroup.groupId,
+        subjectId: selectedGroup.subjectId,
+        date,
+        events: selected.map((id) => ({ type: id, detail: detailOf(id) })),
+      })
       if (whatsapp?.blocked) {
         setError("Pointage enregistré, mais le navigateur a bloqué WhatsApp : autorisez les fenêtres pop-up pour ce site.")
         return

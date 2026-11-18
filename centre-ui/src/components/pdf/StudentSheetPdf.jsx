@@ -123,9 +123,10 @@ const styles = StyleSheet.create({
   colGradeExam: { width: '18%' },
   colGradeSession: { width: '18%' },
   colGradeDate: { width: '18%', textAlign: 'right' },
-  colLogDate: { width: '18%' },
-  colLogEvent: { width: '32%' },
-  colLogDetail: { width: '50%' },
+  colLogDate: { width: '15%' },
+  colLogPlace: { width: '27%' },
+  colLogEvent: { width: '22%' },
+  colLogDetail: { width: '36%' },
   footer: {
     marginTop: 16,
     paddingTop: 10,
@@ -292,12 +293,14 @@ export default function StudentSheetPdf({ data }) {
             <>
               <View style={pdfStyles.tableHeadRow}>
                 <Text style={styles.colLogDate}>Date</Text>
+                <Text style={styles.colLogPlace}>Matière / Groupe</Text>
                 <Text style={styles.colLogEvent}>Événement</Text>
                 <Text style={styles.colLogDetail}>Note / Détail</Text>
               </View>
               {logEvents.map((event, index) => (
                 <View style={pdfStyles.tableRow} key={`${event.event_date}-${event.event_type}-${index}`}>
                   <Text style={styles.colLogDate}>{formatDate(event.event_date)}</Text>
+                  <Text style={styles.colLogPlace}>{event.place || '—'}</Text>
                   <Text style={styles.colLogEvent}>{event.label}</Text>
                   <Text style={styles.colLogDetail}>{event.detail || '—'}</Text>
                 </View>
